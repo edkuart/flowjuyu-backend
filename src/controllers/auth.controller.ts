@@ -1,70 +1,73 @@
-// src/controllers/auth.controller.ts
+import { Request, Response } from "express";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import { User } from "../models/user.model";
+import { VendedorPerfil } from "../models/VendedorPerfil";
 
-import { Request, Response, NextFunction } from "express"
-import bcrypt from "bcrypt"
-import { User } from "../models/user.model"
-import { VendedorPerfil } from "../models/VendedorPerfil"
+const generateToken = (payload: object) => {
+  return jwt.sign(payload, process.env.JWT_SECRET || "cortes_secret", {
+    expiresIn: "1d",
+  });
+};
 
-// ─────────────────────────────────────────────
-// Registro general (usado por compradores)
-// ─────────────────────────────────────────────
-export const register = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+// ==========================
+// Registro general (comprador)
+// ==========================
+export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { nombre, correo, contraseña, rol } = req.body
+    const { nombre, correo, contraseña, rol, telefono, direccion } = req.body;
 
-    const usuarioExistente = await User.findOne({ where: { correo } })
-    if (usuarioExistente) {
-      res.status(409).json({ message: "El correo ya está registrado" })
-      return
+    if (!nombre || !correo || !contraseña || !rol) {
+      res.status(400).json({ message: "Faltan campos obligatorios" });
+      return;
     }
 
-    const hash = await bcrypt.hash(contraseña, 10)
+    const usuarioExistente = await User.findOne({ where: { correo } });
+    if (usuarioExistente) {
+      res.status(409).json({ message: "El correo ya está registrado" });
+      return;
+    }
+
+    const hash = await bcrypt.hash(contraseña, 10);
+
     const nuevoUsuario = await User.create({
       nombre,
       correo,
       contraseña: hash,
       rol,
-    })
+      telefono: telefono?.trim() || null,
+      direccion: direccion?.trim() || null,
+    });
 
-    if (rol === "vendedor") {
-      await VendedorPerfil.create({
-        id: nuevoUsuario.id,
-        nombre: nuevoUsuario.nombre,
-        email: nuevoUsuario.correo,
-        telefono: "",
-        direccion: "",
-        imagen_url: null,
-      })
-    }
-
-    req.session.user = {
+    const token = generateToken({
       id: nuevoUsuario.id,
-      nombre: nuevoUsuario.nombre,
       correo: nuevoUsuario.correo,
       rol: nuevoUsuario.rol,
-    }
+    });
 
     res.status(201).json({
       message: "Usuario registrado correctamente",
-      user: req.session.user,
-    })
+      token,
+      user: {
+        id: nuevoUsuario.id,
+        nombre: nuevoUsuario.nombre,
+        correo: nuevoUsuario.correo,
+        rol: nuevoUsuario.rol,
+        telefono: nuevoUsuario.telefono,
+        direccion: nuevoUsuario.direccion,
+      },
+    });
   } catch (error) {
-    console.error("Error en register:", error)
-    res.status(500).json({ message: "Error al registrar" })
+    console.error("Error en register:", error);
+    res.status(500).json({ message: "Error al registrar" });
   }
-}
+};
 
-// ─────────────────────────────────────────────
+// ==========================
 // Registro exclusivo para vendedores
-// con imágenes y datos de comercio
-// ─────────────────────────────────────────────
+// ==========================
 export const registerVendedor = async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!req.body) {
-      res.status(400).json({ message: "Cuerpo de solicitud vacío" })
-      return
-    }
-
     const {
       nombre,
       correo,
@@ -77,128 +80,151 @@ export const registerVendedor = async (req: Request, res: Response): Promise<voi
       municipio,
       descripcion,
       dpi,
-    } = req.body
+    } = req.body;
 
     if (!nombre || !correo || !contraseña) {
-      res.status(400).json({ message: "Faltan campos obligatorios" })
-      return
+      res.status(400).json({ message: "Faltan campos obligatorios" });
+      return;
     }
 
-    const usuarioExistente = await User.findOne({ where: { correo } })
+    const usuarioExistente = await User.findOne({ where: { correo } });
     if (usuarioExistente) {
-      res.status(409).json({ message: "El correo ya está registrado" })
-      return
+      res.status(409).json({ message: "El correo ya está registrado" });
+      return;
     }
 
-    const hash = await bcrypt.hash(contraseña, 10)
+    const hash = await bcrypt.hash(contraseña, 10);
+
     const nuevoUsuario = await User.create({
       nombre,
       correo,
       contraseña: hash,
       rol: "vendedor",
-    })
+      telefono: telefono?.trim() || null,
+      direccion: direccion?.trim() || null,
+    });
 
-    const files = req.files as {
-      [key: string]: Express.Multer.File[] | undefined
-    }
-
-    const logo = files["logo"]?.[0]
-    const fotoFrente = files["fotoDPIFrente"]?.[0]
-    const fotoReverso = files["fotoDPIReverso"]?.[0]
-    const selfie = files["selfieConDPI"]?.[0]
+    const files = req.files as { [key: string]: Express.Multer.File[] | undefined };
 
     await VendedorPerfil.create({
       id: nuevoUsuario.id,
       nombre: nombreComercio || nombre,
       email: correo,
-      telefono: telefonoComercio || telefono || "",
-      direccion: direccion || "",
-      imagen_url: logo ? `/uploads/vendedores/${logo.filename}` : null,
+      telefono: telefonoComercio?.trim() || telefono?.trim() || "",
+      direccion: direccion?.trim() || "",
+      imagen_url: files["logo"] ? `/uploads/vendedores/${files["logo"][0].filename}` : null,
       nombre_comercio: nombreComercio,
       telefono_comercio: telefonoComercio,
       departamento,
       municipio,
       descripcion,
       dpi,
-      foto_dpi_frente: fotoFrente ? `/uploads/vendedores/${fotoFrente.filename}` : null,
-      foto_dpi_reverso: fotoReverso ? `/uploads/vendedores/${fotoReverso.filename}` : null,
-      selfie_con_dpi: selfie ? `/uploads/vendedores/${selfie.filename}` : null,
-    })
+      foto_dpi_frente: files["fotoDPIFrente"]
+        ? `/uploads/vendedores/${files["fotoDPIFrente"][0].filename}`
+        : null,
+      foto_dpi_reverso: files["fotoDPIReverso"]
+        ? `/uploads/vendedores/${files["fotoDPIReverso"][0].filename}`
+        : null,
+      selfie_con_dpi: files["selfieConDPI"]
+        ? `/uploads/vendedores/${files["selfieConDPI"][0].filename}`
+        : null,
+    });
 
-    req.session.user = {
+    const token = generateToken({
       id: nuevoUsuario.id,
-      nombre: nuevoUsuario.nombre,
       correo: nuevoUsuario.correo,
-      rol: "vendedor",
-    }
+      rol: nuevoUsuario.rol,
+    });
 
     res.status(201).json({
       message: "Vendedor registrado correctamente",
-      user: req.session.user,
-    })
+      token,
+      user: {
+        id: nuevoUsuario.id,
+        nombre: nuevoUsuario.nombre,
+        correo: nuevoUsuario.correo,
+        rol: nuevoUsuario.rol,
+        telefono: nuevoUsuario.telefono,
+        direccion: nuevoUsuario.direccion,
+      },
+    });
   } catch (error) {
-    console.error("Error en registerVendedor:", error)
-    res.status(500).json({ message: "Error al registrar vendedor" })
+    console.error("Error en registerVendedor:", error);
+    res.status(500).json({ message: "Error al registrar vendedor" });
   }
-}
+};
 
-// ─────────────────────────────────────────────
-// Login
-// ─────────────────────────────────────────────
+// ==========================
+// Login con JWT
+// ==========================
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { correo, contraseña } = req.body
+    const { correo, contraseña } = req.body;
 
-    const usuario = await User.findOne({ where: { correo } })
+    if (!correo || !contraseña) {
+      res.status(400).json({ message: "Correo y contraseña son obligatorios" });
+      return;
+    }
+
+    const usuario = await User.findOne({ where: { correo } });
     if (!usuario) {
-      res.status(401).json({ message: "Correo o contraseña incorrectos" })
-      return
+      res.status(401).json({ message: "Correo o contraseña incorrectos" });
+      return;
     }
 
-    const contraseñaValida = await bcrypt.compare(contraseña, usuario.contraseña)
+    const contraseñaValida = await bcrypt.compare(contraseña, usuario.contraseña);
     if (!contraseñaValida) {
-      res.status(401).json({ message: "Correo o contraseña incorrectos" })
-      return
+      res.status(401).json({ message: "Correo o contraseña incorrectos" });
+      return;
     }
 
-    req.session.user = {
+    const token = generateToken({
       id: usuario.id,
-      nombre: usuario.nombre,
       correo: usuario.correo,
       rol: usuario.rol,
-    }
+    });
 
     res.status(200).json({
       message: "Inicio de sesión exitoso",
-      user: req.session.user,
-    })
+      token,
+      user: {
+        id: usuario.id,
+        nombre: usuario.nombre,
+        correo: usuario.correo,
+        rol: usuario.rol,
+        telefono: usuario.telefono,
+        direccion: usuario.direccion,
+      },
+    });
   } catch (error) {
-    console.error("Error en login:", error)
-    res.status(500).json({ message: "Error interno del servidor" })
+    console.error("Error en login:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
   }
-}
+};
 
-// ─────────────────────────────────────────────
-// Logout
-// ─────────────────────────────────────────────
+// ==========================
+// Logout seguro
+// ==========================
 export const logout = (req: Request, res: Response): void => {
-  req.session.destroy((err) => {
-    if (err) {
-      res.status(500).json({ message: "Error al cerrar sesión" })
-      return
-    }
-    res.clearCookie("connect.sid")
-    res.status(200).json({ message: "Sesión cerrada correctamente" })
-  })
-}
-
-// ─────────────────────────────────────────────
-// Obtener sesión
-// ─────────────────────────────────────────────
-export const getSession = (req: Request, res: Response): void => {
-  if (req.session.user) {
-    res.status(200).json({ user: req.session.user })
+  // Si usas sesiones, destruye la sesión:
+  if (req.session) {
+    req.session.destroy((err) => {
+      if (err) {
+        res.status(500).json({ message: "Error al cerrar sesión" });
+      } else {
+        res.clearCookie("connect.sid");
+        res.json({ ok: true, message: "Sesión cerrada en el backend" });
+      }
+    });
   } else {
-    res.status(401).json({ message: "No autenticado" })
+    // Si solo usas JWT, basta con que el frontend elimine el token
+    res.json({ ok: true, message: "Logout exitoso. El token debe eliminarse en el cliente." });
   }
-}
+};
+
+// ==========================
+// Validar token (pendiente middleware)
+// ==========================
+export const getSession = (_req: Request, res: Response): void => {
+  res.status(501).json({ message: "Implementar verificación de token en middleware." });
+};
