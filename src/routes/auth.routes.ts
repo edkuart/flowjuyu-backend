@@ -1,19 +1,18 @@
-// src/routes/auth.routes.ts
-
-import { Router } from "express"
+import { Router } from "express";
 import {
   register,
   login,
   logout,
   getSession,
   registerVendedor,
-} from "../controllers/auth.controller"
-import { upload } from "../middleware/multerConfig" 
+  loginWithGoogle, // ⬅️ Importa tu controlador Google aquí
+} from "../controllers/auth.controller";
+import { upload } from "../middleware/multerConfig";
 
-const router = Router()
+const router = Router();
 
 // ───── Rutas de autenticación ─────
-router.post("/register", register)
+router.post("/register", register);
 
 // Registro de vendedor con imagen (logo)
 router.post(
@@ -25,10 +24,14 @@ router.post(
     { name: "selfieConDPI", maxCount: 1 },
   ]),
   registerVendedor
-)
+);
 
-router.post("/login", login)
-router.post("/logout", logout)
-router.get("/session", getSession)
+router.post("/login", login);
 
-export default router
+// ⬇️ RUTA PARA LOGIN CON GOOGLE
+router.post("/login/google", loginWithGoogle);
+
+router.post("/logout", logout);
+router.get("/session", getSession);
+
+export default router;

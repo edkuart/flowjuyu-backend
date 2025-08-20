@@ -1,0 +1,58 @@
+import { Request, Response } from "express";
+import { User } from "../models/user.model";
+import jwt from "jsonwebtoken";
+
+// Ya definido arriba en tu archivo:
+const generateToken = (payload: object) => {
+  return jwt.sign(payload, process.env.JWT_SECRET || "cortes_secret", {
+    expiresIn: "1d",
+  });
+};
+
+export const loginWithGoogle = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, nombre } = req.body;
+    if (!email) {
+      res.status(400).json({ ok: false, message: "El email es obligatorio." });
+      return;
+    }
+
+    // Busca usuario por correo
+    let usuario = await User.findOne({ where: { correo: email } });
+
+    // Si no existe, crea el usuario como comprador (puedes ajustar el rol)
+    if (!usuario) {
+      usuario = await User.create({
+        nombre: nombre || "Usuario Google",
+        correo: email,
+        contraseña: "", // No hay contraseña si es Google
+        rol: "comprador",
+        telefono: "",
+        direccion: "",
+      });
+    }
+
+    // Genera token
+    const token = generateToken({
+      id: usuario.id,
+      correo: usuario.correo,
+      rol: usuario.rol,
+    });
+
+    res.status(200).json({
+      ok: true,
+      token,
+      user: {
+        id: usuario.id,
+        nombre: usuario.nombre,
+        correo: usuario.correo,
+        rol: usuario.rol,
+        telefono: usuario.telefono,
+        direccion: usuario.direccion,
+      },
+    });
+  } catch (error) {
+    console.error("Error en loginWithGoogle:", error);
+    res.status(500).json({ ok: false, message: "Error en login con Google." });
+  }
+};

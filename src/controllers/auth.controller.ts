@@ -35,8 +35,8 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       correo,
       contraseña: hash,
       rol,
-      telefono: telefono?.trim() || null,
-      direccion: direccion?.trim() || null,
+      telefono: telefono?.trim() || "",
+      direccion: direccion?.trim() || "",
     });
 
     const token = generateToken({
@@ -68,49 +68,53 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 // ==========================
 export const registerVendedor = async (req: Request, res: Response): Promise<void> => {
   try {
+    // Recibe los nombres como llegan del frontend
     const {
       nombre,
-      correo,
-      contraseña,
-      telefono,
-      direccion,
+      email,                // <--- frontend manda 'email'
+      telefono,             // teléfono personal
+      password,             // <--- frontend manda 'password'
       nombreComercio,
       telefonoComercio,
+      direccion,
       departamento,
       municipio,
       descripcion,
       dpi,
     } = req.body;
 
-    if (!nombre || !correo || !contraseña) {
+    if (!nombre || !email || !password || !dpi || !nombreComercio) {
       res.status(400).json({ message: "Faltan campos obligatorios" });
       return;
     }
 
-    const usuarioExistente = await User.findOne({ where: { correo } });
+    // Verificar usuario existente (User)
+    const usuarioExistente = await User.findOne({ where: { correo: email } });
     if (usuarioExistente) {
       res.status(409).json({ message: "El correo ya está registrado" });
       return;
     }
 
-    const hash = await bcrypt.hash(contraseña, 10);
-
+    // Crear usuario (User)
+    const hash = await bcrypt.hash(password, 10);
     const nuevoUsuario = await User.create({
       nombre,
-      correo,
+      correo: email,
       contraseña: hash,
       rol: "vendedor",
-      telefono: telefono?.trim() || null,
-      direccion: direccion?.trim() || null,
+      telefono: telefono?.trim() || "",
+      direccion: direccion?.trim() || "",
     });
 
+    // Archivos
     const files = req.files as { [key: string]: Express.Multer.File[] | undefined };
 
+    // Crear perfil vendedor (VendedorPerfil)
     await VendedorPerfil.create({
       id: nuevoUsuario.id,
-      nombre: nombreComercio || nombre,
-      email: correo,
-      telefono: telefonoComercio?.trim() || telefono?.trim() || "",
+      nombre,
+      email,
+      telefono: telefono?.trim() || "",
       direccion: direccion?.trim() || "",
       imagen_url: files["logo"] ? `/uploads/vendedores/${files["logo"][0].filename}` : null,
       nombre_comercio: nombreComercio,
@@ -119,15 +123,9 @@ export const registerVendedor = async (req: Request, res: Response): Promise<voi
       municipio,
       descripcion,
       dpi,
-      foto_dpi_frente: files["fotoDPIFrente"]
-        ? `/uploads/vendedores/${files["fotoDPIFrente"][0].filename}`
-        : null,
-      foto_dpi_reverso: files["fotoDPIReverso"]
-        ? `/uploads/vendedores/${files["fotoDPIReverso"][0].filename}`
-        : null,
-      selfie_con_dpi: files["selfieConDPI"]
-        ? `/uploads/vendedores/${files["selfieConDPI"][0].filename}`
-        : null,
+      foto_dpi_frente: files["fotoDPIFrente"] ? `/uploads/vendedores/${files["fotoDPIFrente"][0].filename}` : null,
+      foto_dpi_reverso: files["fotoDPIReverso"] ? `/uploads/vendedores/${files["fotoDPIReverso"][0].filename}` : null,
+      selfie_con_dpi: files["selfieConDPI"] ? `/uploads/vendedores/${files["selfieConDPI"][0].filename}` : null,
     });
 
     const token = generateToken({
@@ -203,10 +201,60 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 };
 
 // ==========================
+// Login con Google (Firebase Auth)
+// ==========================
+export const loginWithGoogle = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, nombre } = req.body;
+    if (!email) {
+      res.status(400).json({ ok: false, message: "El email es obligatorio." });
+      return;
+    }
+
+    // 1. Buscar usuario existente por email
+    let usuario = await User.findOne({ where: { correo: email } });
+
+    // 2. Si NO existe, crearlo como comprador
+    if (!usuario) {
+      usuario = await User.create({
+        nombre: nombre || "Usuario Google",
+        correo: email,
+        contraseña: "", // Google, sin contraseña
+        rol: "comprador",
+        telefono: "",
+        direccion: "",
+      });
+    }
+
+    // 3. Generar token
+    const token = generateToken({
+      id: usuario.id,
+      correo: usuario.correo,
+      rol: usuario.rol,
+    });
+
+    res.status(200).json({
+      ok: true,
+      token,
+      user: {
+        id: usuario.id,
+        nombre: usuario.nombre,
+        correo: usuario.correo,
+        rol: usuario.rol,
+        telefono: usuario.telefono,
+        direccion: usuario.direccion,
+      },
+    });
+  } catch (error) {
+    console.error("Error en loginWithGoogle:", error);
+    res.status(500).json({ ok: false, message: "Error en login con Google." });
+  }
+};
+
+// ==========================
 // Logout seguro
 // ==========================
 export const logout = (req: Request, res: Response): void => {
-  // Si usas sesiones, destruye la sesión:
   if (req.session) {
     req.session.destroy((err) => {
       if (err) {
@@ -217,7 +265,6 @@ export const logout = (req: Request, res: Response): void => {
       }
     });
   } else {
-    // Si solo usas JWT, basta con que el frontend elimine el token
     res.json({ ok: true, message: "Logout exitoso. El token debe eliminarse en el cliente." });
   }
 };

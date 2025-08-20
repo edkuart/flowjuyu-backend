@@ -1,29 +1,31 @@
-import express from "express"
-import cors from "cors"
-import helmet from "helmet"
-import session from "express-session"
-import pgSession from "connect-pg-simple"
-import { sequelize } from "./config/db"
-import authRoutes from "./routes/auth.routes"
-import vendedorRoutes from "./routes/vendedor" 
-import dotenv from "dotenv"
-import { Pool } from "pg"
-import { errorHandler } from "./middleware/errorHandler"
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import session from "express-session";
+import pgSession from "connect-pg-simple";
+import dotenv from "dotenv";
+import { Pool } from "pg";
 
-dotenv.config()
+import { sequelize } from "./config/db";
+import { errorHandler } from "./middleware/errorHandler";
 
-const app = express()
-const PORT = process.env.PORT || 8800
+// 🔹 Rutas
+import authRoutes from "./routes/auth.routes"; // públicas
+import vendedorRoutes from "./routes/buyer.routes"; // vendedor protegido
+import compradorRoutes from "./routes/seller.routes"; // comprador protegido
 
-const PgSession = pgSession(session)
+dotenv.config();
 
-app.use(cors({ origin: "http://localhost:3000", credentials: true }))
-app.use(helmet())
-app.use(express.json())
-app.use("/vendedor", vendedorRoutes)
+const app = express();
+const PORT = process.env.PORT || 8800;
+const PgSession = pgSession(session);
 
+// 🔹 Middlewares globales
+app.use(cors({ origin: "http://localhost:3000", credentials: true }));
+app.use(helmet());
+app.use(express.json());
 
-// Sesiones con pg
+// 🔹 Configuración de sesiones
 app.use(
   session({
     store: new PgSession({
@@ -46,21 +48,25 @@ app.use(
       sameSite: "lax",
     },
   })
-)
+);
 
-app.use("/api", authRoutes)
-app.use("/api/vendedor", vendedorRoutes) // ✅ integrar aquí
+// 🔹 Rutas
+app.use("/api", authRoutes); // públicas: login, registro, logout, etc.
+app.use("/api/vendedor", vendedorRoutes); // rutas protegidas por rol vendedor
+app.use("/api/comprador", compradorRoutes); // rutas protegidas por rol comprador
 
+// 🔹 Conexión a DB y arranque del servidor
 sequelize
   .authenticate()
   .then(() => {
-    console.log(" Conectado a la base de datos")
+    console.log("✅ Conectado a la base de datos");
     app.listen(PORT, () => {
-      console.log(` Servidor corriendo en http://localhost:${PORT}`)
-    })
+      console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
+    });
   })
   .catch((err) => {
-    console.error(" Error de conexión a la base de datos:", err)
-  })
+    console.error("❌ Error de conexión a la base de datos:", err);
+  });
 
-app.use(errorHandler)
+// 🔹 Middleware global de errores
+app.use(errorHandler);
