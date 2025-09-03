@@ -75,15 +75,13 @@ export const createProduct = async (req: Request, res: Response) => {
   const u: any = (req as any).user
   const b = req.body as any
 
-  // Validaciones mínimas
-  if (!b.nombre || !b.descripcion || !b.precio || !b.stock || !b.clase_id) {
+  if (!b.nombre || !b.descripcion || !b.precio || !b.stock) {
     res.status(400).json({ message: "Campos obligatorios faltantes" })
     return
   }
 
   const precio = Number(b.precio)
   const stock = Number(b.stock)
-
   if (!Number.isFinite(precio) || precio <= 0) {
     res.status(400).json({ message: "Precio inválido" })
     return
@@ -98,97 +96,62 @@ export const createProduct = async (req: Request, res: Response) => {
   const primera = urls[0] ?? null
 
   try {
-    await sequelize.transaction(async (t) => {
-      // Insertar producto
-      const [inserted]: any = await sequelize.query(
-        `insert into productos (
-          vendedor_id, nombre, descripcion, precio, stock,
-          categoria_id, clase_id, tela_id, region_id,
-          imagen_url, activo, created_at, updated_at
-        ) values (
-          :vendedor_id, :nombre, :descripcion, :precio, :stock,
-          :categoria_id, :clase_id, :tela_id, :region_id,
-          :imagen_url, :activo, now(), now()
-        ) returning id`,
-        {
-          replacements: {
-            vendedor_id: u?.id ?? null,
-            nombre: b.nombre,
-            descripcion: b.descripcion,
-            precio,
-            stock,
-            categoria_id: b.categoria_id ? Number(b.categoria_id) : null,
-            clase_id: Number(b.clase_id),
-            tela_id: b.tela_id ? Number(b.tela_id) : null,
-            region_id: b.region_id ? Number(b.region_id) : null,
-            imagen_url: primera,
-            activo: b.activo === "true" || b.activo === true,
-          },
-          transaction: t,
-        }
-      )
-
-      const productId = inserted[0].id as string
-
-      // Guardar inputs informativos si vienen
-      const teleInserts: Array<Promise<any>> = []
-      if (b.categoria_input) {
-        teleInserts.push(
-          sequelize.query(
-            `insert into taxonomia_inputs (product_id, user_id, tipo, valor)
-             values (:pid, :uid, 'categoria', :val)`,
-            {
-              replacements: {
-                pid: productId,
-                uid: u?.id ?? null,
-                val: b.categoria_input,
-              },
-              transaction: t,
-            }
-          )
-        )
+    const [inserted]: any = await sequelize.query(
+      `insert into productos (
+        vendedor_id, nombre, descripcion, precio, stock,
+        categoria_id, clase_id, tela_id, region_id,
+        imagen_url, activo, created_at, updated_at
+      ) values (
+        :vendedor_id, :nombre, :descripcion, :precio, :stock,
+        :categoria_id, :clase_id, :tela_id, :region_id,
+        :imagen_url, :activo, now(), now()
+      ) returning id`,
+      {
+        replacements: {
+          vendedor_id: u?.id ?? null,
+          nombre: b.nombre,
+          descripcion: b.descripcion,
+          precio,
+          stock,
+          categoria_id: b.categoria_id ? Number(b.categoria_id) : null,
+          clase_id: b.clase_id ? Number(b.clase_id) : null,
+          tela_id: b.tela_id ? Number(b.tela_id) : null,
+          region_id: b.region_id ? Number(b.region_id) : null,
+          imagen_url: primera,
+          activo: b.activo === "true" || b.activo === true,
+        },
       }
-      if (b.region_input) {
-        teleInserts.push(
-          sequelize.query(
-            `insert into taxonomia_inputs (product_id, user_id, tipo, valor)
-             values (:pid, :uid, 'region', :val)`,
-            {
-              replacements: {
-                pid: productId,
-                uid: u?.id ?? null,
-                val: b.region_input,
-              },
-              transaction: t,
-            }
-          )
-        )
-      }
-      if (b.tela_input) {
-        teleInserts.push(
-          sequelize.query(
-            `insert into taxonomia_inputs (product_id, user_id, tipo, valor)
-             values (:pid, :uid, 'tela', :val)`,
-            {
-              replacements: {
-                pid: productId,
-                uid: u?.id ?? null,
-                val: b.tela_input,
-              },
-              transaction: t,
-            }
-          )
-        )
-      }
+    )
 
-      await Promise.all(teleInserts)
-
-      res.status(201).json({ id: productId, imagenes: urls })
-    })
+    res.status(201).json({ id: inserted[0].id, imagenes: urls })
   } catch (e) {
     console.error("Error en createProduct:", e)
-    res
-      .status(500)
-      .json({ message: "Error al crear producto", error: String(e) })
+    res.status(500).json({ message: "Error al crear producto", error: String(e) })
+  }
+}
+
+// ===========================
+// Listar productos del vendedor
+// ===========================
+export const getSellerProducts = async (req: Request, res: Response) => {
+  try {
+    const u: any = (req as any).user
+    if (!u?.id) {
+      res.status(401).json({ message: "No autenticado" })
+      return
+    }
+
+    const [rows] = await sequelize.query(
+      `select id, nombre, precio, stock, activo, imagen_url
+       from productos
+       where vendedor_id = :vid
+       order by created_at desc`,
+      { replacements: { vid: u.id } }
+    )
+
+    res.json(rows)
+  } catch (e) {
+    console.error("Error en getSellerProducts:", e)
+    res.status(500).json({ message: "Error al obtener productos", error: String(e) })
   }
 }
