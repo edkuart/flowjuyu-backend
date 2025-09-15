@@ -34,36 +34,74 @@ export const uploadProductImages = multer({
 // ===========================
 // GETs auxiliares
 // ===========================
-export const getCategorias = async (_req: Request, res: Response) => {
-  const [rows] = await sequelize.query(
-    `select id, nombre from categorias order by nombre asc`
-  )
+export const getCategorias = async (_req: Request, res: Response): Promise<void> => {
+  const [rows] = await sequelize.query(`SELECT id, nombre FROM categorias ORDER BY nombre ASC`)
   res.json(rows)
 }
 
-export const getClases = async (_req: Request, res: Response) => {
-  const [rows] = await sequelize.query(
-    `select id, nombre, alias from clases order by nombre asc`
-  )
+export const getClases = async (_req: Request, res: Response): Promise<void> => {
+  const [rows] = await sequelize.query(`SELECT id, nombre, alias FROM clases ORDER BY nombre ASC`)
   res.json(rows)
 }
 
-export const getRegiones = async (_req: Request, res: Response) => {
-  const [rows] = await sequelize.query(
-    `select id, nombre from regiones order by nombre asc`
-  )
+export const getRegiones = async (_req: Request, res: Response): Promise<void> => {
+  const [rows] = await sequelize.query(`SELECT id, nombre FROM regiones ORDER BY nombre ASC`)
   res.json(rows)
 }
 
-export const getTelas = async (req: Request, res: Response) => {
+export const getTelas = async (req: Request, res: Response): Promise<void> => {
   const claseId = Number(req.query.clase_id)
   if (!claseId) {
     res.status(400).json({ message: "clase_id requerido" })
     return
   }
   const [rows] = await sequelize.query(
-    `select id, nombre from telas where clase_id = :claseId order by nombre asc`,
+    `SELECT id, nombre FROM telas WHERE clase_id = :claseId ORDER BY nombre ASC`,
     { replacements: { claseId } }
+  )
+  res.json(rows)
+}
+
+// 📦 Accesorios filtrados por categoria_tipo
+export const getAccesorios = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const tipo = (req.query.tipo as string) || "normal"
+    const [rows] = await sequelize.query(
+      `SELECT id, nombre, categoria_tipo
+       FROM accesorios
+       WHERE categoria_tipo = :tipo
+       ORDER BY nombre ASC`,
+      { replacements: { tipo } }
+    )
+    res.json(rows)
+  } catch (e) {
+    console.error("Error en getAccesorios:", e)
+    res.status(500).json({ message: "Error al obtener accesorios", error: String(e) })
+  }
+}
+
+export const getAccesorioTipos = async (req: Request, res: Response): Promise<void> => {
+  const accesorioId = Number(req.query.accesorio_id)
+  if (!accesorioId) {
+    res.status(400).json({ message: "accesorio_id requerido" })
+    return
+  }
+  const [rows] = await sequelize.query(
+    `SELECT id, nombre FROM accesorio_tipos WHERE accesorio_id = :accesorioId ORDER BY nombre ASC`,
+    { replacements: { accesorioId } }
+  )
+  res.json(rows)
+}
+
+export const getAccesorioMateriales = async (req: Request, res: Response): Promise<void> => {
+  const accesorioId = Number(req.query.accesorio_id)
+  if (!accesorioId) {
+    res.status(400).json({ message: "accesorio_id requerido" })
+    return
+  }
+  const [rows] = await sequelize.query(
+    `SELECT id, nombre FROM accesorio_materiales WHERE accesorio_id = :accesorioId ORDER BY nombre ASC`,
+    { replacements: { accesorioId } }
   )
   res.json(rows)
 }
@@ -71,7 +109,7 @@ export const getTelas = async (req: Request, res: Response) => {
 // ===========================
 // Crear producto
 // ===========================
-export const createProduct = async (req: Request, res: Response) => {
+export const createProduct = async (req: Request, res: Response): Promise<void> => {
   const u: any = (req as any).user
   const b = req.body as any
 
@@ -97,15 +135,21 @@ export const createProduct = async (req: Request, res: Response) => {
 
   try {
     const [inserted]: any = await sequelize.query(
-      `insert into productos (
+      `INSERT INTO productos (
         vendedor_id, nombre, descripcion, precio, stock,
         categoria_id, clase_id, tela_id, region_id,
+        accesorio_id, accesorio_custom,
+        accesorio_tipo_id, accesorio_tipo_custom,
+        accesorio_material_id, accesorio_material_custom,
         imagen_url, activo, created_at, updated_at
-      ) values (
+      ) VALUES (
         :vendedor_id, :nombre, :descripcion, :precio, :stock,
         :categoria_id, :clase_id, :tela_id, :region_id,
+        :accesorio_id, :accesorio_custom,
+        :accesorio_tipo_id, :accesorio_tipo_custom,
+        :accesorio_material_id, :accesorio_material_custom,
         :imagen_url, :activo, now(), now()
-      ) returning id`,
+      ) RETURNING id`,
       {
         replacements: {
           vendedor_id: u?.id ?? null,
@@ -117,6 +161,12 @@ export const createProduct = async (req: Request, res: Response) => {
           clase_id: b.clase_id ? Number(b.clase_id) : null,
           tela_id: b.tela_id ? Number(b.tela_id) : null,
           region_id: b.region_id ? Number(b.region_id) : null,
+          accesorio_id: b.accesorio_id ? Number(b.accesorio_id) : null,
+          accesorio_custom: b.accesorio_custom || null,
+          accesorio_tipo_id: b.accesorio_tipo_id ? Number(b.accesorio_tipo_id) : null,
+          accesorio_tipo_custom: b.accesorio_tipo_custom || null,
+          accesorio_material_id: b.accesorio_material_id ? Number(b.accesorio_material_id) : null,
+          accesorio_material_custom: b.accesorio_material_custom || null,
           imagen_url: primera,
           activo: b.activo === "true" || b.activo === true,
         },
@@ -133,7 +183,7 @@ export const createProduct = async (req: Request, res: Response) => {
 // ===========================
 // Listar productos del vendedor
 // ===========================
-export const getSellerProducts = async (req: Request, res: Response) => {
+export const getSellerProducts = async (req: Request, res: Response): Promise<void> => {
   try {
     const u: any = (req as any).user
     if (!u?.id) {
@@ -142,10 +192,10 @@ export const getSellerProducts = async (req: Request, res: Response) => {
     }
 
     const [rows] = await sequelize.query(
-      `select id, nombre, precio, stock, activo, imagen_url
-       from productos
-       where vendedor_id = :vid
-       order by created_at desc`,
+      `SELECT id, nombre, precio, stock, activo, imagen_url
+       FROM productos
+       WHERE vendedor_id = :vid
+       ORDER BY created_at DESC`,
       { replacements: { vid: u.id } }
     )
 
@@ -153,5 +203,145 @@ export const getSellerProducts = async (req: Request, res: Response) => {
   } catch (e) {
     console.error("Error en getSellerProducts:", e)
     res.status(500).json({ message: "Error al obtener productos", error: String(e) })
+  }
+}
+
+// ===========================
+// Obtener producto por ID
+// ===========================
+export const getProductById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const u: any = (req as any).user
+    const { id } = req.params
+
+    const [rows]: any = await sequelize.query(
+      `SELECT id, nombre, precio, stock, activo, descripcion,
+              imagen_url, categoria_id, clase_id, tela_id, region_id,
+              accesorio_id, accesorio_custom,
+              accesorio_tipo_id, accesorio_tipo_custom,
+              accesorio_material_id, accesorio_material_custom
+       FROM productos
+       WHERE id = :id AND vendedor_id = :vid`,
+      { replacements: { id, vid: u.id } }
+    )
+
+    if (!rows || rows.length === 0) {
+      res.status(404).json({ message: "Producto no encontrado" })
+      return
+    }
+
+    res.json(rows[0])
+  } catch (e) {
+    console.error("Error en getProductById:", e)
+    res.status(500).json({ message: "Error al obtener producto", error: String(e) })
+  }
+}
+
+// ===========================
+// Actualizar producto
+// ===========================
+export const updateProduct = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const u: any = (req as any).user
+    const { id } = req.params
+    const b = req.body as any
+
+    const [rows]: any = await sequelize.query(
+      `SELECT id FROM productos WHERE id = :id AND vendedor_id = :vid`,
+      { replacements: { id, vid: u.id } }
+    )
+    if (!rows || rows.length === 0) {
+      res.status(404).json({ message: "Producto no encontrado" })
+      return
+    }
+
+    // ✅ Solo actualizar los campos básicos
+    await sequelize.query(
+      `UPDATE productos
+       SET nombre = :nombre,
+           descripcion = :descripcion,
+           precio = :precio,
+           stock = :stock,
+           activo = :activo,
+           updated_at = now()
+       WHERE id = :id AND vendedor_id = :vid`,
+      {
+        replacements: {
+          id,
+          vid: u.id,
+          nombre: b.nombre,
+          descripcion: b.descripcion || null,
+          precio: Number(b.precio),
+          stock: Number(b.stock),
+          activo: b.activo === "true" || b.activo === true,
+        },
+      }
+    )
+
+    res.json({ message: "Producto actualizado correctamente" })
+  } catch (e) {
+    console.error("Error en updateProduct:", e)
+    res.status(500).json({ message: "Error al actualizar producto", error: String(e) })
+  }
+}
+
+// ===========================
+// Eliminar producto
+// ===========================
+export const deleteProduct = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const u: any = (req as any).user
+    const { id } = req.params
+
+    const [rows]: any = await sequelize.query(
+      `SELECT id FROM productos WHERE id = :id AND vendedor_id = :vid`,
+      { replacements: { id, vid: u.id } }
+    )
+    if (!rows || rows.length === 0) {
+      res.status(404).json({ message: "Producto no encontrado" })
+      return
+    }
+
+    await sequelize.query(
+      `DELETE FROM productos WHERE id = :id AND vendedor_id = :vid`,
+      { replacements: { id, vid: u.id } }
+    )
+
+    res.json({ message: "Producto eliminado" })
+  } catch (e) {
+    console.error("Error en deleteProduct:", e)
+    res.status(500).json({ message: "Error al eliminar producto", error: String(e) })
+  }
+}
+
+// ===========================
+// Activar / Desactivar producto
+// ===========================
+export const toggleProductActive = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const u: any = (req as any).user
+    const { id } = req.params
+    const { activo } = req.body
+
+    const [rows]: any = await sequelize.query(
+      `SELECT id FROM productos WHERE id = :id AND vendedor_id = :vid`,
+      { replacements: { id, vid: u.id } }
+    )
+    if (!rows || rows.length === 0) {
+      res.status(404).json({ message: "Producto no encontrado" })
+      return
+    }
+
+    await sequelize.query(
+      `UPDATE productos
+       SET activo = :activo, updated_at = now()
+       WHERE id = :id AND vendedor_id = :vid`,
+      { replacements: { id, vid: u.id, activo: Boolean(activo) } }
+    )
+
+    res.json({ message: "Estado actualizado", activo })
+  } catch (e) {
+    console.error("Error en toggleProductActive:", e)
+    res.status(500).json({ message: "Error al cambiar estado", error: String(e) })
   }
 }

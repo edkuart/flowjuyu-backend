@@ -5,20 +5,36 @@ import {
   getClases,
   getRegiones,
   getTelas,
+  getAccesorios,
+  getAccesorioTipos,
+  getAccesorioMateriales,
   createProduct,
   uploadProductImages,
   getSellerProducts,
+  getProductById,
+  updateProduct,
+  deleteProduct,
+  toggleProductActive,
 } from "../controllers/product.controller"
 
 const router = Router()
 
-// 📦 Catálogos
+// ===========================
+// 📦 Catálogos (públicos)
+// ===========================
 router.get("/categorias", getCategorias)
 router.get("/clases", getClases)
 router.get("/regiones", getRegiones)
 router.get("/telas", getTelas)
 
-// ➕ Crear producto
+// 🔹 Nuevos: accesorios y dependencias
+router.get("/accesorios", getAccesorios)
+router.get("/accesorio-tipos", getAccesorioTipos)          // ?accesorio_id=1
+router.get("/accesorio-materiales", getAccesorioMateriales) // ?accesorio_id=1
+
+// ===========================
+// Productos (requiere vendedor autenticado)
+// ===========================
 router.post(
   "/productos",
   requireAuth("seller"),
@@ -26,11 +42,14 @@ router.post(
   createProduct
 )
 
-// 📋 Listar productos del vendedor autenticado
-router.get(
-  "/seller/productos",
-  requireAuth("seller"),
-  getSellerProducts
-)
+router.get("/seller/productos", requireAuth("seller"), getSellerProducts)
+
+router.get("/productos/:id", requireAuth("seller"), getProductById)
+
+router.put("/productos/:id", requireAuth("seller"), updateProduct)
+
+router.delete("/productos/:id", requireAuth("seller"), deleteProduct)
+
+router.patch("/productos/:id/activo", requireAuth("seller"), toggleProductActive)
 
 export default router
