@@ -1,5 +1,6 @@
 import { Router } from "express"
 import { requireAuth } from "../middleware/authJwt"
+import { uploadProductImages } from "../middleware/multerProducts"
 import {
   getCategorias,
   getClases,
@@ -9,7 +10,6 @@ import {
   getAccesorioTipos,
   getAccesorioMateriales,
   createProduct,
-  uploadProductImages,
   getSellerProducts,
   getProductById,
   updateProduct,
@@ -29,7 +29,7 @@ router.get("/telas", getTelas)
 
 // 🔹 Nuevos: accesorios y dependencias
 router.get("/accesorios", getAccesorios)
-router.get("/accesorio-tipos", getAccesorioTipos)          // ?accesorio_id=1
+router.get("/accesorio-tipos", getAccesorioTipos)           // ?accesorio_id=1
 router.get("/accesorio-materiales", getAccesorioMateriales) // ?accesorio_id=1
 
 // ===========================
@@ -38,18 +38,14 @@ router.get("/accesorio-materiales", getAccesorioMateriales) // ?accesorio_id=1
 router.post(
   "/productos",
   requireAuth("seller"),
-  uploadProductImages.array("imagenes[]", 9),
+  uploadProductImages.array("imagenes[]", 9), // middleware de multer (Supabase)
   createProduct
 )
 
 router.get("/seller/productos", requireAuth("seller"), getSellerProducts)
-
 router.get("/productos/:id", requireAuth("seller"), getProductById)
-
 router.put("/productos/:id", requireAuth("seller"), updateProduct)
-
 router.delete("/productos/:id", requireAuth("seller"), deleteProduct)
-
 router.patch("/productos/:id/activo", requireAuth("seller"), toggleProductActive)
 
 export default router

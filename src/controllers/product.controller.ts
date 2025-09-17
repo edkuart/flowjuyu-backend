@@ -1,29 +1,16 @@
-import { Request, Response } from "express"
+import { RequestHandler } from "express"
 import { sequelize } from "../config/db"
 import multer from "multer"
-import path from "path"
-import fs from "fs"
-
-const UPLOAD_DIR = path.join(process.cwd(), "uploads", "products")
-fs.mkdirSync(UPLOAD_DIR, { recursive: true })
+import supabase from "../lib/supabase"
 
 // ===========================
-// Configuración de Multer
+// Configuración de Multer (en memoria)
 // ===========================
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) =>
-    cb(
-      null,
-      `${Date.now()}-${Math.round(Math.random() * 1e9)}${path
-        .extname(file.originalname)
-        .toLowerCase()}`
-    ),
-})
+const storage = multer.memoryStorage()
 const fileFilter: multer.Options["fileFilter"] = (_req, file, cb) =>
   /^image\/(png|jpe?g|webp|gif|avif)$/.test(file.mimetype)
     ? cb(null, true)
-    : cb(new Error("Solo imágenes"))
+    : cb(new Error("Solo imágenes permitidas"))
 
 export const uploadProductImages = multer({
   storage,
@@ -34,22 +21,22 @@ export const uploadProductImages = multer({
 // ===========================
 // GETs auxiliares
 // ===========================
-export const getCategorias = async (_req: Request, res: Response): Promise<void> => {
+export const getCategorias: RequestHandler = async (_req, res) => {
   const [rows] = await sequelize.query(`SELECT id, nombre FROM categorias ORDER BY nombre ASC`)
   res.json(rows)
 }
 
-export const getClases = async (_req: Request, res: Response): Promise<void> => {
+export const getClases: RequestHandler = async (_req, res) => {
   const [rows] = await sequelize.query(`SELECT id, nombre, alias FROM clases ORDER BY nombre ASC`)
   res.json(rows)
 }
 
-export const getRegiones = async (_req: Request, res: Response): Promise<void> => {
+export const getRegiones: RequestHandler = async (_req, res) => {
   const [rows] = await sequelize.query(`SELECT id, nombre FROM regiones ORDER BY nombre ASC`)
   res.json(rows)
 }
 
-export const getTelas = async (req: Request, res: Response): Promise<void> => {
+export const getTelas: RequestHandler = async (req, res) => {
   const claseId = Number(req.query.clase_id)
   if (!claseId) {
     res.status(400).json({ message: "clase_id requerido" })
@@ -62,8 +49,7 @@ export const getTelas = async (req: Request, res: Response): Promise<void> => {
   res.json(rows)
 }
 
-// 📦 Accesorios filtrados por categoria_tipo
-export const getAccesorios = async (req: Request, res: Response): Promise<void> => {
+export const getAccesorios: RequestHandler = async (req, res) => {
   try {
     const tipo = (req.query.tipo as string) || "normal"
     const [rows] = await sequelize.query(
@@ -80,7 +66,7 @@ export const getAccesorios = async (req: Request, res: Response): Promise<void> 
   }
 }
 
-export const getAccesorioTipos = async (req: Request, res: Response): Promise<void> => {
+export const getAccesorioTipos: RequestHandler = async (req, res) => {
   const accesorioId = Number(req.query.accesorio_id)
   if (!accesorioId) {
     res.status(400).json({ message: "accesorio_id requerido" })
@@ -93,7 +79,7 @@ export const getAccesorioTipos = async (req: Request, res: Response): Promise<vo
   res.json(rows)
 }
 
-export const getAccesorioMateriales = async (req: Request, res: Response): Promise<void> => {
+export const getAccesorioMateriales: RequestHandler = async (req, res) => {
   const accesorioId = Number(req.query.accesorio_id)
   if (!accesorioId) {
     res.status(400).json({ message: "accesorio_id requerido" })
@@ -107,33 +93,46 @@ export const getAccesorioMateriales = async (req: Request, res: Response): Promi
 }
 
 // ===========================
-// Crear producto
+// Crear producto (con Supabase Storage)
 // ===========================
-export const createProduct = async (req: Request, res: Response): Promise<void> => {
-  const u: any = (req as any).user
-  const b = req.body as any
-
-  if (!b.nombre || !b.descripcion || !b.precio || !b.stock) {
-    res.status(400).json({ message: "Campos obligatorios faltantes" })
-    return
-  }
-
-  const precio = Number(b.precio)
-  const stock = Number(b.stock)
-  if (!Number.isFinite(precio) || precio <= 0) {
-    res.status(400).json({ message: "Precio inválido" })
-    return
-  }
-  if (!Number.isInteger(stock) || stock < 0) {
-    res.status(400).json({ message: "Stock inválido" })
-    return
-  }
-
-  const files = (req.files as Express.Multer.File[]) || []
-  const urls = files.map((f) => `/uploads/products/${f.filename}`)
-  const primera = urls[0] ?? null
-
+export const createProduct: RequestHandler = async (req, res) => {
   try {
+    const u: any = (req as any).user
+    const b = req.body as any
+
+    if (!b.nombre || !b.descripcion || !b.precio || !b.stock) {
+      res.status(400).json({ message: "Campos obligatorios faltantes" })
+      return
+    }
+
+    const precio = Number(b.precio)
+    const stock = Number(b.stock)
+    if (!Number.isFinite(precio) || precio <= 0) {
+      res.status(400).json({ message: "Precio inválido" })
+      return
+    }
+    if (!Number.isInteger(stock) || stock < 0) {
+      res.status(400).json({ message: "Stock inválido" })
+      return
+    }
+
+    // 📤 Subir imágenes a Supabase
+    const files = (req.files as Express.Multer.File[]) || []
+    const urls: string[] = []
+
+    for (const f of files) {
+      const filename = `products/${Date.now()}-${Math.round(Math.random() * 1e9)}-${f.originalname}`
+      const { error } = await supabase.storage
+        .from("productos")
+        .upload(filename, f.buffer, { contentType: f.mimetype })
+      if (error) throw error
+
+      const { data } = supabase.storage.from("productos").getPublicUrl(filename)
+      urls.push(data.publicUrl)
+    }
+
+    const primera = urls[0] ?? null
+
     const [inserted]: any = await sequelize.query(
       `INSERT INTO productos (
         vendedor_id, nombre, descripcion, precio, stock,
@@ -183,7 +182,7 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
 // ===========================
 // Listar productos del vendedor
 // ===========================
-export const getSellerProducts = async (req: Request, res: Response): Promise<void> => {
+export const getSellerProducts: RequestHandler = async (req, res) => {
   try {
     const u: any = (req as any).user
     if (!u?.id) {
@@ -198,7 +197,6 @@ export const getSellerProducts = async (req: Request, res: Response): Promise<vo
        ORDER BY created_at DESC`,
       { replacements: { vid: u.id } }
     )
-
     res.json(rows)
   } catch (e) {
     console.error("Error en getSellerProducts:", e)
@@ -209,27 +207,18 @@ export const getSellerProducts = async (req: Request, res: Response): Promise<vo
 // ===========================
 // Obtener producto por ID
 // ===========================
-export const getProductById = async (req: Request, res: Response): Promise<void> => {
+export const getProductById: RequestHandler = async (req, res) => {
   try {
     const u: any = (req as any).user
     const { id } = req.params
-
     const [rows]: any = await sequelize.query(
-      `SELECT id, nombre, precio, stock, activo, descripcion,
-              imagen_url, categoria_id, clase_id, tela_id, region_id,
-              accesorio_id, accesorio_custom,
-              accesorio_tipo_id, accesorio_tipo_custom,
-              accesorio_material_id, accesorio_material_custom
-       FROM productos
-       WHERE id = :id AND vendedor_id = :vid`,
+      `SELECT * FROM productos WHERE id = :id AND vendedor_id = :vid`,
       { replacements: { id, vid: u.id } }
     )
-
     if (!rows || rows.length === 0) {
       res.status(404).json({ message: "Producto no encontrado" })
       return
     }
-
     res.json(rows[0])
   } catch (e) {
     console.error("Error en getProductById:", e)
@@ -240,7 +229,7 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
 // ===========================
 // Actualizar producto
 // ===========================
-export const updateProduct = async (req: Request, res: Response): Promise<void> => {
+export const updateProduct: RequestHandler = async (req, res) => {
   try {
     const u: any = (req as any).user
     const { id } = req.params
@@ -255,14 +244,10 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
       return
     }
 
-    // ✅ Solo actualizar los campos básicos
     await sequelize.query(
       `UPDATE productos
-       SET nombre = :nombre,
-           descripcion = :descripcion,
-           precio = :precio,
-           stock = :stock,
-           activo = :activo,
+       SET nombre = :nombre, descripcion = :descripcion,
+           precio = :precio, stock = :stock, activo = :activo,
            updated_at = now()
        WHERE id = :id AND vendedor_id = :vid`,
       {
@@ -277,7 +262,6 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
         },
       }
     )
-
     res.json({ message: "Producto actualizado correctamente" })
   } catch (e) {
     console.error("Error en updateProduct:", e)
@@ -288,7 +272,7 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
 // ===========================
 // Eliminar producto
 // ===========================
-export const deleteProduct = async (req: Request, res: Response): Promise<void> => {
+export const deleteProduct: RequestHandler = async (req, res) => {
   try {
     const u: any = (req as any).user
     const { id } = req.params
@@ -302,11 +286,9 @@ export const deleteProduct = async (req: Request, res: Response): Promise<void> 
       return
     }
 
-    await sequelize.query(
-      `DELETE FROM productos WHERE id = :id AND vendedor_id = :vid`,
-      { replacements: { id, vid: u.id } }
-    )
-
+    await sequelize.query(`DELETE FROM productos WHERE id = :id AND vendedor_id = :vid`, {
+      replacements: { id, vid: u.id },
+    })
     res.json({ message: "Producto eliminado" })
   } catch (e) {
     console.error("Error en deleteProduct:", e)
@@ -317,7 +299,7 @@ export const deleteProduct = async (req: Request, res: Response): Promise<void> 
 // ===========================
 // Activar / Desactivar producto
 // ===========================
-export const toggleProductActive = async (req: Request, res: Response): Promise<void> => {
+export const toggleProductActive: RequestHandler = async (req, res) => {
   try {
     const u: any = (req as any).user
     const { id } = req.params
@@ -333,12 +315,10 @@ export const toggleProductActive = async (req: Request, res: Response): Promise<
     }
 
     await sequelize.query(
-      `UPDATE productos
-       SET activo = :activo, updated_at = now()
+      `UPDATE productos SET activo = :activo, updated_at = now()
        WHERE id = :id AND vendedor_id = :vid`,
       { replacements: { id, vid: u.id, activo: Boolean(activo) } }
     )
-
     res.json({ message: "Estado actualizado", activo })
   } catch (e) {
     console.error("Error en toggleProductActive:", e)
