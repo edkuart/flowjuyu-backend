@@ -155,3 +155,54 @@ export const getSellerProducts = async (req: Request, res: Response) => {
     res.status(500).json({ message: "Error al obtener productos", error: String(e) })
   }
 }
+
+export const getLatestProducts = async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(parseInt(String(req.query.limit || "12"), 10), 50)
+
+    const [rows] = await sequelize.query(
+      `select
+         id,
+         nombre,
+         precio,
+         stock,
+         imagen_url,
+         activo,
+         created_at
+       from productos
+       where activo = true
+       order by created_at desc
+       limit :limit`,
+      { replacements: { limit } }
+    )
+
+    res.json({ ok: true, data: rows })
+  } catch (e) {
+    console.error("Error en getLatestProducts:", e)
+    res.status(500).json({ ok: false, message: "Error obteniendo productos" })
+  }
+}
+
+
+
+export const getAllProducts = async (_req: Request, res: Response) => {
+  try {
+    const [rows] = await sequelize.query(
+      `select
+         id,
+         nombre,
+         precio,
+         stock,
+         imagen_url,
+         activo,
+         created_at
+       from productos
+       order by created_at desc`
+    )
+
+    res.json({ ok: true, data: rows })
+  } catch (e) {
+    console.error("Error en getAllProducts:", e)
+    res.status(500).json({ ok: false, message: "Error obteniendo productos" })
+  }
+}

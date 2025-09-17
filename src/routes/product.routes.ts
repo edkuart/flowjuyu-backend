@@ -8,6 +8,8 @@ import {
   createProduct,
   uploadProductImages,
   getSellerProducts,
+  getLatestProducts, 
+ getAllProducts,
 } from "../controllers/product.controller"
 
 const router = Router()
@@ -33,4 +35,7 @@ router.get(
   getSellerProducts
 )
 
+// Listar los productos más recientes (para el HomePage)
+router.get("/productos/latest", getLatestProducts) 
+router.get("/productos", getAllProducts)
 export default router
