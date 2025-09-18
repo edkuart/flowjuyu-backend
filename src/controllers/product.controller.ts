@@ -122,16 +122,13 @@ export const createProduct: RequestHandler = async (req, res) => {
 
     for (const f of files) {
       const filename = `products/${Date.now()}-${Math.round(Math.random() * 1e9)}-${f.originalname}`
-
       const { error } = await supabase.storage
-        .from("productos") // 👈 bucket correcto
-        .upload(filename, f.buffer, { contentType: f.mimetype, upsert: true })
-
+        .from("productos")
+        .upload(filename, f.buffer, { contentType: f.mimetype })
       if (error) throw error
 
-      // 🚀 Generar manualmente la URL pública
-      const publicUrl = `https://yjoybxvmnfwkuzrthdge.supabase.co/storage/v1/object/public/productos/${filename}`
-      urls.push(publicUrl)
+      const { data } = supabase.storage.from("productos").getPublicUrl(filename)
+      urls.push(data.publicUrl)
     }
 
     const primera = urls[0] ?? null
@@ -181,7 +178,6 @@ export const createProduct: RequestHandler = async (req, res) => {
     res.status(500).json({ message: "Error al crear producto", error: String(e) })
   }
 }
-
 
 // ===========================
 // Listar productos del vendedor
