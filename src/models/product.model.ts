@@ -13,11 +13,13 @@ interface ProductAttributes {
   clase_id: number
   tela_id?: number | null
   region_id?: number | null
+  accesorio_id?: number | null
   imagen_url?: string | null
   activo: boolean
   categoria_custom?: string | null
   region_custom?: string | null
   tela_custom?: string | null
+  accesorio_custom?: string | null
   created_at?: Date
   updated_at?: Date
 }
@@ -32,10 +34,12 @@ type ProductCreation = Optional<
   | "categoria_id"
   | "tela_id"
   | "region_id"
+  | "accesorio_id"
   | "imagen_url"
   | "categoria_custom"
   | "region_custom"
   | "tela_custom"
+  | "accesorio_custom"
   | "created_at"
   | "updated_at"
 >
@@ -52,11 +56,13 @@ class Product extends Model<ProductAttributes, ProductCreation>
   public clase_id!: number
   public tela_id?: number | null
   public region_id?: number | null
+  public accesorio_id?: number | null
   public imagen_url?: string | null
   public activo!: boolean
   public categoria_custom?: string | null
   public region_custom?: string | null
   public tela_custom?: string | null
+  public accesorio_custom?: string | null
   public readonly created_at!: Date
   public readonly updated_at!: Date
 }
@@ -104,6 +110,10 @@ Product.init(
       type: DataTypes.INTEGER,
       allowNull: true,
     },
+    accesorio_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
     imagen_url: {
       type: DataTypes.STRING,
       allowNull: true,
@@ -121,6 +131,10 @@ Product.init(
       allowNull: true,
     },
     tela_custom: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    accesorio_custom: {
       type: DataTypes.STRING,
       allowNull: true,
     },
