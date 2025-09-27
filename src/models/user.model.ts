@@ -6,10 +6,11 @@ interface UserAttributes {
   nombre: string;
   correo: string;
   contraseña: string;
-  telefono?: string;  
-  direccion?: string;  
+  telefono?: string;
+  direccion?: string;
   rol: "comprador" | "vendedor" | "admin";
-
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 interface UserCreationAttributes extends Optional<UserAttributes, "id"> {}
@@ -23,6 +24,8 @@ export class User extends Model<UserAttributes, UserCreationAttributes>
   public rol!: "comprador" | "vendedor" | "admin";
   public telefono?: string;
   public direccion?: string;
+  public readonly createdAt?: Date;
+  public readonly updatedAt?: Date;
 }
 
 User.init(
@@ -41,9 +44,11 @@ User.init(
       allowNull: false,
       unique: true,
     },
+    // Mapeo explícito para la columna con tilde en la BD
     contraseña: {
       type: DataTypes.STRING,
       allowNull: false,
+      field: "contraseña",
     },
     rol: {
       type: DataTypes.STRING,
@@ -58,11 +63,27 @@ User.init(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    // Opcional: si quieres que Sequelize defina tipos también aquí
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      field: "createdAt",
+      defaultValue: DataTypes.NOW,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      field: "updatedAt",
+      defaultValue: DataTypes.NOW,
+    },
   },
   {
     sequelize,
     modelName: "User",
-    tableName: "users", // tu tabla en Supabase
-    timestamps: false,
+    tableName: "users",
+    // La tabla ya tiene createdAt/updatedAt NOT NULL
+    timestamps: true,
+    createdAt: "createdAt",
+    updatedAt: "updatedAt",
   }
 );

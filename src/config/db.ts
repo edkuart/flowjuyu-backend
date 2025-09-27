@@ -1,10 +1,10 @@
 // src/config/db.ts
-import dotenv from "dotenv"
-dotenv.config() 
+import dotenv from "dotenv";
+dotenv.config();
 
-import { Sequelize } from "sequelize"
+import { Sequelize } from "sequelize";
 
-console.log("🔍 DB_PASSWORD:", process.env.DB_PASSWORD, typeof process.env.DB_PASSWORD)
+console.log("🔍 DB_PASSWORD:", process.env.DB_PASSWORD, typeof process.env.DB_PASSWORD);
 
 export const sequelize = new Sequelize(
   process.env.DB_NAME || "",
@@ -15,5 +15,21 @@ export const sequelize = new Sequelize(
     port: Number(process.env.DB_PORT) || 5432,
     dialect: "postgres",
     logging: false,
+    dialectOptions: {
+      ssl: {
+        require: true,
+        rejectUnauthorized: false, // ⚠️ Solo para DEV. En PROD usa CA.
+      },
+    },
   }
-)
+);
+
+export async function assertDbConnection() {
+  try {
+    await sequelize.authenticate();
+    console.log("✅ DB conectada");
+  } catch (err) {
+    console.error("❌ Error conectando a DB:", err);
+    throw err;
+  }
+}

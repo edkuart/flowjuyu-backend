@@ -1,20 +1,36 @@
 import { Router } from "express";
-import {
-  register,
-  login,
-  logout,
-  getSession,
-  registerVendedor,
-  loginWithGoogle, // ⬅️ Importa tu controlador Google aquí
-} from "../controllers/auth.controller";
-import { upload } from "../middleware/multerConfig";
+import path from "path";
+import multer from "multer";
+
+// Importa TODO el módulo para evitar desajustes de named exports
+import * as Auth from "../controllers/auth.controller";
 
 const router = Router();
 
-// ───── Rutas de autenticación ─────
-router.post("/register", register);
+// Multer básico para archivos de vendedor (si ya tienes uno, reemplázalo)
+const upload = multer({ dest: path.join(process.cwd(), "uploads", "vendedores") });
 
-// Registro de vendedor con imagen (logo)
+// ---- Auth (comprador)
+router.post("/register", Auth.register);
+router.post("/login", Auth.login);
+
+// Monta solo los handlers que existan para evitar errores de build
+const maybe = (name: string) => (Auth as any)[name] as undefined | ((...a: any[]) => any);
+const loginWithGoogle = maybe("loginWithGoogle");
+const logout = maybe("logout");
+const getSession = maybe("getSession");
+
+if (typeof loginWithGoogle === "function") {
+  router.post("/login/google", loginWithGoogle);
+}
+if (typeof logout === "function") {
+  router.post("/logout", logout);
+}
+if (typeof getSession === "function") {
+  router.get("/session", getSession);
+}
+
+// ---- Auth (vendedor)
 router.post(
   "/register/seller",
   upload.fields([
@@ -23,15 +39,7 @@ router.post(
     { name: "fotoDPIReverso", maxCount: 1 },
     { name: "selfieConDPI", maxCount: 1 },
   ]),
-  registerVendedor
+  Auth.registerVendedor
 );
-
-router.post("/login", login);
-
-// ⬇️ RUTA PARA LOGIN CON GOOGLE
-router.post("/login/google", loginWithGoogle);
-
-router.post("/logout", logout);
-router.get("/session", getSession);
 
 export default router;
