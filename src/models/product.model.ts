@@ -1,27 +1,27 @@
-import { DataTypes, Model, Optional } from "sequelize"
-import { sequelize } from "../config/db"
+import { DataTypes, Model, Optional } from "sequelize";
+import { sequelize } from "../config/db";
 
 // Atributos del producto
 interface ProductAttributes {
-  id: string
-  vendedor_id: number
-  nombre: string
-  descripcion?: string | null
-  precio: number
-  stock: number
-  categoria_id?: number | null
-  clase_id: number
-  tela_id?: number | null
-  region_id?: number | null
-  accesorio_id?: number | null
-  imagen_url?: string | null
-  activo: boolean
-  categoria_custom?: string | null
-  region_custom?: string | null
-  tela_custom?: string | null
-  accesorio_custom?: string | null
-  created_at?: Date
-  updated_at?: Date
+  id: string;
+  vendedor_id: number;
+  nombre: string;
+  descripcion?: string | null;
+  precio: number;
+  stock: number;
+  categoria_id?: number | null;
+  clase_id: number;
+  tela_id?: number | null;
+  region_id?: number | null;
+  accesorio_id?: number | null;
+  imagen_url?: string | null;
+  activo: boolean;
+  categoria_custom?: string | null;
+  region_custom?: string | null;
+  tela_custom?: string | null;
+  accesorio_custom?: string | null;
+  created_at?: Date;
+  updated_at?: Date;
 }
 
 // Para creación → algunos campos son opcionales
@@ -42,29 +42,31 @@ type ProductCreation = Optional<
   | "accesorio_custom"
   | "created_at"
   | "updated_at"
->
+>;
 
-class Product extends Model<ProductAttributes, ProductCreation>
-  implements ProductAttributes {
-  public id!: string
-  public vendedor_id!: number
-  public nombre!: string
-  public descripcion?: string | null
-  public precio!: number
-  public stock!: number
-  public categoria_id?: number | null
-  public clase_id!: number
-  public tela_id?: number | null
-  public region_id?: number | null
-  public accesorio_id?: number | null
-  public imagen_url?: string | null
-  public activo!: boolean
-  public categoria_custom?: string | null
-  public region_custom?: string | null
-  public tela_custom?: string | null
-  public accesorio_custom?: string | null
-  public readonly created_at!: Date
-  public readonly updated_at!: Date
+class Product
+  extends Model<ProductAttributes, ProductCreation>
+  implements ProductAttributes
+{
+  public id!: string;
+  public vendedor_id!: number;
+  public nombre!: string;
+  public descripcion?: string | null;
+  public precio!: number;
+  public stock!: number;
+  public categoria_id?: number | null;
+  public clase_id!: number;
+  public tela_id?: number | null;
+  public region_id?: number | null;
+  public accesorio_id?: number | null;
+  public imagen_url?: string | null;
+  public activo!: boolean;
+  public categoria_custom?: string | null;
+  public region_custom?: string | null;
+  public tela_custom?: string | null;
+  public accesorio_custom?: string | null;
+  public readonly created_at!: Date;
+  public readonly updated_at!: Date;
 }
 
 Product.init(
@@ -148,7 +150,7 @@ Product.init(
     timestamps: true,
     createdAt: "created_at",
     updatedAt: "updated_at",
-  }
-)
+  },
+);
 
-export default Product
+export default Product;

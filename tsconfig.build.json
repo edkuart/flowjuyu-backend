@@ -2,15 +2,16 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": ".",
     "removeComments": true,
     "sourceMap": false,
     "declaration": true,
     "declarationMap": false,
     "noEmit": false,
     "emitDecoratorMetadata": false,
-    "experimentalDecorators": false
+    "experimentalDecorators": false,
+    "module": "commonjs"
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "migrations/**/*.ts"],
   "exclude": ["node_modules", "tests", "**/*.spec.ts"]
 }

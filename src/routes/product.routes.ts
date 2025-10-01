@@ -1,6 +1,8 @@
-import { Router } from "express"
-import { requireAuth } from "../middleware/authJwt"
-import { uploadProductImages } from "../middleware/multerProducts"
+// src/routes/product.routes.ts
+import { Router } from "express";
+import { requireRole } from "../middleware/auth";
+import { uploadProductImages } from "../middleware/multerProducts";
+
 import {
   getCategorias,
   getClases,
@@ -15,37 +17,41 @@ import {
   updateProduct,
   deleteProduct,
   toggleProductActive,
-} from "../controllers/product.controller"
+} from "../controllers/product.controller";
 
-const router = Router()
+const router: Router = Router(); // 👈 tipo explícito
 
 // ===========================
 // 📦 Catálogos (públicos)
 // ===========================
-router.get("/categorias", getCategorias)
-router.get("/clases", getClases)
-router.get("/regiones", getRegiones)
-router.get("/telas", getTelas)
+router.get("/categorias", getCategorias);
+router.get("/clases", getClases);
+router.get("/regiones", getRegiones);
+router.get("/telas", getTelas);
 
-// 🔹 Nuevos: accesorios y dependencias
-router.get("/accesorios", getAccesorios)
-router.get("/accesorio-tipos", getAccesorioTipos)           // ?accesorio_id=1
-router.get("/accesorio-materiales", getAccesorioMateriales) // ?accesorio_id=1
+// 🔹 Accesorios y dependencias
+router.get("/accesorios", getAccesorios);
+router.get("/accesorio-tipos", getAccesorioTipos);
+router.get("/accesorio-materiales", getAccesorioMateriales);
 
 // ===========================
-// Productos (requiere vendedor autenticado)
+// Productos (requiere rol "seller")
 // ===========================
 router.post(
   "/productos",
-  requireAuth("seller"),
-  uploadProductImages.array("imagenes[]", 9), // middleware de multer (Supabase)
-  createProduct
-)
+  requireRole("seller"),
+  uploadProductImages.array("imagenes[]", 9),
+  createProduct,
+);
 
-router.get("/seller/productos", requireAuth("seller"), getSellerProducts)
-router.get("/productos/:id", requireAuth("seller"), getProductById)
-router.put("/productos/:id", requireAuth("seller"), updateProduct)
-router.delete("/productos/:id", requireAuth("seller"), deleteProduct)
-router.patch("/productos/:id/activo", requireAuth("seller"), toggleProductActive)
+router.get("/seller/productos", requireRole("seller"), getSellerProducts);
+router.get("/productos/:id", requireRole("seller"), getProductById);
+router.put("/productos/:id", requireRole("seller"), updateProduct);
+router.delete("/productos/:id", requireRole("seller"), deleteProduct);
+router.patch(
+  "/productos/:id/activo",
+  requireRole("seller"),
+  toggleProductActive,
+);
 
-export default router
+export default router;

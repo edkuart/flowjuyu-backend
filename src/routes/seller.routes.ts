@@ -1,5 +1,6 @@
+// src/routes/seller.routes.ts
 import { Router } from "express";
-import { verifyToken } from "../middleware/auth";
+import { requireRole } from "../middleware/auth";
 import {
   getSellerDashboard,
   getSellerProducts,
@@ -9,13 +10,16 @@ import {
   validateSellerBusiness,
 } from "../controllers/seller.controller";
 
-const router = Router();
+const router: Router = Router(); // 👈 tipo explícito
 
-router.get("/dashboard", verifyToken(["seller"]), getSellerDashboard);
-router.get("/products", verifyToken(["seller"]), getSellerProducts);
-router.get("/orders", verifyToken(["seller"]), getSellerOrders);
-router.get("/profile", verifyToken(["seller"]), getSellerProfile);
-router.post("/profile", verifyToken(["seller"]), updateSellerProfile);
-router.post("/profile/business", verifyToken(["seller"]), validateSellerBusiness);
+// ===========================
+// Rutas de Seller (autenticado con rol seller)
+// ===========================
+router.get("/dashboard", requireRole("seller"), getSellerDashboard);
+router.get("/products", requireRole("seller"), getSellerProducts);
+router.get("/orders", requireRole("seller"), getSellerOrders);
+router.get("/profile", requireRole("seller"), getSellerProfile);
+router.post("/profile", requireRole("seller"), updateSellerProfile);
+router.post("/profile/business", requireRole("seller"), validateSellerBusiness);
 
 export default router;

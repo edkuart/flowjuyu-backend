@@ -1,0 +1,17 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+// src/routes/seller.routes.ts
+const express_1 = require("express");
+const auth_1 = require("../middleware/auth");
+const seller_controller_1 = require("../controllers/seller.controller");
+const router = (0, express_1.Router)();
+// ===========================
+// Rutas de Seller (autenticado con rol seller)
+// ===========================
+router.get("/dashboard", (0, auth_1.requireRole)("seller"), seller_controller_1.getSellerDashboard);
+router.get("/products", (0, auth_1.requireRole)("seller"), seller_controller_1.getSellerProducts);
+router.get("/orders", (0, auth_1.requireRole)("seller"), seller_controller_1.getSellerOrders);
+router.get("/profile", (0, auth_1.requireRole)("seller"), seller_controller_1.getSellerProfile);
+router.post("/profile", (0, auth_1.requireRole)("seller"), seller_controller_1.updateSellerProfile);
+router.post("/profile/business", (0, auth_1.requireRole)("seller"), seller_controller_1.validateSellerBusiness);
+exports.default = router;

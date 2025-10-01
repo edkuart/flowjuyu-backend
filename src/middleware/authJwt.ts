@@ -15,15 +15,23 @@ function normalizeRole(raw?: string): "seller" | "buyer" | "admin" | undefined {
   return undefined;
 }
 
-export function requireAuth(role?: "seller" | "buyer" | "admin"): RequestHandler {
+export function requireAuth(
+  role?: "seller" | "buyer" | "admin",
+): RequestHandler {
   return (req: AuthedRequest, res: Response, next: NextFunction): void => {
     const header = req.headers.authorization || "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : undefined;
 
-    if (!token) { res.status(401).json({ message: "No auth token" }); return; }
+    if (!token) {
+      res.status(401).json({ message: "No auth token" });
+      return;
+    }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "cortes_secret") as any;
+      const decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET || "cortes_secret",
+      ) as any;
       const normalized = normalizeRole(decoded.rol || decoded.role);
 
       req.user = { id: Number(decoded.id), role: normalized || "buyer" }; // default conservador

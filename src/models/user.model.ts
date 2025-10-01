@@ -1,3 +1,5 @@
+// src/models/user.model.ts
+
 import { DataTypes, Model, Optional } from "sequelize";
 import { sequelize } from "../config/db";
 
@@ -5,7 +7,7 @@ interface UserAttributes {
   id: number;
   nombre: string;
   correo: string;
-  contraseña: string;
+  password: string;
   telefono?: string;
   direccion?: string;
   rol: "comprador" | "vendedor" | "admin";
@@ -15,12 +17,14 @@ interface UserAttributes {
 
 interface UserCreationAttributes extends Optional<UserAttributes, "id"> {}
 
-export class User extends Model<UserAttributes, UserCreationAttributes>
-  implements UserAttributes {
+export class User
+  extends Model<UserAttributes, UserCreationAttributes>
+  implements UserAttributes
+{
   public id!: number;
   public nombre!: string;
   public correo!: string;
-  public contraseña!: string;
+  public password!: string;
   public rol!: "comprador" | "vendedor" | "admin";
   public telefono?: string;
   public direccion?: string;
@@ -42,13 +46,14 @@ User.init(
     correo: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true,
+      set(value: string) {
+        this.setDataValue("correo", value?.toLowerCase().trim());
+      },
     },
-    // Mapeo explícito para la columna con tilde en la BD
-    contraseña: {
+    password: {
       type: DataTypes.STRING,
       allowNull: false,
-      field: "contraseña",
+      field: "contraseña", // mapeo explícito a columna con tilde en la BD
     },
     rol: {
       type: DataTypes.STRING,
@@ -63,7 +68,6 @@ User.init(
       type: DataTypes.STRING,
       allowNull: true,
     },
-    // Opcional: si quieres que Sequelize defina tipos también aquí
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -81,9 +85,9 @@ User.init(
     sequelize,
     modelName: "User",
     tableName: "users",
-    // La tabla ya tiene createdAt/updatedAt NOT NULL
     timestamps: true,
     createdAt: "createdAt",
     updatedAt: "updatedAt",
-  }
+    underscored: true,
+  },
 );

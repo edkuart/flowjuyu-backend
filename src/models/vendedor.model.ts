@@ -1,24 +1,27 @@
 // src/models/vendedor.model.ts
-import { DataTypes, Model, Optional } from "sequelize"
-import { sequelize } from "../config/db"
+import { DataTypes, Model, Optional } from "sequelize";
+import { sequelize } from "../config/db";
 
 interface VendedorAttributes {
-  id: number
-  nombreComercio: string
-  direccion: string
-  nit: string
-  logoUrl: string
+  id: number;
+  nombreComercio: string;
+  direccion: string;
+  nit: string;
+  logoUrl: string;
 }
 
-interface VendedorCreationAttributes extends Optional<VendedorAttributes, "id"> {}
+interface VendedorCreationAttributes
+  extends Optional<VendedorAttributes, "id"> {}
 
-export class Vendedor extends Model<VendedorAttributes, VendedorCreationAttributes>
-  implements VendedorAttributes {
-  public id!: number
-  public nombreComercio!: string
-  public direccion!: string
-  public nit!: string
-  public logoUrl!: string
+export class Vendedor
+  extends Model<VendedorAttributes, VendedorCreationAttributes>
+  implements VendedorAttributes
+{
+  public id!: number;
+  public nombreComercio!: string;
+  public direccion!: string;
+  public nit!: string;
+  public logoUrl!: string;
 }
 
 Vendedor.init(
@@ -51,5 +54,5 @@ Vendedor.init(
     modelName: "Vendedor",
     tableName: "vendedores",
     timestamps: false,
-  }
-)
+  },
+);

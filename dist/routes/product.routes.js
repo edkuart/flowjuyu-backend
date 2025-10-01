@@ -1,0 +1,30 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+// src/routes/product.routes.ts
+const express_1 = require("express");
+const auth_1 = require("../middleware/auth");
+const multerProducts_1 = require("../middleware/multerProducts");
+const product_controller_1 = require("../controllers/product.controller");
+const router = (0, express_1.Router)();
+// ===========================
+// 📦 Catálogos (públicos)
+// ===========================
+router.get("/categorias", product_controller_1.getCategorias);
+router.get("/clases", product_controller_1.getClases);
+router.get("/regiones", product_controller_1.getRegiones);
+router.get("/telas", product_controller_1.getTelas);
+// 🔹 Accesorios y dependencias
+router.get("/accesorios", product_controller_1.getAccesorios);
+router.get("/accesorio-tipos", product_controller_1.getAccesorioTipos); // ?accesorio_id=1
+router.get("/accesorio-materiales", product_controller_1.getAccesorioMateriales); // ?accesorio_id=1
+// ===========================
+// Productos (requiere rol "seller")
+// ===========================
+router.post("/productos", (0, auth_1.requireRole)("seller"), multerProducts_1.uploadProductImages.array("imagenes[]", 9), // multer (Supabase/local)
+product_controller_1.createProduct);
+router.get("/seller/productos", (0, auth_1.requireRole)("seller"), product_controller_1.getSellerProducts);
+router.get("/productos/:id", (0, auth_1.requireRole)("seller"), product_controller_1.getProductById);
+router.put("/productos/:id", (0, auth_1.requireRole)("seller"), product_controller_1.updateProduct);
+router.delete("/productos/:id", (0, auth_1.requireRole)("seller"), product_controller_1.deleteProduct);
+router.patch("/productos/:id/activo", (0, auth_1.requireRole)("seller"), product_controller_1.toggleProductActive);
+exports.default = router;

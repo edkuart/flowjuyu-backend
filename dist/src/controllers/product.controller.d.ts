@@ -1,0 +1,16 @@
+import { RequestHandler } from "express";
+import multer from "multer";
+export declare const uploadProductImages: multer.Multer;
+export declare const getCategorias: RequestHandler;
+export declare const getClases: RequestHandler;
+export declare const getRegiones: RequestHandler;
+export declare const getTelas: RequestHandler;
+export declare const getAccesorios: RequestHandler;
+export declare const getAccesorioTipos: RequestHandler;
+export declare const getAccesorioMateriales: RequestHandler;
+export declare const createProduct: RequestHandler;
+export declare const getSellerProducts: RequestHandler;
+export declare const getProductById: RequestHandler;
+export declare const updateProduct: RequestHandler;
+export declare const deleteProduct: RequestHandler;
+export declare const toggleProductActive: RequestHandler;

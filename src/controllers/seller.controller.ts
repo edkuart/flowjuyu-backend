@@ -1,7 +1,10 @@
 import { Request, Response } from "express";
 
 export const getSellerDashboard = (req: Request, res: Response) => {
-  res.json({ message: "Bienvenido al panel del vendedor", user: (req as any).user });
+  res.json({
+    message: "Bienvenido al panel del vendedor",
+    user: (req as any).user,
+  });
 };
 
 export const getSellerOrders = (_req: Request, res: Response) => {

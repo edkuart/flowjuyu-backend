@@ -1,36 +1,45 @@
+// src/routes/auth.routes.ts
+
 import { Router } from "express";
 import path from "path";
 import multer from "multer";
 
-// Importa TODO el módulo para evitar desajustes de named exports
+// Importamos TODO el controlador (para evitar errores de named exports)
 import * as Auth from "../controllers/auth.controller";
 
-const router = Router();
+// ✅ tipo explícito para evitar TS2742
+const router: Router = Router();
 
-// Multer básico para archivos de vendedor (si ya tienes uno, reemplázalo)
-const upload = multer({ dest: path.join(process.cwd(), "uploads", "vendedores") });
+// ===========================
+// Configuración de Multer (archivos de vendedor)
+// ===========================
+const upload = multer({
+  dest: path.join(process.cwd(), "uploads", "vendedores"),
+});
 
-// ---- Auth (comprador)
+// ===========================
+// Auth (comprador)
+// ===========================
 router.post("/register", Auth.register);
 router.post("/login", Auth.login);
 
-// Monta solo los handlers que existan para evitar errores de build
-const maybe = (name: string) => (Auth as any)[name] as undefined | ((...a: any[]) => any);
-const loginWithGoogle = maybe("loginWithGoogle");
-const logout = maybe("logout");
-const getSession = maybe("getSession");
+// Monta handlers opcionales solo si existen en el controller
+const maybe = (name: string) =>
+  (Auth as any)[name] as undefined | ((...a: any[]) => any);
 
-if (typeof loginWithGoogle === "function") {
-  router.post("/login/google", loginWithGoogle);
+if (maybe("loginWithGoogle")) {
+  router.post("/login/google", maybe("loginWithGoogle")!);
 }
-if (typeof logout === "function") {
-  router.post("/logout", logout);
+if (maybe("logout")) {
+  router.post("/logout", maybe("logout")!);
 }
-if (typeof getSession === "function") {
-  router.get("/session", getSession);
+if (maybe("getSession")) {
+  router.get("/session", maybe("getSession")!);
 }
 
-// ---- Auth (vendedor)
+// ===========================
+// Auth (vendedor)
+// ===========================
 router.post(
   "/register/seller",
   upload.fields([
@@ -39,7 +48,7 @@ router.post(
     { name: "fotoDPIReverso", maxCount: 1 },
     { name: "selfieConDPI", maxCount: 1 },
   ]),
-  Auth.registerVendedor
+  Auth.registerVendedor,
 );
 
 export default router;
