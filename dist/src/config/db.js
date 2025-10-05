@@ -17,7 +17,9 @@ const common = {
 const caPath = path_1.default.join(process.cwd(), "config", "supabase-ca.crt");
 let sslConfig;
 try {
-    const caCerts = fs_1.default.readFileSync(caPath, "utf8");
+    const caCerts = fs_1.default
+        .readFileSync(caPath, "utf8")
+        .split(/(?=-----BEGIN CERTIFICATE-----)/g);
     sslConfig = {
         require: true,
         rejectUnauthorized: true,
@@ -25,12 +27,9 @@ try {
     };
     console.log("✅ Certificado CA cargado:", caPath);
 }
-catch (err) {
+catch {
     console.warn("⚠️ No se encontró certificado CA, usando fallback inseguro");
-    sslConfig = {
-        require: true,
-        rejectUnauthorized: false,
-    };
+    sslConfig = { require: true, rejectUnauthorized: false };
 }
 let sequelize;
 if (DATABASE_URL) {
@@ -58,7 +57,7 @@ async function assertDbConnection() {
     }
     catch (err) {
         console.error("❌ Error conectando a DB:", err);
-        console.warn("⚠️ Usando fallback inseguro (rejectUnauthorized: false)");
+        console.warn("⚠️ Reintentando con rejectUnauthorized: false");
         if (DATABASE_URL) {
             exports.sequelize = sequelize = new sequelize_1.Sequelize(DATABASE_URL, {
                 ...common,

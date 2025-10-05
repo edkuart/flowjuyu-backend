@@ -1,63 +1,37 @@
 // config/config.js
-const fs = require("fs");
-const path = require("path");
 require("dotenv").config();
 
-const {
-  NODE_ENV,
-  DATABASE_URL,
-  DB_HOST,
-  DB_PORT,
-  DB_NAME,
-  DB_USER,
-  DB_PASSWORD,
-} = process.env;
+const { URL } = require("url");
 
-// Ruta al certificado CA
-const caPath = path.join(process.cwd(), "config", "supabase-ca.crt");
+let databaseUrl = process.env.DATABASE_URL;
 
-let sslConfig;
-try {
-  const caCerts = fs.readFileSync(caPath, "utf8");
-  sslConfig = {
-    require: true,
-    rejectUnauthorized: true,
-    ca: caCerts,
-  };
-  console.log("✅ Certificado CA cargado para sequelize-cli:", caPath);
-} catch (err) {
-  console.warn("⚠️ No se encontró certificado CA, usando fallback inseguro en sequelize-cli");
-  sslConfig = {
-    require: true,
-    rejectUnauthorized: false,
-  };
+// 💡 Fix para conflicto SCRAM + SSL con pooler
+// Sequelize usa internamente `pg`, que falla con SCRAM si SSL es forzado en `require`
+// Reemplazamos `sslmode=require` por `sslmode=no-verify` para handshake limpio
+if (databaseUrl && databaseUrl.includes("sslmode=require")) {
+  databaseUrl = databaseUrl.replace("sslmode=require", "sslmode=no-verify");
 }
 
 const common = {
   dialect: "postgres",
-  logging: NODE_ENV === "development" ? console.log : false,
-  dialectOptions: { ssl: sslConfig },
+  logging: process.env.NODE_ENV === "development" ? console.log : false,
+  dialectOptions: {
+    ssl: {
+      require: true,
+      rejectUnauthorized: false, // permite handshake sin verificación redundante
+    },
+    family: 4, // fuerza IPv4
+  },
+  pool: { max: 10, min: 0, idle: 10000 },
 };
 
 module.exports = {
-  development: DATABASE_URL
-    ? { ...common, url: DATABASE_URL }
-    : {
-        ...common,
-        host: DB_HOST,
-        port: DB_PORT || 5432,
-        database: DB_NAME,
-        username: DB_USER,
-        password: DB_PASSWORD,
-      },
-  production: DATABASE_URL
-    ? { ...common, url: DATABASE_URL }
-    : {
-        ...common,
-        host: DB_HOST,
-        port: DB_PORT || 5432,
-        database: DB_NAME,
-        username: DB_USER,
-        password: DB_PASSWORD,
-      },
+  development: {
+    ...common,
+    url: databaseUrl,
+  },
+  production: {
+    ...common,
+    url: databaseUrl,
+  },
 };
