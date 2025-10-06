@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// src/routes/vendedor.ts
 const express_1 = require("express");
 const multer_1 = __importDefault(require("multer"));
 const path_1 = __importDefault(require("path"));
@@ -10,7 +11,10 @@ const fs_1 = __importDefault(require("fs"));
 const db_1 = require("../config/db");
 const sequelize_1 = require("sequelize");
 const auth_1 = require("../middleware/auth");
-const router = (0, express_1.Router)();
+const router = (0, express_1.Router)(); // 👈 tipo explícito
+// ===========================
+// Multer (subidas locales) — en prod: usar Supabase Storage
+// ===========================
 const UPLOAD_DIR = path_1.default.join(process.cwd(), "uploads", "vendedores");
 fs_1.default.mkdirSync(UPLOAD_DIR, { recursive: true });
 const storage = multer_1.default.diskStorage({
@@ -27,8 +31,11 @@ const upload = (0, multer_1.default)({
             return cb(null, true);
         return cb(new Error("Solo se permiten imágenes"));
     },
-    limits: { fileSize: 2 * 1024 * 1024 },
+    limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
 });
+// ===========================
+// Handler tipado como RequestHandler
+// ===========================
 const upsertPerfil = async (req, res) => {
     try {
         const { id, nombre, email, telefono, direccion } = req.body;
@@ -46,6 +53,7 @@ const upsertPerfil = async (req, res) => {
                     fs_1.default.unlinkSync(ruta);
                 }
                 catch {
+                    // no bloqueamos si falla
                 }
             }
         }
@@ -80,5 +88,8 @@ const upsertPerfil = async (req, res) => {
         res.status(500).json({ error: "Error interno del servidor" });
     }
 };
+// ===========================
+// POST /perfil
+// ===========================
 router.post("/perfil", (0, auth_1.requireRole)("seller"), upload.single("logo"), upsertPerfil);
 exports.default = router;

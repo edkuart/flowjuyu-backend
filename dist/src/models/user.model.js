@@ -1,4 +1,5 @@
 "use strict";
+// src/models/user.model.ts
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.User = void 0;
 const sequelize_1 = require("sequelize");
@@ -26,7 +27,7 @@ User.init({
     password: {
         type: sequelize_1.DataTypes.STRING,
         allowNull: false,
-        field: "contraseña",
+        field: "contraseña", // mapeo explícito a columna con tilde en la BD
     },
     rol: {
         type: sequelize_1.DataTypes.STRING,

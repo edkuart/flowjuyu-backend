@@ -22,7 +22,6 @@ export const register = async (req: Request, res: Response): Promise<void> => {
   try {
     const { nombre, correo, rol, telefono, direccion } = req.body;
 
-    // tolerante a password/contrasena/contraseña
     const plain =
       req.body["contraseña"] ?? req.body["contrasena"] ?? req.body["password"];
 
@@ -42,7 +41,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const nuevoUsuario = await User.create({
       nombre,
       correo,
-      password: hash, // ✅ usar 'password', mapea a columna 'contraseña'
+      password: hash,
       rol,
       telefono: (telefono ?? "").toString().trim(),
       direccion: (direccion ?? "").toString().trim(),
@@ -79,15 +78,14 @@ interface MulterFilesMap {
   [fieldname: string]: Express.Multer.File[] | undefined;
 }
 
-export const registerVendedor = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
+export const registerVendedor = async (req: Request, res: Response): Promise<void> => {
   const t = await sequelize.transaction();
   try {
+    console.log("🧩 req.body recibido:", req.body);
+
     const {
       nombre,
-      email,
+      correo,
       telefono,
       password,
       nombreComercio,
@@ -99,23 +97,24 @@ export const registerVendedor = async (
       dpi,
     } = req.body;
 
-    if (!nombre || !email || !password || !dpi || !nombreComercio) {
+    if (!nombre || !correo || !password || !dpi || !nombreComercio) {
       res.status(400).json({ message: "Faltan campos obligatorios" });
       return;
     }
 
-    const usuarioExistente = await User.findOne({ where: { correo: email } });
+    const usuarioExistente = await User.findOne({ where: { correo } });
     if (usuarioExistente) {
       res.status(409).json({ message: "El correo ya está registrado" });
       return;
     }
 
+    // Crear usuario base
     const hash = await bcrypt.hash(String(password), 10);
     const nuevoUsuario = await User.create(
       {
         nombre,
-        correo: email,
-        password: hash, // ✅ usar 'password'
+        correo,
+        password: hash,
         rol: "vendedor",
         telefono: (telefono ?? "").toString().trim(),
         direccion: (direccion ?? "").toString().trim(),
@@ -125,15 +124,14 @@ export const registerVendedor = async (
 
     const files = (req.files as MulterFilesMap | undefined) || {};
 
-    const perfilPayload: any = {
-      userId: nuevoUsuario.id,
+    // Crear perfil del vendedor
+    const perfilPayload = {
+      user_id: nuevoUsuario.id,
       nombre,
-      correo: email,
+      correo,
       telefono: (telefono ?? "").toString().trim(),
       direccion: (direccion ?? "").toString().trim(),
-      imagen_url: files["logo"]
-        ? `/uploads/vendedores/${files["logo"]![0].filename}`
-        : null,
+      logo: files["logo"] ? `/uploads/vendedores/${files["logo"]![0].filename}` : null,
       nombre_comercio: nombreComercio,
       telefono_comercio: telefonoComercio,
       departamento,
@@ -149,7 +147,10 @@ export const registerVendedor = async (
       selfie_con_dpi: files["selfieConDPI"]
         ? `/uploads/vendedores/${files["selfieConDPI"]![0].filename}`
         : null,
-      estado: "pendiente",
+      estado_validacion: "pendiente",
+      estado: "activo",
+      observaciones: null,
+      actualizado_en: new Date(),
     };
 
     await VendedorPerfil.create(perfilPayload, { transaction: t });
@@ -200,10 +201,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const contraseñaValida = await bcrypt.compare(
-      String(plain),
-      usuario.password, // ✅ usar 'password'
-    );
+    const contraseñaValida = await bcrypt.compare(String(plain), usuario.password);
     if (!contraseñaValida) {
       res.status(401).json({ message: "Correo o contraseña incorrectos" });
       return;

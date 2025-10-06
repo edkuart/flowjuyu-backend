@@ -7,6 +7,9 @@ exports.toggleProductActive = exports.deleteProduct = exports.updateProduct = ex
 const db_1 = require("../config/db");
 const multer_1 = __importDefault(require("multer"));
 const supabase_1 = __importDefault(require("../lib/supabase"));
+// ===========================
+// Configuración de Multer (en memoria)
+// ===========================
 const storage = multer_1.default.memoryStorage();
 const fileFilter = (_req, file, cb) => /^image\/(png|jpe?g|webp|gif|avif)$/.test(file.mimetype)
     ? cb(null, true)
@@ -16,6 +19,9 @@ exports.uploadProductImages = (0, multer_1.default)({
     limits: { files: 9, fileSize: 5 * 1024 * 1024 },
     fileFilter,
 });
+// ===========================
+// GETs auxiliares
+// ===========================
 const getCategorias = async (_req, res) => {
     const [rows] = await db_1.sequelize.query(`SELECT id, nombre FROM categorias ORDER BY nombre ASC`);
     res.json(rows);
@@ -78,6 +84,9 @@ const getAccesorioMateriales = async (req, res) => {
     res.json(rows);
 };
 exports.getAccesorioMateriales = getAccesorioMateriales;
+// ===========================
+// Crear producto (con Supabase Storage)
+// ===========================
 const createProduct = async (req, res) => {
     try {
         const u = req.user;
@@ -96,6 +105,7 @@ const createProduct = async (req, res) => {
             res.status(400).json({ message: "Stock inválido" });
             return;
         }
+        // 📤 Subir imágenes a Supabase
         const files = req.files || [];
         const urls = [];
         for (const f of files) {
@@ -160,6 +170,9 @@ const createProduct = async (req, res) => {
     }
 };
 exports.createProduct = createProduct;
+// ===========================
+// Listar productos del vendedor
+// ===========================
 const getSellerProducts = async (req, res) => {
     try {
         const u = req.user;
@@ -181,6 +194,9 @@ const getSellerProducts = async (req, res) => {
     }
 };
 exports.getSellerProducts = getSellerProducts;
+// ===========================
+// Obtener producto por ID
+// ===========================
 const getProductById = async (req, res) => {
     try {
         const u = req.user;
@@ -200,6 +216,9 @@ const getProductById = async (req, res) => {
     }
 };
 exports.getProductById = getProductById;
+// ===========================
+// Actualizar producto
+// ===========================
 const updateProduct = async (req, res) => {
     try {
         const u = req.user;
@@ -235,6 +254,9 @@ const updateProduct = async (req, res) => {
     }
 };
 exports.updateProduct = updateProduct;
+// ===========================
+// Eliminar producto
+// ===========================
 const deleteProduct = async (req, res) => {
     try {
         const u = req.user;
@@ -257,6 +279,9 @@ const deleteProduct = async (req, res) => {
     }
 };
 exports.deleteProduct = deleteProduct;
+// ===========================
+// Activar / Desactivar producto
+// ===========================
 const toggleProductActive = async (req, res) => {
     try {
         const u = req.user;

@@ -13,13 +13,14 @@ Category.init({
         type: sequelize_1.DataTypes.STRING,
         allowNull: false,
         unique: true,
+        // si no mandas slug, lo generamos desde nombre
         set(v) {
             const value = (v || this.getDataValue("nombre") || "")
                 .toString()
                 .trim()
                 .toLowerCase()
                 .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
+                .replace(/[\u0300-\u036f]/g, "") // quita acentos
                 .replace(/[^a-z0-9]+/g, "-")
                 .replace(/^-+|-+$/g, "");
             this.setDataValue("slug", value || "cat-" + Date.now());
@@ -27,6 +28,7 @@ Category.init({
     },
     parentId: { field: "parent_id", type: sequelize_1.DataTypes.INTEGER, allowNull: true },
 }, { tableName: "categorias", sequelize: db_1.sequelize });
+// relaciones jerárquicas
 Category.hasMany(Category, { as: "children", foreignKey: "parentId" });
 Category.belongsTo(Category, { as: "parent", foreignKey: "parentId" });
 exports.default = Category;

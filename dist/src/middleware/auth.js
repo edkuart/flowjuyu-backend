@@ -1,23 +1,38 @@
 "use strict";
+// src/middleware/auth.ts
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.requireRole = exports.requireAuth = exports.verifyToken = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+// ──────────────────────────────
+// 🧩 Utilidades
+// ──────────────────────────────
 function getBearerToken(req) {
-    const h = req.headers.authorization || "";
-    if (h.startsWith("Bearer "))
-        return h.slice("Bearer ".length).trim();
-    const cookieTok = req.cookies?.access_token;
-    return cookieTok || null;
+    const header = req.headers.authorization || "";
+    if (header.startsWith("Bearer "))
+        return header.slice("Bearer ".length).trim();
+    const cookieToken = req.cookies?.access_token;
+    return cookieToken || null;
 }
 function normalizeRoles(payload) {
-    if (Array.isArray(payload.roles) && payload.roles.length)
-        return payload.roles;
-    if (payload.rol)
-        return [payload.rol];
-    return [];
+    const roles = new Set();
+    if (Array.isArray(payload.roles)) {
+        payload.roles.forEach((r) => roles.add(r));
+    }
+    else if (payload.rol) {
+        roles.add(payload.rol);
+    }
+    // 🔄 Normalización inglés/español
+    const normalized = Array.from(roles).map((r) => {
+        if (r === "seller")
+            return "vendedor";
+        if (r === "buyer")
+            return "comprador";
+        return r;
+    });
+    return normalized;
 }
 function getUserId(payload) {
     return payload.sub ?? payload.id;
@@ -25,15 +40,18 @@ function getUserId(payload) {
 function readUserFromSession(req) {
     if (process.env.AUTH_ALLOW_SESSION_FALLBACK !== "true")
         return null;
-    const sessUser = req.session?.user;
-    if (!sessUser?.id)
+    const s = req.session?.user;
+    if (!s?.id)
         return null;
     return {
-        id: sessUser.id,
-        correo: sessUser.correo,
-        roles: Array.isArray(sessUser.roles) ? sessUser.roles : [],
+        id: s.id,
+        correo: s.correo,
+        roles: Array.isArray(s.roles) ? s.roles : [],
     };
 }
+// ──────────────────────────────
+// 🔐 Middleware principal
+// ──────────────────────────────
 const verifyToken = (roles = []) => (req, res, next) => {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
@@ -42,14 +60,9 @@ const verifyToken = (roles = []) => (req, res, next) => {
     }
     const token = getBearerToken(req);
     if (!token) {
-        const s = readUserFromSession(req);
-        if (s?.id) {
-            const userRoles = (s.roles || []);
-            if (roles.length > 0 && !userRoles.some((r) => roles.includes(r))) {
-                res.status(403).json({ message: "Acceso denegado por rol" });
-                return;
-            }
-            req.user = { id: s.id, correo: s.correo, roles: userRoles };
+        const session = readUserFromSession(req);
+        if (session?.id) {
+            req.user = session;
             next();
             return;
         }
@@ -71,7 +84,8 @@ const verifyToken = (roles = []) => (req, res, next) => {
             return;
         }
         const userRoles = normalizeRoles(decoded);
-        if (roles.length > 0 && !userRoles.some((r) => roles.includes(r))) {
+        const hasRole = roles.length === 0 || userRoles.some((r) => roles.includes(r));
+        if (!hasRole) {
             res.status(403).json({ message: "Acceso denegado por rol" });
             return;
         }
@@ -82,11 +96,31 @@ const verifyToken = (roles = []) => (req, res, next) => {
         };
         next();
     }
-    catch {
+    catch (err) {
+        console.error("Error al verificar token:", err);
         res.status(401).json({ message: "Token inválido o expirado" });
     }
 };
 exports.verifyToken = verifyToken;
+// ──────────────────────────────
+// 🌐 Normalizador de roles rutas
+// ──────────────────────────────
+function normalizeRoleName(role) {
+    switch (role.toLowerCase()) {
+        case "seller":
+            return "vendedor";
+        case "buyer":
+            return "comprador";
+        default:
+            return role.toLowerCase();
+    }
+}
+// ──────────────────────────────
+// 🧱 Middlewares exportados
+// ──────────────────────────────
 exports.requireAuth = (0, exports.verifyToken)();
-const requireRole = (...allowed) => (0, exports.verifyToken)(allowed);
+const requireRole = (...allowed) => {
+    const normalizedAllowed = allowed.map(normalizeRoleName);
+    return (0, exports.verifyToken)(normalizedAllowed);
+};
 exports.requireRole = requireRole;

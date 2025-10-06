@@ -1,9 +1,13 @@
 "use strict";
+// src/routes/seller.routes.ts
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_1 = require("../middleware/auth");
 const seller_controller_1 = require("../controllers/seller.controller");
-const router = (0, express_1.Router)();
+const router = (0, express_1.Router)(); // 👈 tipo explícito
+// ===========================
+// Rutas de Seller (autenticado con rol seller)
+// ===========================
 router.get("/dashboard", (0, auth_1.requireRole)("seller"), seller_controller_1.getSellerDashboard);
 router.get("/products", (0, auth_1.requireRole)("seller"), seller_controller_1.getSellerProducts);
 router.get("/orders", (0, auth_1.requireRole)("seller"), seller_controller_1.getSellerOrders);

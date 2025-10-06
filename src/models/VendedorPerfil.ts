@@ -1,16 +1,17 @@
 // src/models/VendedorPerfil.ts
+
 import { DataTypes, Model, Optional } from "sequelize";
 import { sequelize } from "../config/db";
 import { User } from "./user.model";
 
 interface VendedorPerfilAttrs {
   id: number;
-  userId: number; // FK -> users.id
+  user_id: number;
   nombre: string;
   correo: string;
   telefono?: string | null;
   direccion?: string | null;
-  imagen_url?: string | null;
+  logo?: string | null;
   nombre_comercio: string;
   telefono_comercio?: string | null;
   departamento?: string | null;
@@ -20,7 +21,10 @@ interface VendedorPerfilAttrs {
   foto_dpi_frente?: string | null;
   foto_dpi_reverso?: string | null;
   selfie_con_dpi?: string | null;
-  estado: "pendiente" | "aprobado" | "rechazado";
+  estado_validacion?: string | null;
+  observaciones?: string | null;
+  estado?: string | null;
+  actualizado_en?: Date | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -30,7 +34,7 @@ type Creation = Optional<
   | "id"
   | "telefono"
   | "direccion"
-  | "imagen_url"
+  | "logo"
   | "telefono_comercio"
   | "departamento"
   | "municipio"
@@ -38,19 +42,23 @@ type Creation = Optional<
   | "foto_dpi_frente"
   | "foto_dpi_reverso"
   | "selfie_con_dpi"
+  | "estado_validacion"
+  | "observaciones"
   | "estado"
+  | "actualizado_en"
   | "createdAt"
   | "updatedAt"
 >;
 
-export class VendedorPerfil extends Model<VendedorPerfilAttrs, Creation> implements VendedorPerfilAttrs {
+export class VendedorPerfil extends Model<VendedorPerfilAttrs, Creation>
+  implements VendedorPerfilAttrs {
   public id!: number;
-  public userId!: number;
+  public user_id!: number;
   public nombre!: string;
   public correo!: string;
   public telefono?: string | null;
   public direccion?: string | null;
-  public imagen_url?: string | null;
+  public logo?: string | null;
   public nombre_comercio!: string;
   public telefono_comercio?: string | null;
   public departamento?: string | null;
@@ -60,7 +68,10 @@ export class VendedorPerfil extends Model<VendedorPerfilAttrs, Creation> impleme
   public foto_dpi_frente?: string | null;
   public foto_dpi_reverso?: string | null;
   public selfie_con_dpi?: string | null;
-  public estado!: "pendiente" | "aprobado" | "rechazado";
+  public estado_validacion?: string | null;
+  public observaciones?: string | null;
+  public estado?: string | null;
+  public actualizado_en?: Date | null;
   public readonly createdAt?: Date;
   public readonly updatedAt?: Date;
 }
@@ -73,10 +84,9 @@ VendedorPerfil.init(
       autoIncrement: true,
       allowNull: false,
     },
-    userId: {
+    user_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      field: "user_id",
       references: { model: "users", key: "id" },
       onUpdate: "CASCADE",
       onDelete: "CASCADE",
@@ -91,7 +101,7 @@ VendedorPerfil.init(
     },
     telefono: { type: DataTypes.STRING(15), allowNull: true },
     direccion: { type: DataTypes.TEXT, allowNull: true },
-    imagen_url: { type: DataTypes.TEXT, allowNull: true },
+    logo: { type: DataTypes.TEXT, allowNull: true },
     nombre_comercio: { type: DataTypes.STRING(100), allowNull: false },
     telefono_comercio: { type: DataTypes.STRING(15), allowNull: true },
     departamento: { type: DataTypes.STRING(50), allowNull: true },
@@ -101,23 +111,31 @@ VendedorPerfil.init(
     foto_dpi_frente: { type: DataTypes.TEXT, allowNull: true },
     foto_dpi_reverso: { type: DataTypes.TEXT, allowNull: true },
     selfie_con_dpi: { type: DataTypes.TEXT, allowNull: true },
-    estado: {
-      type: DataTypes.ENUM("pendiente", "aprobado", "rechazado"),
-      allowNull: false,
-      defaultValue: "pendiente",
-    },
-    createdAt: { type: DataTypes.DATE, allowNull: false, field: "createdAt", defaultValue: DataTypes.NOW },
-    updatedAt: { type: DataTypes.DATE, allowNull: false, field: "updatedAt", defaultValue: DataTypes.NOW },
+    estado_validacion: { type: DataTypes.STRING(30), allowNull: true },
+    observaciones: { type: DataTypes.TEXT, allowNull: true },
+    estado: { type: DataTypes.STRING(30), allowNull: true },
+    actualizado_en: { type: DataTypes.DATE, allowNull: true },
+    createdAt: { type: DataTypes.DATE, allowNull: true },
+    updatedAt: { type: DataTypes.DATE, allowNull: true },
   },
   {
     sequelize,
     tableName: "vendedor_perfil",
     freezeTableName: true,
     timestamps: true,
-    underscored: true,
   },
 );
 
-// Asociaciones
-User.hasOne(VendedorPerfil, { foreignKey: "user_id", as: "perfil", onDelete: "CASCADE", onUpdate: "CASCADE" });
-VendedorPerfil.belongsTo(User, { foreignKey: "user_id", as: "user", onDelete: "CASCADE", onUpdate: "CASCADE" });
+User.hasOne(VendedorPerfil, {
+  foreignKey: "user_id",
+  as: "perfil",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+
+VendedorPerfil.belongsTo(User, {
+  foreignKey: "user_id",
+  as: "user",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});

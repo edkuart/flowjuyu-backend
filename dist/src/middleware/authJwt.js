@@ -28,7 +28,7 @@ function requireAuth(role) {
         try {
             const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || "cortes_secret");
             const normalized = normalizeRole(decoded.rol || decoded.role);
-            req.user = { id: Number(decoded.id), role: normalized || "buyer" };
+            req.user = { id: Number(decoded.id), role: normalized || "buyer" }; // default conservador
             if (role && req.user.role !== role) {
                 res.status(403).json({ message: "Forbidden" });
                 return;

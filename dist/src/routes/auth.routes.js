@@ -32,20 +32,21 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
+// src/routes/auth.routes.ts
 const express_1 = require("express");
-const path_1 = __importDefault(require("path"));
-const multer_1 = __importDefault(require("multer"));
+// ✅ Controladores
 const Auth = __importStar(require("../controllers/auth.controller"));
+// ✅ Middleware de subida (centralizado)
+const upload_middleware_1 = require("../middleware/upload.middleware");
+// ✅ Router explícito
 const router = (0, express_1.Router)();
-const upload = (0, multer_1.default)({
-    dest: path_1.default.join(process.cwd(), "uploads", "vendedores"),
-});
+// ===========================
+// Auth (comprador)
+// ===========================
 router.post("/register", Auth.register);
 router.post("/login", Auth.login);
+// Handlers opcionales dinámicos (compatibilidad)
 const maybe = (name) => Auth[name];
 if (maybe("loginWithGoogle")) {
     router.post("/login/google", maybe("loginWithGoogle"));
@@ -56,10 +57,9 @@ if (maybe("logout")) {
 if (maybe("getSession")) {
     router.get("/session", maybe("getSession"));
 }
-router.post("/register/seller", upload.fields([
-    { name: "logo", maxCount: 1 },
-    { name: "fotoDPIFrente", maxCount: 1 },
-    { name: "fotoDPIReverso", maxCount: 1 },
-    { name: "selfieConDPI", maxCount: 1 },
-]), Auth.registerVendedor);
+// ===========================
+// Auth (vendedor)
+// ===========================
+// Usa el middleware centralizado para manejar los archivos
+router.post("/register/seller", upload_middleware_1.uploadVendedorDocs, Auth.registerVendedor);
 exports.default = router;

@@ -1,4 +1,5 @@
 "use strict";
+// src/controllers/auth.controller.ts
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -9,9 +10,15 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const db_1 = require("../config/db");
 const user_model_1 = require("../models/user.model");
 const VendedorPerfil_1 = require("../models/VendedorPerfil");
+// ────────────────────────────────────────────────────────────
+// Utilidad JWT
+// ────────────────────────────────────────────────────────────
 const generateToken = (payload) => jsonwebtoken_1.default.sign(payload, process.env.JWT_SECRET || "cortes_secret", {
     expiresIn: "1d",
 });
+// ────────────────────────────────────────────────────────────
+// Registro general (comprador)
+// ────────────────────────────────────────────────────────────
 const register = async (req, res) => {
     try {
         const { nombre, correo, rol, telefono, direccion } = req.body;
@@ -61,35 +68,36 @@ exports.register = register;
 const registerVendedor = async (req, res) => {
     const t = await db_1.sequelize.transaction();
     try {
-        const { nombre, email, telefono, password, nombreComercio, telefonoComercio, direccion, departamento, municipio, descripcion, dpi, } = req.body;
-        if (!nombre || !email || !password || !dpi || !nombreComercio) {
+        console.log("🧩 req.body recibido:", req.body);
+        const { nombre, correo, telefono, password, nombreComercio, telefonoComercio, direccion, departamento, municipio, descripcion, dpi, } = req.body;
+        if (!nombre || !correo || !password || !dpi || !nombreComercio) {
             res.status(400).json({ message: "Faltan campos obligatorios" });
             return;
         }
-        const usuarioExistente = await user_model_1.User.findOne({ where: { correo: email } });
+        const usuarioExistente = await user_model_1.User.findOne({ where: { correo } });
         if (usuarioExistente) {
             res.status(409).json({ message: "El correo ya está registrado" });
             return;
         }
+        // Crear usuario base
         const hash = await bcrypt_1.default.hash(String(password), 10);
         const nuevoUsuario = await user_model_1.User.create({
             nombre,
-            correo: email,
+            correo,
             password: hash,
             rol: "vendedor",
             telefono: (telefono ?? "").toString().trim(),
             direccion: (direccion ?? "").toString().trim(),
         }, { transaction: t });
         const files = req.files || {};
+        // Crear perfil del vendedor
         const perfilPayload = {
-            userId: nuevoUsuario.id,
+            user_id: nuevoUsuario.id,
             nombre,
-            correo: email,
+            correo,
             telefono: (telefono ?? "").toString().trim(),
             direccion: (direccion ?? "").toString().trim(),
-            imagen_url: files["logo"]
-                ? `/uploads/vendedores/${files["logo"][0].filename}`
-                : null,
+            logo: files["logo"] ? `/uploads/vendedores/${files["logo"][0].filename}` : null,
             nombre_comercio: nombreComercio,
             telefono_comercio: telefonoComercio,
             departamento,
@@ -105,7 +113,10 @@ const registerVendedor = async (req, res) => {
             selfie_con_dpi: files["selfieConDPI"]
                 ? `/uploads/vendedores/${files["selfieConDPI"][0].filename}`
                 : null,
-            estado: "pendiente",
+            estado_validacion: "pendiente",
+            estado: "activo",
+            observaciones: null,
+            actualizado_en: new Date(),
         };
         await VendedorPerfil_1.VendedorPerfil.create(perfilPayload, { transaction: t });
         await t.commit();
@@ -134,6 +145,9 @@ const registerVendedor = async (req, res) => {
     }
 };
 exports.registerVendedor = registerVendedor;
+// ────────────────────────────────────────────────────────────
+// Login con JWT
+// ────────────────────────────────────────────────────────────
 const login = async (req, res) => {
     try {
         const { correo } = req.body;

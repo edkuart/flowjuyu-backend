@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sequelize = void 0;
 exports.assertDbConnection = assertDbConnection;
+// src/config/db.ts
 require("dotenv/config");
 const sequelize_1 = require("sequelize");
 const fs_1 = __importDefault(require("fs"));
@@ -36,7 +37,7 @@ if (DATABASE_URL) {
     exports.sequelize = sequelize = new sequelize_1.Sequelize(DATABASE_URL, {
         ...common,
         dialect: "postgres",
-        dialectOptions: { ssl: sslConfig },
+        dialectOptions: { ssl: sslConfig }, // 👈 pasa el objeto ssl directo
     });
 }
 else {

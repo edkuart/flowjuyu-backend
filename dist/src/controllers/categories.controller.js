@@ -13,6 +13,7 @@ async function listCategories(req, res) {
     try {
         const { tree } = req.query;
         if (tree) {
+            // árbol (parent + children)
             const roots = await category_model_1.default.findAll({
                 where: { parentId: null },
                 include: [
@@ -45,6 +46,7 @@ async function getCategory(req, res) {
         return res.status(404).json({ error: "Not found" });
     res.json(row);
 }
+// Admin-only en producción
 async function createCategory(req, res) {
     const { nombre, slug, parentId } = req.body;
     const row = await category_model_1.default.create({

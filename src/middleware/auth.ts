@@ -1,53 +1,68 @@
 // src/middleware/auth.ts
+
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import jwt, { VerifyOptions } from "jsonwebtoken";
 
-export type Rol = "buyer" | "seller" | "admin";
+export type Rol = "comprador" | "vendedor" | "admin" | "buyer" | "seller";
 
 interface DecodedLegacyToken {
   id?: string | number;
   correo?: string;
-  rol?: Rol; // legado: un solo rol
-  roles?: Rol[]; // nuevo: lista de roles
+  rol?: Rol;
+  roles?: Rol[];
   iat?: number;
   exp?: number;
-  sub?: string; // estándar JWT subject
+  sub?: string;
 }
 
-// ----- utils -----
+// ──────────────────────────────
+// 🧩 Utilidades
+// ──────────────────────────────
 function getBearerToken(req: Request): string | null {
-  const h = req.headers.authorization || "";
-  if (h.startsWith("Bearer ")) return h.slice("Bearer ".length).trim();
-  const cookieTok = (req as any).cookies?.access_token as string | undefined; // requiere cookie-parser si lo usas
-  return cookieTok || null;
+  const header = req.headers.authorization || "";
+  if (header.startsWith("Bearer ")) return header.slice("Bearer ".length).trim();
+
+  const cookieToken = (req as any).cookies?.access_token as string | undefined;
+  return cookieToken || null;
 }
 
 function normalizeRoles(payload: DecodedLegacyToken): Rol[] {
-  if (Array.isArray(payload.roles) && payload.roles.length)
-    return payload.roles as Rol[];
-  if (payload.rol) return [payload.rol]; // soporte legado
-  return [];
+  const roles = new Set<Rol>();
+
+  if (Array.isArray(payload.roles)) {
+    payload.roles.forEach((r) => roles.add(r));
+  } else if (payload.rol) {
+    roles.add(payload.rol);
+  }
+
+  // 🔄 Normalización inglés/español
+  const normalized = Array.from(roles).map((r) => {
+    if (r === "seller") return "vendedor";
+    if (r === "buyer") return "comprador";
+    return r;
+  });
+
+  return normalized as Rol[];
 }
 
 function getUserId(payload: DecodedLegacyToken): string | number | undefined {
-  return payload.sub ?? payload.id; // preferimos sub (estándar)
+  return payload.sub ?? payload.id;
 }
 
-// (opcional) fallback a sesión si está habilitado por env
-function readUserFromSession(
-  req: Request,
-): { id?: string | number; correo?: string; roles?: Rol[] } | null {
+function readUserFromSession(req: Request) {
   if (process.env.AUTH_ALLOW_SESSION_FALLBACK !== "true") return null;
-  const sessUser = (req.session as any)?.user;
-  if (!sessUser?.id) return null;
+  const s = (req.session as any)?.user;
+  if (!s?.id) return null;
   return {
-    id: sessUser.id,
-    correo: sessUser.correo,
-    roles: Array.isArray(sessUser.roles) ? sessUser.roles : [],
+    id: s.id,
+    correo: s.correo,
+    roles: Array.isArray(s.roles) ? s.roles : [],
   };
 }
 
-// ----- core -----
+// ──────────────────────────────
+// 🔐 Middleware principal
+// ──────────────────────────────
 export const verifyToken =
   (roles: Rol[] = []): RequestHandler =>
   (req: Request, res: Response, next: NextFunction): void => {
@@ -58,17 +73,10 @@ export const verifyToken =
     }
 
     const token = getBearerToken(req);
-
-    // 1) sin token → intenta sesión si está permitido; si no, 401
     if (!token) {
-      const s = readUserFromSession(req);
-      if (s?.id) {
-        const userRoles = (s.roles || []) as Rol[];
-        if (roles.length > 0 && !userRoles.some((r) => roles.includes(r))) {
-          res.status(403).json({ message: "Acceso denegado por rol" });
-          return;
-        }
-        (req as any).user = { id: s.id, correo: s.correo, roles: userRoles };
+      const session = readUserFromSession(req);
+      if (session?.id) {
+        (req as any).user = session;
         next();
         return;
       }
@@ -77,20 +85,14 @@ export const verifyToken =
     }
 
     try {
-      // 2) Verificación con algoritmo(s) permitidos
       const verifyOpts: VerifyOptions = {};
       const algs = (process.env.JWT_ALGS || "HS256")
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-      if (algs.length)
-        verifyOpts.algorithms = algs as VerifyOptions["algorithms"];
+      if (algs.length) verifyOpts.algorithms = algs as VerifyOptions["algorithms"];
 
-      const decoded = jwt.verify(
-        token,
-        secret,
-        verifyOpts,
-      ) as DecodedLegacyToken;
+      const decoded = jwt.verify(token, secret, verifyOpts) as DecodedLegacyToken;
 
       const userId = getUserId(decoded);
       if (!userId) {
@@ -99,7 +101,10 @@ export const verifyToken =
       }
 
       const userRoles = normalizeRoles(decoded);
-      if (roles.length > 0 && !userRoles.some((r) => roles.includes(r))) {
+      const hasRole =
+        roles.length === 0 || userRoles.some((r) => roles.includes(r));
+
+      if (!hasRole) {
         res.status(403).json({ message: "Acceso denegado por rol" });
         return;
       }
@@ -109,13 +114,34 @@ export const verifyToken =
         correo: decoded.correo,
         roles: userRoles,
       };
+
       next();
-    } catch {
+    } catch (err) {
+      console.error("Error al verificar token:", err);
       res.status(401).json({ message: "Token inválido o expirado" });
     }
   };
 
+// ──────────────────────────────
+// 🌐 Normalizador de roles rutas
+// ──────────────────────────────
+function normalizeRoleName(role: Rol): Rol {
+  switch (role.toLowerCase()) {
+    case "seller":
+      return "vendedor";
+    case "buyer":
+      return "comprador";
+    default:
+      return role.toLowerCase() as Rol;
+  }
+}
+
+// ──────────────────────────────
+// 🧱 Middlewares exportados
+// ──────────────────────────────
 export const requireAuth: RequestHandler = verifyToken();
 
-export const requireRole = (...allowed: Rol[]): RequestHandler =>
-  verifyToken(allowed);
+export const requireRole = (...allowed: Rol[]): RequestHandler => {
+  const normalizedAllowed = allowed.map(normalizeRoleName) as Rol[];
+  return verifyToken(normalizedAllowed);
+};

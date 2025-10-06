@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Vendedor = void 0;
+// src/models/vendedor.model.ts
 const sequelize_1 = require("sequelize");
 const db_1 = require("../config/db");
 class Vendedor extends sequelize_1.Model {
