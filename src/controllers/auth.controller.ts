@@ -188,7 +188,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { correo } = req.body;
     const plain =
-      req.body["contraseña"] ?? req.body["contrasena"] ?? req.body["password"];
+      req.body["contraseña"] ?? req.body["contraseña"] ?? req.body["password"];
 
     if (!correo || !plain) {
       res.status(400).json({ message: "Correo y contraseña son obligatorios" });
@@ -229,4 +229,6 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     console.error("Error en login:", error);
     res.status(500).json({ message: "Error interno del servidor" });
   }
+  console.log("🧩 req.body recibido:", req.body);
+
 };
