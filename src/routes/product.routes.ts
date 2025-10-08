@@ -1,7 +1,7 @@
 // src/routes/product.routes.ts
 import { Router } from "express";
-import { requireRole } from "../middleware/auth";
-import { uploadProductImages } from "../middleware/multerProducts";
+import { requireAuth } from "../middleware/authJwt";               // ✅ middleware correcto
+import { uploadProductImages } from "../middleware/multerProducts"; // ✅ multer correcto
 
 import {
   getCategorias,
@@ -19,7 +19,7 @@ import {
   toggleProductActive,
 } from "../controllers/product.controller";
 
-const router: Router = Router(); // 👈 tipo explícito
+const router = Router();
 
 // ===========================
 // 📦 Catálogos (públicos)
@@ -35,23 +35,26 @@ router.get("/accesorio-tipos", getAccesorioTipos);
 router.get("/accesorio-materiales", getAccesorioMateriales);
 
 // ===========================
-// Productos (requiere rol "seller")
+// 🧾 Productos (requiere rol "seller")
 // ===========================
 router.post(
   "/productos",
-  requireRole("seller"),
-  uploadProductImages.array("imagenes[]", 9),
-  createProduct,
+  requireAuth("seller"),
+  uploadProductImages.array("imagenes[]", 9), // 📤 subir imágenes
+  createProduct
 );
 
-router.get("/seller/productos", requireRole("seller"), getSellerProducts);
-router.get("/productos/:id", requireRole("seller"), getProductById);
-router.put("/productos/:id", requireRole("seller"), updateProduct);
-router.delete("/productos/:id", requireRole("seller"), deleteProduct);
-router.patch(
-  "/productos/:id/activo",
-  requireRole("seller"),
-  toggleProductActive,
+router.get("/seller/productos", requireAuth("seller"), getSellerProducts);
+router.get("/productos/:id", requireAuth("seller"), getProductById);
+
+router.put(
+  "/productos/:id",
+  requireAuth("seller"),
+  uploadProductImages.array("imagenes[]", 1), // 📤 reemplazo de 1 imagen
+  updateProduct
 );
+
+router.delete("/productos/:id", requireAuth("seller"), deleteProduct);
+router.patch("/productos/:id/activo", requireAuth("seller"), toggleProductActive);
 
 export default router;
