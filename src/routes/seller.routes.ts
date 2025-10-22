@@ -1,7 +1,7 @@
 // src/routes/seller.routes.ts
-
 import { Router } from "express";
-import { requireRole } from "../middleware/auth";
+import multer from "multer";
+import { verifyToken, requireRole } from "../middleware/auth";
 import {
   getSellerDashboard,
   getSellerProducts,
@@ -9,18 +9,55 @@ import {
   getSellerProfile,
   updateSellerProfile,
   validateSellerBusiness,
+  getSellers,
 } from "../controllers/seller.controller";
 
-const router: Router = Router(); // 👈 tipo explícito
+const router: Router = Router();
 
-// ===========================
-// Rutas de Seller (autenticado con rol seller)
-// ===========================
-router.get("/dashboard", requireRole("seller"), getSellerDashboard);
-router.get("/products", requireRole("seller"), getSellerProducts);
-router.get("/orders", requireRole("seller"), getSellerOrders);
-router.get("/profile", requireRole("seller"), getSellerProfile);
-router.post("/profile", requireRole("seller"), updateSellerProfile);
-router.post("/profile/business", requireRole("seller"), validateSellerBusiness);
+// =======================================
+// 🧩 Configuración de Multer (para logo)
+// =======================================
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // Máx 5MB
+  fileFilter: (_req, file, cb) => {
+    if (!/^image\/(png|jpe?g|webp|avif)$/.test(file.mimetype)) {
+      return cb(new Error("Solo se permiten imágenes (png, jpg, webp, avif)"));
+    }
+    cb(null, true);
+  },
+});
+
+// =======================================
+// 🔐 Rutas privadas (vendedor autenticado)
+// =======================================
+
+// Dashboard del vendedor autenticado
+router.get("/dashboard", verifyToken(), requireRole("seller"), getSellerDashboard);
+
+// Productos del vendedor autenticado
+router.get("/products", verifyToken(), requireRole("seller"), getSellerProducts);
+
+// Pedidos del vendedor autenticado
+router.get("/orders", verifyToken(), requireRole("seller"), getSellerOrders);
+
+// ✅ Obtener perfil del vendedor autenticado
+router.get("/", verifyToken(), requireRole("seller"), getSellerProfile);
+
+// ✅ Actualizar perfil + subida de logo (PATCH)
+router.patch("/", verifyToken(), requireRole("seller"), upload.single("logo"), updateSellerProfile);
+
+// ✅ Enviar documentos para validación
+router.post("/validar", verifyToken(), requireRole("seller"), validateSellerBusiness);
+
+// =======================================
+// 🌍 Rutas públicas (buyers y visitantes)
+// =======================================
+
+// 🔹 Obtener lista de tiendas registradas (máx. 10)
+router.get("/tiendas", getSellers);
+
+router.get("/:id", getSellerProfile);
 
 export default router;

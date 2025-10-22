@@ -17,6 +17,8 @@ import {
   updateProduct,
   deleteProduct,
   toggleProductActive,
+  getProductsByCategory,
+  getNewProducts,
 } from "../controllers/product.controller";
 
 const router: Router = Router(); // 👈 tipo explícito
@@ -28,6 +30,8 @@ router.get("/categorias", getCategorias);
 router.get("/clases", getClases);
 router.get("/regiones", getRegiones);
 router.get("/telas", getTelas);
+router.get("/categorias/:slug/productos", getProductsByCategory);
+router.get("/productos/nuevos", getNewProducts);
 
 // 🔹 Accesorios y dependencias
 router.get("/accesorios", getAccesorios);
@@ -43,6 +47,7 @@ router.post(
   uploadProductImages.array("imagenes[]", 9),
   createProduct,
 );
+
 
 router.get("/seller/productos", requireRole("seller"), getSellerProducts);
 router.get("/productos/:id", requireRole("seller"), getProductById);

@@ -1,5 +1,4 @@
 // src/middleware/auth.ts
-
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import jwt, { VerifyOptions } from "jsonwebtoken";
 
@@ -16,7 +15,7 @@ interface DecodedLegacyToken {
 }
 
 // ──────────────────────────────
-// 🧩 Utilidades
+// 🧩 Utilidades internas
 // ──────────────────────────────
 function getBearerToken(req: Request): string | null {
   const header = req.headers.authorization || "";
@@ -29,13 +28,14 @@ function getBearerToken(req: Request): string | null {
 function normalizeRoles(payload: DecodedLegacyToken): Rol[] {
   const roles = new Set<Rol>();
 
+  // Cargar roles del token
   if (Array.isArray(payload.roles)) {
     payload.roles.forEach((r) => roles.add(r));
   } else if (payload.rol) {
     roles.add(payload.rol);
   }
 
-  // 🔄 Normalización inglés/español
+  // 🔄 Normalizar inglés ↔ español
   const normalized = Array.from(roles).map((r) => {
     if (r === "seller") return "vendedor";
     if (r === "buyer") return "comprador";
@@ -61,11 +61,10 @@ function readUserFromSession(req: Request) {
 }
 
 // ──────────────────────────────
-// 🔐 Middleware principal
+// 🔐 Middleware base: verifyToken()
 // ──────────────────────────────
-export const verifyToken =
-  (roles: Rol[] = []): RequestHandler =>
-  (req: Request, res: Response, next: NextFunction): void => {
+export const verifyToken = (roles: Rol[] = []): RequestHandler => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
       res.status(500).json({ message: "JWT no configurado" });
@@ -93,8 +92,8 @@ export const verifyToken =
       if (algs.length) verifyOpts.algorithms = algs as VerifyOptions["algorithms"];
 
       const decoded = jwt.verify(token, secret, verifyOpts) as DecodedLegacyToken;
-
       const userId = getUserId(decoded);
+
       if (!userId) {
         res.status(401).json({ message: "Token inválido (sin subject)" });
         return;
@@ -121,9 +120,10 @@ export const verifyToken =
       res.status(401).json({ message: "Token inválido o expirado" });
     }
   };
+};
 
 // ──────────────────────────────
-// 🌐 Normalizador de roles rutas
+// 🌐 Normalizador de roles
 // ──────────────────────────────
 function normalizeRoleName(role: Rol): Rol {
   switch (role.toLowerCase()) {
@@ -137,10 +137,13 @@ function normalizeRoleName(role: Rol): Rol {
 }
 
 // ──────────────────────────────
-// 🧱 Middlewares exportados
+// 🧱 Middlewares exportados listos
 // ──────────────────────────────
+
+// ✅ Requiere solo autenticación (sin validar rol)
 export const requireAuth: RequestHandler = verifyToken();
 
+// ✅ Requiere autenticación + rol específico
 export const requireRole = (...allowed: Rol[]): RequestHandler => {
   const normalizedAllowed = allowed.map(normalizeRoleName) as Rol[];
   return verifyToken(normalizedAllowed);
