@@ -1,8 +1,10 @@
 // src/controllers/seller.controller.ts
-
-import { Request, Response } from "express";
+import { Request, Response, RequestHandler } from "express";
 import { VendedorPerfil } from "../models/VendedorPerfil";
 import { User } from "../models/user.model";
+import { sequelize } from "../config/db";
+import supabase from "../lib/supabase";
+import { v4 as uuidv4 } from "uuid";
 
 // ==============================
 // Dashboard general del vendedor
@@ -22,7 +24,7 @@ export const getSellerDashboard = async (req: Request, res: Response): Promise<v
 };
 
 // ==============================
-// Pedidos del vendedor
+// Pedidos del vendedor (pendiente)
 // ==============================
 export const getSellerOrders = async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -38,7 +40,7 @@ export const getSellerOrders = async (_req: Request, res: Response): Promise<voi
 };
 
 // ==============================
-// Productos del vendedor
+// Productos del vendedor (pendiente)
 // ==============================
 export const getSellerProducts = async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -54,18 +56,22 @@ export const getSellerProducts = async (_req: Request, res: Response): Promise<v
 };
 
 // ==============================
-// Perfil del vendedor
+// 🔹 Obtener perfil del vendedor autenticado
 // ==============================
-export const getSellerProfile = async (req: Request, res: Response): Promise<void> => {
+export const getSellerProfile: RequestHandler = async (req, res): Promise<void> => {
   try {
-    const user = (req as any).user;
-    if (!user?.id) {
+    const user = (req as any).user || null;
+    const { id } = req.params;
+
+    // Si viene un parámetro, lo usamos para mostrar el perfil público
+    const targetId = id || user?.id;
+    if (!targetId) {
       res.status(401).json({ ok: false, message: "Usuario no autenticado" });
       return;
     }
 
     const perfil = await VendedorPerfil.findOne({
-      where: { user_id: user.id }, // 👈 usa el nombre real de columna
+      where: { user_id: targetId },
       include: [
         {
           model: User,
@@ -80,10 +86,22 @@ export const getSellerProfile = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    res.json({
-      ok: true,
-      perfil,
-    });
+    // Si no es propietario, enviamos solo los datos públicos
+    const esPropietario = user?.id === perfil.user_id;
+    if (!esPropietario) {
+      res.json({
+        id: perfil.id,
+        nombre_comercio: perfil.nombre_comercio,
+        descripcion: perfil.descripcion,
+        logo: perfil.logo,
+        departamento: perfil.departamento,
+        municipio: perfil.municipio,
+      });
+      return;
+    }
+
+    // Si es propietario, devolvemos todo
+    res.json(perfil);
   } catch (error) {
     console.error("Error en getSellerProfile:", error);
     res.status(500).json({ ok: false, message: "Error al obtener perfil" });
@@ -91,9 +109,9 @@ export const getSellerProfile = async (req: Request, res: Response): Promise<voi
 };
 
 // ==============================
-// Actualizar perfil
+// 🔹 Actualizar perfil del vendedor autenticado
 // ==============================
-export const updateSellerProfile = async (req: Request, res: Response): Promise<void> => {
+export const updateSellerProfile: RequestHandler = async (req, res): Promise<void> => {
   try {
     const user = (req as any).user;
     if (!user?.id) {
@@ -101,8 +119,50 @@ export const updateSellerProfile = async (req: Request, res: Response): Promise<
       return;
     }
 
-    await VendedorPerfil.update(req.body, { where: { user_id: user.id } });
-    res.json({ ok: true, message: "Perfil actualizado correctamente" });
+    const perfil = await VendedorPerfil.findOne({ where: { user_id: user.id } });
+    if (!perfil) {
+      res.status(404).json({ ok: false, message: "Perfil no encontrado" });
+      return;
+    }
+
+    // 🧩 Subida de logo opcional
+    let logoUrl = perfil.logo;
+    if (req.file) {
+      const fileExt = req.file.originalname.split(".").pop();
+      const fileName = `vendedores/${uuidv4()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage
+        .from("vendedores")
+        .upload(fileName, req.file.buffer, {
+          contentType: req.file.mimetype,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrl } = supabase.storage.from("vendedores").getPublicUrl(fileName);
+      logoUrl = publicUrl.publicUrl;
+    }
+
+    // 🧩 Campos a actualizar
+    const fieldsToUpdate = {
+      nombre_comercio: req.body.nombre_comercio ?? perfil.nombre_comercio,
+      descripcion: req.body.descripcion ?? perfil.descripcion,
+      telefono_comercio: req.body.telefono_comercio ?? perfil.telefono_comercio,
+      direccion: req.body.direccion ?? perfil.direccion,
+      departamento: req.body.departamento ?? perfil.departamento,
+      municipio: req.body.municipio ?? perfil.municipio,
+      logo: logoUrl,
+      updatedAt: new Date(),
+    };
+
+    await VendedorPerfil.update(fieldsToUpdate, { where: { user_id: user.id } });
+
+    const updatedPerfil = await VendedorPerfil.findOne({ where: { user_id: user.id } });
+
+    res.json({
+      ok: true,
+      message: "Perfil actualizado correctamente",
+      perfil: updatedPerfil,
+    });
   } catch (error) {
     console.error("Error en updateSellerProfile:", error);
     res.status(500).json({ ok: false, message: "Error al actualizar perfil" });
@@ -110,7 +170,7 @@ export const updateSellerProfile = async (req: Request, res: Response): Promise<
 };
 
 // ==============================
-// Enviar documentos de validación
+// Validación de comercio (pendiente)
 // ==============================
 export const validateSellerBusiness = async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -121,5 +181,32 @@ export const validateSellerBusiness = async (_req: Request, res: Response): Prom
   } catch (error) {
     console.error("Error en validateSellerBusiness:", error);
     res.status(500).json({ ok: false, message: "Error al procesar validación" });
+  }
+};
+
+// ==================================================
+// 🏪 Obtener tiendas (vendedores) registradas (público)
+// ==================================================
+export const getSellers: RequestHandler = async (_req, res): Promise<void> => {
+  try {
+    const [rows]: any = await sequelize.query(`
+      SELECT 
+        id,
+        COALESCE(nombre_comercio, nombre, 'Tienda sin nombre') AS nombre,
+        logo AS logo_url,
+        descripcion,
+        departamento,
+        municipio,
+        "createdAt"
+      FROM vendedor_perfil
+      WHERE estado IS NULL OR estado != 'eliminado'
+      ORDER BY "createdAt" DESC
+      LIMIT 10
+    `);
+
+    res.json(rows ?? []);
+  } catch (error: any) {
+    console.error("Error al obtener tiendas:", error);
+    res.status(500).json({ message: "Error al obtener tiendas", error: error.message });
   }
 };

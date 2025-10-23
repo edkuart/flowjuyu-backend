@@ -1,5 +1,4 @@
 // src/models/VendedorPerfil.ts
-
 import { DataTypes, Model, Optional } from "sequelize";
 import { sequelize } from "../config/db";
 import { User } from "./user.model";
@@ -21,9 +20,9 @@ interface VendedorPerfilAttrs {
   foto_dpi_frente?: string | null;
   foto_dpi_reverso?: string | null;
   selfie_con_dpi?: string | null;
-  estado_validacion?: string | null;
+  estado_validacion?: "pendiente" | "aprobado" | "rechazado" | null;
   observaciones?: string | null;
-  estado?: string | null;
+  estado?: "activo" | "inactivo" | null;
   actualizado_en?: Date | null;
   createdAt?: Date;
   updatedAt?: Date;
@@ -68,9 +67,9 @@ export class VendedorPerfil extends Model<VendedorPerfilAttrs, Creation>
   public foto_dpi_frente?: string | null;
   public foto_dpi_reverso?: string | null;
   public selfie_con_dpi?: string | null;
-  public estado_validacion?: string | null;
+  public estado_validacion?: "pendiente" | "aprobado" | "rechazado" | null;
   public observaciones?: string | null;
-  public estado?: string | null;
+  public estado?: "activo" | "inactivo" | null;
   public actualizado_en?: Date | null;
   public readonly createdAt?: Date;
   public readonly updatedAt?: Date;
@@ -111,9 +110,17 @@ VendedorPerfil.init(
     foto_dpi_frente: { type: DataTypes.TEXT, allowNull: true },
     foto_dpi_reverso: { type: DataTypes.TEXT, allowNull: true },
     selfie_con_dpi: { type: DataTypes.TEXT, allowNull: true },
-    estado_validacion: { type: DataTypes.STRING(30), allowNull: true },
+    estado_validacion: {
+      type: DataTypes.STRING(30),
+      allowNull: true,
+      defaultValue: "pendiente",
+    },
     observaciones: { type: DataTypes.TEXT, allowNull: true },
-    estado: { type: DataTypes.STRING(30), allowNull: true },
+    estado: {
+      type: DataTypes.STRING(30),
+      allowNull: true,
+      defaultValue: "activo",
+    },
     actualizado_en: { type: DataTypes.DATE, allowNull: true },
     createdAt: { type: DataTypes.DATE, allowNull: true },
     updatedAt: { type: DataTypes.DATE, allowNull: true },
@@ -126,6 +133,7 @@ VendedorPerfil.init(
   },
 );
 
+// 🔗 Asociaciones
 User.hasOne(VendedorPerfil, {
   foreignKey: "user_id",
   as: "perfil",

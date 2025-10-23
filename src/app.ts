@@ -109,6 +109,11 @@ const healthz: RequestHandler = (_req: Request, res: Response): void => {
 app.get("/healthz", healthz);
 
 // ===========================
+// Obtencion de Vendedores
+// ===========================
+app.use("/api/vendedores", sellerRoutes);
+
+// ===========================
 // Rutas (se mantiene /api para no romper contratos actuales)
 // ===========================
 app.use("/api", authRoutes);
@@ -125,5 +130,6 @@ app.use((_req, res) => {
 // Manejo global de errores (siempre al final)
 // ===========================
 app.use(errorHandler);
+
 
 export default app;

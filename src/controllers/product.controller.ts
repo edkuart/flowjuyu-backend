@@ -1,5 +1,5 @@
-import { RequestHandler } from "express";
-import { sequelize } from "../config/db";
+import { Request, Response,RequestHandler } from "express";
+import {sequelize} from "../config/db";
 import multer from "multer";
 import supabase from "../lib/supabase";
 
@@ -19,15 +19,25 @@ export const uploadProductImages = multer({
 });
 
 // ===========================
-// GETs auxiliares
+// 📦 GETs auxiliares
 // ===========================
+
 export const getCategorias: RequestHandler = async (_req, res) => {
-  const [rows] = await sequelize.query(
-    `SELECT id, nombre FROM categorias ORDER BY nombre ASC`,
-  );
-  res.json(rows);
+  try {
+    const [rows]: any = await sequelize.query(`
+      SELECT id, nombre, imagen_url
+      FROM categorias
+      ORDER BY nombre ASC
+    `);
+
+    res.json(rows);
+  } catch (error: any) {
+    console.error("Error al obtener categorías:", error);
+    res.status(500).json({ message: "Error al obtener categorías" });
+  }
 };
 
+// ✅ Clases
 export const getClases: RequestHandler = async (_req, res) => {
   const [rows] = await sequelize.query(
     `SELECT id, nombre, alias FROM clases ORDER BY nombre ASC`,
@@ -35,6 +45,7 @@ export const getClases: RequestHandler = async (_req, res) => {
   res.json(rows);
 };
 
+// ✅ Regiones
 export const getRegiones: RequestHandler = async (_req, res) => {
   const [rows] = await sequelize.query(
     `SELECT id, nombre FROM regiones ORDER BY nombre ASC`,
@@ -42,6 +53,7 @@ export const getRegiones: RequestHandler = async (_req, res) => {
   res.json(rows);
 };
 
+// ✅ Telas
 export const getTelas: RequestHandler = async (req, res) => {
   const claseId = Number(req.query.clase_id);
   if (!claseId) {
@@ -55,6 +67,7 @@ export const getTelas: RequestHandler = async (req, res) => {
   res.json(rows);
 };
 
+// ✅ Accesorios
 export const getAccesorios: RequestHandler = async (req, res) => {
   try {
     const tipo = (req.query.tipo as string) || "normal";
@@ -74,6 +87,7 @@ export const getAccesorios: RequestHandler = async (req, res) => {
   }
 };
 
+// ✅ Tipos de accesorio
 export const getAccesorioTipos: RequestHandler = async (req, res) => {
   const accesorioId = Number(req.query.accesorio_id);
   if (!accesorioId) {
@@ -87,6 +101,7 @@ export const getAccesorioTipos: RequestHandler = async (req, res) => {
   res.json(rows);
 };
 
+// ✅ Materiales de accesorio
 export const getAccesorioMateriales: RequestHandler = async (req, res) => {
   const accesorioId = Number(req.query.accesorio_id);
   if (!accesorioId) {
@@ -352,5 +367,90 @@ export const toggleProductActive: RequestHandler = async (req, res) => {
     res
       .status(500)
       .json({ message: "Error al cambiar estado", error: String(e) });
+  }
+
+
+};
+
+// ==================================================
+// 🧩 Obtener productos por categoría (para /categorias/[slug])
+// ==================================================
+export const getProductsByCategory: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const { slug } = req.params;
+
+    // ✅ 1. Buscar la categoría según su nombre (slug)
+    const [categoriaRows]: any = await sequelize.query(
+      `
+        SELECT id, nombre, imagen_url
+        FROM categorias
+        WHERE LOWER(nombre) = LOWER(:slug)
+        LIMIT 1
+      `,
+      { replacements: { slug } }
+    );
+
+    // ⚠️ Si no existe la categoría
+    if (!categoriaRows || categoriaRows.length === 0) {
+      res.status(404).json({ message: "Categoría no encontrada" });
+      return;
+    }
+
+    const categoria = categoriaRows[0];
+
+    // ✅ 2. Obtener productos asociados a esa categoría
+    const [productos]: any = await sequelize.query(
+      `
+        SELECT 
+          id, 
+          nombre, 
+          precio, 
+          descripcion,
+          imagen_url, 
+          created_at
+        FROM productos
+        WHERE categoria_id = :catId
+          AND activo = true
+        ORDER BY created_at DESC
+      `,
+      { replacements: { catId: categoria.id } }
+    );
+
+    // ✅ 3. Enviar respuesta estructurada
+    res.json({
+      categoria,
+      productos,
+    });
+  } catch (error: any) {
+    console.error("Error al obtener productos por categoría:", error);
+    res.status(500).json({ message: "Error al obtener productos por categoría" });
+  }
+};
+
+
+
+// ==================================================
+// 🕒 Obtener productos nuevos 
+// ==================================================
+export const getNewProducts: RequestHandler = async (_req, res): Promise<void> => {
+  try {
+    const [rows]: any = await sequelize.query(`
+      SELECT 
+        id, 
+        nombre, 
+        precio, 
+        imagen_url, 
+        created_at
+      FROM productos
+      WHERE created_at >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '15 days'
+      AND activo = true
+      ORDER BY created_at DESC
+      LIMIT 20
+    `);
+
+    res.json(rows ?? []);
+  } catch (error: any) {
+    console.error("Error al obtener nuevos productos:", error);
+    res.status(500).json({ message: "Error al obtener nuevos productos" });
   }
 };
