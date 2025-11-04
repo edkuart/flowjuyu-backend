@@ -63,13 +63,23 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
     const user = (req as any).user || null;
     const { id } = req.params;
 
-    // Si viene un parámetro, lo usamos para mostrar el perfil público
+    // ✅ Validar que el parámetro id (si existe) sea numérico
+    if (id && isNaN(Number(id))) {
+      res.status(400).json({
+        ok: false,
+        message: "El parámetro 'id' debe ser numérico",
+      });
+      return;
+    }
+
+    // Si no viene id en params, usamos el id del usuario autenticado
     const targetId = id || user?.id;
     if (!targetId) {
       res.status(401).json({ ok: false, message: "Usuario no autenticado" });
       return;
     }
 
+    // 🔍 Buscar el perfil por user_id (numérico)
     const perfil = await VendedorPerfil.findOne({
       where: { user_id: targetId },
       include: [
@@ -86,7 +96,7 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
       return;
     }
 
-    // Si no es propietario, enviamos solo los datos públicos
+    // 🧩 Si no es propietario, devolvemos solo los datos públicos
     const esPropietario = user?.id === perfil.user_id;
     if (!esPropietario) {
       res.json({
@@ -100,7 +110,7 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
       return;
     }
 
-    // Si es propietario, devolvemos todo
+    // Si es propietario, devolvemos todo el perfil completo
     res.json(perfil);
   } catch (error) {
     console.error("Error en getSellerProfile:", error);

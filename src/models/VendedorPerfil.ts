@@ -7,7 +7,7 @@ interface VendedorPerfilAttrs {
   id: number;
   user_id: number;
   nombre: string;
-  correo: string;
+  email: string;
   telefono?: string | null;
   direccion?: string | null;
   logo?: string | null;
@@ -54,7 +54,7 @@ export class VendedorPerfil extends Model<VendedorPerfilAttrs, Creation>
   public id!: number;
   public user_id!: number;
   public nombre!: string;
-  public correo!: string;
+  public email!: string;
   public telefono?: string | null;
   public direccion?: string | null;
   public logo?: string | null;
@@ -91,11 +91,11 @@ VendedorPerfil.init(
       onDelete: "CASCADE",
     },
     nombre: { type: DataTypes.STRING(100), allowNull: false },
-    correo: {
+    email: {
       type: DataTypes.STRING(100),
       allowNull: false,
       set(value: string) {
-        this.setDataValue("correo", value?.toLowerCase().trim());
+        this.setDataValue("email", value?.toLowerCase().trim());
       },
     },
     telefono: { type: DataTypes.STRING(15), allowNull: true },
