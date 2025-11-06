@@ -4,6 +4,7 @@ import { VendedorPerfil } from "../models/VendedorPerfil";
 import { User } from "../models/user.model";
 import { sequelize } from "../config/db";
 import supabase from "../lib/supabase";
+import Product from "../models/product.model";
 import { v4 as uuidv4 } from "uuid";
 
 // ==============================
@@ -40,20 +41,37 @@ export const getSellerOrders = async (_req: Request, res: Response): Promise<voi
 };
 
 // ==============================
-// Productos del vendedor (pendiente)
+// Productos del vendedor autenticado
 // ==============================
-export const getSellerProducts = async (_req: Request, res: Response): Promise<void> => {
+ 
+export const getSellerProducts: RequestHandler = async (req, res) => {
   try {
-    res.json({
-      ok: true,
-      message: "Productos del vendedor (pendiente de implementar)",
-      data: [],
-    });
-  } catch (error) {
-    console.error("Error en getSellerProducts:", error);
-    res.status(500).json({ ok: false, message: "Error al obtener productos" });
+    const u: any = (req as any).user
+    console.log("🧠 Usuario autenticado:", u)
+
+    if (!u?.id) {
+      res.status(401).json({ message: "No autenticado" })
+      return
+    }
+
+    const [rows] = await sequelize.query(
+      `SELECT id, nombre, precio, stock, activo, imagen_url
+       FROM productos
+       WHERE vendedor_id = :vid
+       ORDER BY created_at DESC`,
+      { replacements: { vid: u.id } }
+    )
+
+    console.log("✅ Productos encontrados:", rows)
+    res.json(rows)
+  } catch (e) {
+    console.error("❌ Error en getSellerProducts:", e)
+    res
+      .status(500)
+      .json({ message: "Error al obtener productos", error: String(e) })
   }
-};
+}
+
 
 // ==============================
 // 🔹 Obtener perfil del vendedor autenticado

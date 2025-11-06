@@ -1,13 +1,8 @@
-// src/routes/auth.routes.ts
 import { Router } from "express";
-
-// ✅ Controladores
 import * as Auth from "../controllers/auth.controller";
-
-// ✅ Middleware de subida (centralizado)
 import { uploadVendedorDocs } from "../middleware/upload.middleware";
 
-// ✅ Router explícito
+//  Router explícito
 const router: Router = Router();
 
 // ===========================

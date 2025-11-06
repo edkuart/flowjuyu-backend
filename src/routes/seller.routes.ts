@@ -51,6 +51,7 @@ router.patch("/", verifyToken(), requireRole("seller"), upload.single("logo"), u
 // ✅ Enviar documentos para validación (DPI, selfie, registro)
 router.post("/validar", verifyToken(), requireRole("seller"), validateSellerBusiness);
 
+
 // =======================================
 // 🌍 Rutas públicas (buyers y visitantes)
 // =======================================
