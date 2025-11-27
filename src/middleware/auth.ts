@@ -28,18 +28,23 @@ function getBearerToken(req: Request): string | null {
 function normalizeRoles(payload: DecodedLegacyToken): Rol[] {
   const roles = new Set<Rol>();
 
-  // Cargar roles del token
+  // Extraer roles del token
   if (Array.isArray(payload.roles)) {
     payload.roles.forEach((r) => roles.add(r));
   } else if (payload.rol) {
     roles.add(payload.rol);
   }
 
-  // 🔄 Normalizar inglés ↔ español
+  // Normalizar equivalencias inglés ↔ español
   const normalized = Array.from(roles).map((r) => {
-    if (r === "seller") return "vendedor";
-    if (r === "buyer") return "comprador";
-    return r;
+    switch (r) {
+      case "seller":
+        return "vendedor";
+      case "buyer":
+        return "comprador";
+      default:
+        return r.toLowerCase() as Rol;
+    }
   });
 
   return normalized as Rol[];
@@ -67,6 +72,7 @@ export const verifyToken = (roles: Rol[] = []): RequestHandler => {
   return (req: Request, res: Response, next: NextFunction): void => {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
+      console.error("❌ JWT_SECRET no configurado");
       res.status(500).json({ message: "JWT no configurado" });
       return;
     }
@@ -76,8 +82,7 @@ export const verifyToken = (roles: Rol[] = []): RequestHandler => {
       const session = readUserFromSession(req);
       if (session?.id) {
         (req as any).user = session;
-        next();
-        return;
+        return next();
       }
       res.status(401).json({ message: "Token no proporcionado" });
       return;
@@ -95,28 +100,38 @@ export const verifyToken = (roles: Rol[] = []): RequestHandler => {
       const userId = getUserId(decoded);
 
       if (!userId) {
-        res.status(401).json({ message: "Token inválido (sin subject)" });
+        res.status(401).json({ message: "Token inválido (sin ID de usuario)" });
         return;
       }
 
       const userRoles = normalizeRoles(decoded);
       const hasRole =
-        roles.length === 0 || userRoles.some((r) => roles.includes(r));
+        roles.length === 0 ||
+        userRoles.some((r) =>
+          roles.includes(r) ||
+          (r === "vendedor" && roles.includes("seller")) ||
+          (r === "seller" && roles.includes("vendedor")) ||
+          (r === "comprador" && roles.includes("buyer")) ||
+          (r === "buyer" && roles.includes("comprador"))
+        );
 
       if (!hasRole) {
+        console.warn(`🚫 Acceso denegado. Roles requeridos: ${roles.join(", ")} / Usuario: ${userRoles.join(", ")}`);
         res.status(403).json({ message: "Acceso denegado por rol" });
         return;
       }
 
+      // ✅ Guardar datos del usuario en req.user
       (req as any).user = {
         id: userId,
         correo: decoded.correo,
+        rol: decoded.rol || userRoles[0],
         roles: userRoles,
       };
 
       next();
     } catch (err) {
-      console.error("Error al verificar token:", err);
+      console.error("❌ Error al verificar token:", err);
       res.status(401).json({ message: "Token inválido o expirado" });
     }
   };

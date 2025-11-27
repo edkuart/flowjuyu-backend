@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from "uuid";
 // ==============================
 // Dashboard general del vendedor
 // ==============================
-export const getSellerDashboard = async (req: Request, res: Response): Promise<void> => {
+export const getSellerDashboard: RequestHandler = async (req, res) => {
   try {
     const user = (req as any).user;
     res.json({
@@ -26,7 +26,7 @@ export const getSellerDashboard = async (req: Request, res: Response): Promise<v
 // ==============================
 // Pedidos del vendedor (pendiente)
 // ==============================
-export const getSellerOrders = async (_req: Request, res: Response): Promise<void> => {
+export const getSellerOrders: RequestHandler = async (_req, res) => {
   try {
     res.json({
       ok: true,
@@ -42,7 +42,7 @@ export const getSellerOrders = async (_req: Request, res: Response): Promise<voi
 // ==============================
 // Productos del vendedor (pendiente)
 // ==============================
-export const getSellerProducts = async (_req: Request, res: Response): Promise<void> => {
+export const getSellerProducts: RequestHandler = async (_req, res) => {
   try {
     res.json({
       ok: true,
@@ -56,40 +56,30 @@ export const getSellerProducts = async (_req: Request, res: Response): Promise<v
 };
 
 // ==============================
-// 🔹 Obtener perfil del vendedor autenticado
+// 🔹 Obtener perfil del vendedor (autenticado o público)
 // ==============================
-export const getSellerProfile: RequestHandler = async (req, res): Promise<void> => {
+export const getSellerProfile = async (req: Request, res: Response) => {
   try {
     const user = (req as any).user || null;
     const { id } = req.params;
 
-    // Si viene un parámetro, lo usamos para mostrar el perfil público
     const targetId = id || user?.id;
     if (!targetId) {
-      res.status(401).json({ ok: false, message: "Usuario no autenticado" });
-      return;
+      return res.status(401).json({ ok: false, message: "Usuario no autenticado" });
     }
 
     const perfil = await VendedorPerfil.findOne({
       where: { user_id: targetId },
-      include: [
-        {
-          model: User,
-          as: "user",
-          attributes: ["id", "nombre", "correo", "rol"],
-        },
-      ],
+      include: [{ model: User, as: "user", attributes: ["id", "nombre", "correo", "rol"] }],
     });
 
     if (!perfil) {
-      res.status(404).json({ ok: false, message: "Perfil no encontrado" });
-      return;
+      return res.status(404).json({ ok: false, message: "Perfil no encontrado" });
     }
 
-    // Si no es propietario, enviamos solo los datos públicos
-    const esPropietario = user?.id === perfil.user_id;
+    const esPropietario = Number(user?.id) === Number(perfil.user_id);
     if (!esPropietario) {
-      res.json({
+      return res.json({
         id: perfil.id,
         nombre_comercio: perfil.nombre_comercio,
         descripcion: perfil.descripcion,
@@ -97,10 +87,8 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
         departamento: perfil.departamento,
         municipio: perfil.municipio,
       });
-      return;
     }
 
-    // Si es propietario, devolvemos todo
     res.json(perfil);
   } catch (error) {
     console.error("Error en getSellerProfile:", error);
@@ -111,23 +99,41 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
 // ==============================
 // 🔹 Actualizar perfil del vendedor autenticado
 // ==============================
-export const updateSellerProfile: RequestHandler = async (req, res): Promise<void> => {
+export const updateSellerProfile = async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     if (!user?.id) {
-      res.status(401).json({ ok: false, message: "No autorizado" });
-      return;
+      return res.status(401).json({ ok: false, message: "No autorizado" });
     }
 
     const perfil = await VendedorPerfil.findOne({ where: { user_id: user.id } });
     if (!perfil) {
-      res.status(404).json({ ok: false, message: "Perfil no encontrado" });
-      return;
+      return res.status(404).json({ ok: false, message: "Perfil no encontrado" });
     }
 
-    // 🧩 Subida de logo opcional
+    // 🧩 Manejo de logo (subida, reemplazo o eliminación)
     let logoUrl = perfil.logo;
+
+    // Eliminar logo
+    if (req.body.logo === null || req.body.logo === "null") {
+      if (perfil.logo) {
+        const prevFile = perfil.logo.split("/").pop();
+        if (prevFile) {
+          await supabase.storage.from("vendedores").remove([`vendedores/${prevFile}`]);
+        }
+      }
+      logoUrl = null;
+    }
+
+    // Subir nuevo logo
     if (req.file) {
+      if (perfil.logo) {
+        const prevFile = perfil.logo.split("/").pop();
+        if (prevFile) {
+          await supabase.storage.from("vendedores").remove([`vendedores/${prevFile}`]);
+        }
+      }
+
       const fileExt = req.file.originalname.split(".").pop();
       const fileName = `vendedores/${uuidv4()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage
@@ -142,8 +148,8 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
       logoUrl = publicUrl.publicUrl;
     }
 
-    // 🧩 Campos a actualizar
-    const fieldsToUpdate = {
+    // 🧩 Campos actualizables
+    const fields = {
       nombre_comercio: req.body.nombre_comercio ?? perfil.nombre_comercio,
       descripcion: req.body.descripcion ?? perfil.descripcion,
       telefono_comercio: req.body.telefono_comercio ?? perfil.telefono_comercio,
@@ -154,25 +160,20 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
       updatedAt: new Date(),
     };
 
-    await VendedorPerfil.update(fieldsToUpdate, { where: { user_id: user.id } });
+    await VendedorPerfil.update(fields, { where: { user_id: user.id } });
+    const actualizado = await VendedorPerfil.findOne({ where: { user_id: user.id } });
 
-    const updatedPerfil = await VendedorPerfil.findOne({ where: { user_id: user.id } });
-
-    res.json({
-      ok: true,
-      message: "Perfil actualizado correctamente",
-      perfil: updatedPerfil,
-    });
-  } catch (error) {
-    console.error("Error en updateSellerProfile:", error);
-    res.status(500).json({ ok: false, message: "Error al actualizar perfil" });
+    res.json({ ok: true, message: "Perfil actualizado correctamente", perfil: actualizado });
+  } catch (error: any) {
+    console.error("❌ Error en updateSellerProfile:", error.message);
+    res.status(500).json({ ok: false, message: "Error al actualizar perfil", error: error.message });
   }
 };
 
 // ==============================
 // Validación de comercio (pendiente)
 // ==============================
-export const validateSellerBusiness = async (_req: Request, res: Response): Promise<void> => {
+export const validateSellerBusiness: RequestHandler = async (_req, res) => {
   try {
     res.json({
       ok: true,
@@ -187,7 +188,7 @@ export const validateSellerBusiness = async (_req: Request, res: Response): Prom
 // ==================================================
 // 🏪 Obtener tiendas (vendedores) registradas (público)
 // ==================================================
-export const getSellers: RequestHandler = async (_req, res): Promise<void> => {
+export const getSellers: RequestHandler = async (_req, res) => {
   try {
     const [rows]: any = await sequelize.query(`
       SELECT 

@@ -1,26 +1,18 @@
-// src/routes/seller.routes.ts
 import { Router } from "express";
 import multer from "multer";
 import { verifyToken, requireRole } from "../middleware/auth";
-import {
-  getSellerDashboard,
-  getSellerProducts,
-  getSellerOrders,
-  getSellerProfile,
-  updateSellerProfile,
-  validateSellerBusiness,
-  getSellers,
-} from "../controllers/seller.controller";
+import * as SellerController from "../controllers/seller.controller";
+import asyncHandler from "../utils/asyncHandler";
 
-const router: Router = Router();
+const router = Router();
 
-// =======================================
-// 🧩 Configuración de Multer (para logo)
-// =======================================
+// ===========================
+// 🧩 Configuración de Multer
+// ===========================
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // Máx 5MB
+  limits: { fileSize: 5 * 1024 * 1024 }, // máx 5MB
   fileFilter: (_req, file, cb) => {
     if (!/^image\/(png|jpe?g|webp|avif)$/.test(file.mimetype)) {
       return cb(new Error("Solo se permiten imágenes (png, jpg, webp, avif)"));
@@ -29,35 +21,70 @@ const upload = multer({
   },
 });
 
-// =======================================
-// 🔐 Rutas privadas (vendedor autenticado)
-// =======================================
+// ==================================================
+// 🔐 Rutas privadas (solo vendedores autenticados)
+// ==================================================
 
-// Dashboard del vendedor autenticado
-router.get("/dashboard", verifyToken(), requireRole("seller"), getSellerDashboard);
+// 📊 Dashboard general del vendedor
+router.get(
+  "/dashboard",
+  verifyToken(["seller", "vendedor"]),
+  requireRole("seller", "vendedor"),
+  asyncHandler(SellerController.getSellerDashboard)
+);
 
-// Productos del vendedor autenticado
-router.get("/products", verifyToken(), requireRole("seller"), getSellerProducts);
+// 📦 Listado de productos del vendedor
+router.get(
+  "/products",
+  verifyToken(["seller", "vendedor"]),
+  requireRole("seller", "vendedor"),
+  asyncHandler(SellerController.getSellerProducts)
+);
 
-// Pedidos del vendedor autenticado
-router.get("/orders", verifyToken(), requireRole("seller"), getSellerOrders);
+// 🧾 Pedidos del vendedor
+router.get(
+  "/orders",
+  verifyToken(["seller", "vendedor"]),
+  requireRole("seller", "vendedor"),
+  asyncHandler(SellerController.getSellerOrders)
+);
 
-// ✅ Obtener perfil del vendedor autenticado
-router.get("/", verifyToken(), requireRole("seller"), getSellerProfile);
+// 👤 Obtener perfil del vendedor autenticado
+router.get(
+  "/profile",
+  verifyToken(["seller", "vendedor"]),
+  requireRole("seller", "vendedor"),
+  asyncHandler(SellerController.getSellerProfile)
+);
 
-// ✅ Actualizar perfil + subida de logo (PATCH)
-router.patch("/", verifyToken(), requireRole("seller"), upload.single("logo"), updateSellerProfile);
+// ✏️ Actualizar perfil (con subida o eliminación de logo)
+router.patch(
+  "/profile",
+  verifyToken(["seller", "vendedor"]),
+  requireRole("seller", "vendedor"),
+  upload.single("logo"),
+  asyncHandler(SellerController.updateSellerProfile)
+);
 
-// ✅ Enviar documentos para validación
-router.post("/validar", verifyToken(), requireRole("seller"), validateSellerBusiness);
+// 🧾 Enviar documentos para validación
+router.post(
+  "/validar",
+  verifyToken(["seller", "vendedor"]),
+  requireRole("seller", "vendedor"),
+  asyncHandler(SellerController.validateSellerBusiness)
+);
 
-// =======================================
-// 🌍 Rutas públicas (buyers y visitantes)
-// =======================================
+// ==================================================
+// 🌍 Rutas públicas (buyers / visitantes)
+// ==================================================
 
-// 🔹 Obtener lista de tiendas registradas (máx. 10)
-router.get("/tiendas", getSellers);
+// 🏪 Listado público de tiendas/vendedores
+router.get("/tiendas", asyncHandler(SellerController.getSellers));
 
-router.get("/:id", getSellerProfile);
+// 👁️ Perfil público de un vendedor (por ID)
+router.get("/:id", asyncHandler(SellerController.getSellerProfile));
 
+// ==================================================
+// ✅ Exportación por defecto
+// ==================================================
 export default router;

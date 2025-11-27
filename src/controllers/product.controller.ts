@@ -1,10 +1,12 @@
-import { Request, Response,RequestHandler } from "express";
-import {sequelize} from "../config/db";
+import { Request, Response } from "express";
+import { sequelize } from "../config/db";
 import multer from "multer";
 import supabase from "../lib/supabase";
+import Product from "../models/product.model";
+import { Op } from "sequelize";
 
 // ===========================
-// Configuración de Multer (en memoria)
+// Multer config (imágenes producto)
 // ===========================
 const storage = multer.memoryStorage();
 const fileFilter: multer.Options["fileFilter"] = (_req, file, cb) =>
@@ -19,10 +21,9 @@ export const uploadProductImages = multer({
 });
 
 // ===========================
-// 📦 GETs auxiliares
+// Catálogos públicos
 // ===========================
-
-export const getCategorias: RequestHandler = async (_req, res) => {
+export const getCategorias = async (_req: Request, res: Response): Promise<void> => {
   try {
     const [rows]: any = await sequelize.query(`
       SELECT id, nombre, imagen_url
@@ -37,41 +38,57 @@ export const getCategorias: RequestHandler = async (_req, res) => {
   }
 };
 
-// ✅ Clases
-export const getClases: RequestHandler = async (_req, res) => {
-  const [rows] = await sequelize.query(
-    `SELECT id, nombre, alias FROM clases ORDER BY nombre ASC`,
-  );
-  res.json(rows);
+export const getClases = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const [rows]: any = await sequelize.query(
+      `SELECT id, nombre, alias FROM clases ORDER BY nombre ASC`
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Error al obtener clases:", error);
+    res.status(500).json({ message: "Error al obtener clases" });
+  }
 };
 
-// ✅ Regiones
-export const getRegiones: RequestHandler = async (_req, res) => {
-  const [rows] = await sequelize.query(
-    `SELECT id, nombre FROM regiones ORDER BY nombre ASC`,
-  );
-  res.json(rows);
+// Regiones (compatibilidad, aunque ya no sea el modelo final)
+export const getRegiones = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const [rows]: any = await sequelize.query(
+      `SELECT id, nombre FROM regiones ORDER BY nombre ASC`
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Error al obtener regiones:", error);
+    res.status(500).json({ message: "Error al obtener regiones" });
+  }
 };
 
-// ✅ Telas
-export const getTelas: RequestHandler = async (req, res) => {
+export const getTelas = async (req: Request, res: Response): Promise<void> => {
   const claseId = Number(req.query.clase_id);
   if (!claseId) {
     res.status(400).json({ message: "clase_id requerido" });
     return;
   }
-  const [rows] = await sequelize.query(
-    `SELECT id, nombre FROM telas WHERE clase_id = :claseId ORDER BY nombre ASC`,
-    { replacements: { claseId } },
-  );
-  res.json(rows);
+
+  try {
+    const [rows]: any = await sequelize.query(
+      `SELECT id, nombre FROM telas WHERE clase_id = :claseId ORDER BY nombre ASC`,
+      { replacements: { claseId } },
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Error al obtener telas:", error);
+    res.status(500).json({ message: "Error al obtener telas" });
+  }
 };
 
-// ✅ Accesorios
-export const getAccesorios: RequestHandler = async (req, res) => {
+// ===========================
+// Taxonomía de accesorios
+// ===========================
+export const getAccesorios = async (req: Request, res: Response): Promise<void> => {
   try {
     const tipo = (req.query.tipo as string) || "normal";
-    const [rows] = await sequelize.query(
+    const [rows]: any = await sequelize.query(
       `SELECT id, nombre, categoria_tipo
        FROM accesorios
        WHERE categoria_tipo = :tipo
@@ -87,49 +104,65 @@ export const getAccesorios: RequestHandler = async (req, res) => {
   }
 };
 
-// ✅ Tipos de accesorio
-export const getAccesorioTipos: RequestHandler = async (req, res) => {
+export const getAccesorioTipos = async (req: Request, res: Response): Promise<void> => {
   const accesorioId = Number(req.query.accesorio_id);
   if (!accesorioId) {
     res.status(400).json({ message: "accesorio_id requerido" });
     return;
   }
-  const [rows] = await sequelize.query(
-    `SELECT id, nombre FROM accesorio_tipos WHERE accesorio_id = :accesorioId ORDER BY nombre ASC`,
-    { replacements: { accesorioId } },
-  );
-  res.json(rows);
+
+  try {
+    const [rows]: any = await sequelize.query(
+      `SELECT id, nombre FROM accesorio_tipos WHERE accesorio_id = :accesorioId ORDER BY nombre ASC`,
+      { replacements: { accesorioId } },
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Error al obtener tipos de accesorio:", error);
+    res.status(500).json({ message: "Error al obtener tipos de accesorio" });
+  }
 };
 
-// ✅ Materiales de accesorio
-export const getAccesorioMateriales: RequestHandler = async (req, res) => {
+export const getAccesorioMateriales = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   const accesorioId = Number(req.query.accesorio_id);
   if (!accesorioId) {
     res.status(400).json({ message: "accesorio_id requerido" });
     return;
   }
-  const [rows] = await sequelize.query(
-    `SELECT id, nombre FROM accesorio_materiales WHERE accesorio_id = :accesorioId ORDER BY nombre ASC`,
-    { replacements: { accesorioId } },
-  );
-  res.json(rows);
+
+  try {
+    const [rows]: any = await sequelize.query(
+      `SELECT id, nombre FROM accesorio_materiales WHERE accesorio_id = :accesorioId ORDER BY nombre ASC`,
+      { replacements: { accesorioId } },
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Error al obtener materiales de accesorio:", error);
+    res
+      .status(500)
+      .json({ message: "Error al obtener materiales de accesorio" });
+  }
 };
 
 // ===========================
-// Crear producto (con Supabase Storage)
+// CREAR PRODUCTO
 // ===========================
-export const createProduct: RequestHandler = async (req, res) => {
+export const createProduct = async (req: Request, res: Response): Promise<void> => {
   try {
     const u: any = (req as any).user;
     const b = req.body as any;
 
-    if (!b.nombre || !b.descripcion || !b.precio || !b.stock) {
+    if (!b.nombre || !b.precio || !b.stock) {
       res.status(400).json({ message: "Campos obligatorios faltantes" });
       return;
     }
 
     const precio = Number(b.precio);
     const stock = Number(b.stock);
+
     if (!Number.isFinite(precio) || precio <= 0) {
       res.status(400).json({ message: "Precio inválido" });
       return;
@@ -139,12 +172,15 @@ export const createProduct: RequestHandler = async (req, res) => {
       return;
     }
 
-    // 📤 Subir imágenes a Supabase
+    // Subir imágenes a Supabase
     const files = (req.files as Express.Multer.File[]) || [];
     const urls: string[] = [];
 
     for (const f of files) {
-      const filename = `products/${Date.now()}-${Math.round(Math.random() * 1e9)}-${f.originalname}`;
+      const filename = `products/${Date.now()}-${Math.round(
+        Math.random() * 1e9,
+      )}-${f.originalname}`;
+
       const { error } = await supabase.storage
         .from("productos")
         .upload(filename, f.buffer, { contentType: f.mimetype });
@@ -158,33 +194,75 @@ export const createProduct: RequestHandler = async (req, res) => {
 
     const primera = urls[0] ?? null;
 
+    // Insert
     const [inserted]: any = await sequelize.query(
       `INSERT INTO productos (
         vendedor_id, nombre, descripcion, precio, stock,
-        categoria_id, clase_id, tela_id, region_id,
-        accesorio_id, accesorio_custom,
-        accesorio_tipo_id, accesorio_tipo_custom,
-        accesorio_material_id, accesorio_material_custom,
+
+        categoria_id,
+        categoria_custom,
+
+        clase_id,
+        tela_id,
+        tela_custom,
+
+        departamento,
+        municipio,
+        departamento_custom,
+        municipio_custom,
+
+        accesorio_id,
+        accesorio_custom,
+        accesorio_tipo_id,
+        accesorio_tipo_custom,
+        accesorio_material_id,
+        accesorio_material_custom,
+
         imagen_url, activo, created_at, updated_at
       ) VALUES (
         :vendedor_id, :nombre, :descripcion, :precio, :stock,
-        :categoria_id, :clase_id, :tela_id, :region_id,
-        :accesorio_id, :accesorio_custom,
-        :accesorio_tipo_id, :accesorio_tipo_custom,
-        :accesorio_material_id, :accesorio_material_custom,
+
+        :categoria_id,
+        :categoria_custom,
+
+        :clase_id,
+        :tela_id,
+        :tela_custom,
+
+        :departamento,
+        :municipio,
+        :departamento_custom,
+        :municipio_custom,
+
+        :accesorio_id,
+        :accesorio_custom,
+        :accesorio_tipo_id,
+        :accesorio_tipo_custom,
+        :accesorio_material_id,
+        :accesorio_material_custom,
+
         :imagen_url, :activo, now(), now()
       ) RETURNING id`,
       {
         replacements: {
           vendedor_id: u?.id ?? null,
           nombre: b.nombre,
-          descripcion: b.descripcion,
+          descripcion: b.descripcion || null,
           precio,
           stock,
+
           categoria_id: b.categoria_id ? Number(b.categoria_id) : null,
+          categoria_custom: b.categoria_custom || null,
+
           clase_id: b.clase_id ? Number(b.clase_id) : null,
           tela_id: b.tela_id ? Number(b.tela_id) : null,
-          region_id: b.region_id ? Number(b.region_id) : null,
+          tela_custom: b.tela_custom || null,
+
+          departamento: b.departamento || null,
+          municipio: b.municipio || null,
+          departamento_custom: b.departamento_custom || null,
+          municipio_custom: b.municipio_custom || null,
+
           accesorio_id: b.accesorio_id ? Number(b.accesorio_id) : null,
           accesorio_custom: b.accesorio_custom || null,
           accesorio_tipo_id: b.accesorio_tipo_id
@@ -195,6 +273,7 @@ export const createProduct: RequestHandler = async (req, res) => {
             ? Number(b.accesorio_material_id)
             : null,
           accesorio_material_custom: b.accesorio_material_custom || null,
+
           imagen_url: primera,
           activo: b.activo === "true" || b.activo === true,
         },
@@ -211,9 +290,12 @@ export const createProduct: RequestHandler = async (req, res) => {
 };
 
 // ===========================
-// Listar productos del vendedor
+// Productos del vendedor
 // ===========================
-export const getSellerProducts: RequestHandler = async (req, res) => {
+export const getSellerProducts = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const u: any = (req as any).user;
     if (!u?.id) {
@@ -221,7 +303,7 @@ export const getSellerProducts: RequestHandler = async (req, res) => {
       return;
     }
 
-    const [rows] = await sequelize.query(
+    const [rows]: any = await sequelize.query(
       `SELECT id, nombre, precio, stock, activo, imagen_url
        FROM productos
        WHERE vendedor_id = :vid
@@ -240,18 +322,21 @@ export const getSellerProducts: RequestHandler = async (req, res) => {
 // ===========================
 // Obtener producto por ID
 // ===========================
-export const getProductById: RequestHandler = async (req, res) => {
+export const getProductById = async (req: Request, res: Response): Promise<void> => {
   try {
     const u: any = (req as any).user;
     const { id } = req.params;
+
     const [rows]: any = await sequelize.query(
       `SELECT * FROM productos WHERE id = :id AND vendedor_id = :vid`,
       { replacements: { id, vid: u.id } },
     );
+
     if (!rows || rows.length === 0) {
       res.status(404).json({ message: "Producto no encontrado" });
       return;
     }
+
     res.json(rows[0]);
   } catch (e) {
     console.error("Error en getProductById:", e);
@@ -264,39 +349,128 @@ export const getProductById: RequestHandler = async (req, res) => {
 // ===========================
 // Actualizar producto
 // ===========================
-export const updateProduct: RequestHandler = async (req, res) => {
+export const updateProduct = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const u: any = (req as any).user;
     const { id } = req.params;
     const b = req.body as any;
 
+    // 1) Verificar que el producto pertenece al vendedor
     const [rows]: any = await sequelize.query(
       `SELECT id FROM productos WHERE id = :id AND vendedor_id = :vid`,
       { replacements: { id, vid: u.id } },
     );
+
     if (!rows || rows.length === 0) {
       res.status(404).json({ message: "Producto no encontrado" });
       return;
     }
 
+    // 2) Validaciones básicas (igual que en createProduct)
+    if (!b.nombre || !b.precio || !b.stock) {
+      res.status(400).json({ message: "Campos obligatorios faltantes" });
+      return;
+    }
+
+    const precio = Number(b.precio);
+    const stock = Number(b.stock);
+
+    if (!Number.isFinite(precio) || precio <= 0) {
+      res.status(400).json({ message: "Precio inválido" });
+      return;
+    }
+
+    if (!Number.isInteger(stock) || stock < 0) {
+      res.status(400).json({ message: "Stock inválido" });
+      return;
+    }
+
+    // 3) Normalizar boolean activo
+    const activo =
+      b.activo === "true" || b.activo === true || b.activo === 1 || b.activo === "1";
+
+    // 4) UPDATE con todos los campos "extendidos"
     await sequelize.query(
       `UPDATE productos
-       SET nombre = :nombre, descripcion = :descripcion,
-           precio = :precio, stock = :stock, activo = :activo,
-           updated_at = now()
+       SET
+         nombre               = :nombre,
+         descripcion          = :descripcion,
+         precio               = :precio,
+         stock                = :stock,
+
+         -- categoría principal
+         categoria_id         = :categoria_id,
+         categoria_custom     = :categoria_custom,
+
+         -- subcategorías de textiles
+         clase_id             = :clase_id,
+         tela_id              = :tela_id,
+         tela_custom          = :tela_custom,
+
+         -- origen (ubicación)
+         departamento         = :departamento,
+         municipio            = :municipio,
+         departamento_custom  = :departamento_custom,
+         municipio_custom     = :municipio_custom,
+
+         -- subcategorías de accesorios
+         accesorio_id             = :accesorio_id,
+         accesorio_custom         = :accesorio_custom,
+         accesorio_tipo_id        = :accesorio_tipo_id,
+         accesorio_tipo_custom    = :accesorio_tipo_custom,
+         accesorio_material_id    = :accesorio_material_id,
+         accesorio_material_custom= :accesorio_material_custom,
+
+         -- estado
+         activo              = :activo,
+         updated_at          = now()
        WHERE id = :id AND vendedor_id = :vid`,
       {
         replacements: {
           id,
           vid: u.id,
+
           nombre: b.nombre,
           descripcion: b.descripcion || null,
-          precio: Number(b.precio),
-          stock: Number(b.stock),
-          activo: b.activo === "true" || b.activo === true,
+          precio,
+          stock,
+
+          // categoría principal
+          categoria_id: b.categoria_id ? Number(b.categoria_id) : null,
+          categoria_custom: b.categoria_custom || null,
+
+          // subcategorías textiles
+          clase_id: b.clase_id ? Number(b.clase_id) : null,
+          tela_id: b.tela_id ? Number(b.tela_id) : null,
+          tela_custom: b.tela_custom || null,
+
+          // origen
+          departamento: b.departamento || null,
+          municipio: b.municipio || null,
+          departamento_custom: b.departamento_custom || null,
+          municipio_custom: b.municipio_custom || null,
+
+          // accesorios
+          accesorio_id: b.accesorio_id ? Number(b.accesorio_id) : null,
+          accesorio_custom: b.accesorio_custom || null,
+          accesorio_tipo_id: b.accesorio_tipo_id
+            ? Number(b.accesorio_tipo_id)
+            : null,
+          accesorio_tipo_custom: b.accesorio_tipo_custom || null,
+          accesorio_material_id: b.accesorio_material_id
+            ? Number(b.accesorio_material_id)
+            : null,
+          accesorio_material_custom: b.accesorio_material_custom || null,
+
+          // estado
+          activo,
         },
       },
     );
+
     res.json({ message: "Producto actualizado correctamente" });
   } catch (e) {
     console.error("Error en updateProduct:", e);
@@ -309,7 +483,7 @@ export const updateProduct: RequestHandler = async (req, res) => {
 // ===========================
 // Eliminar producto
 // ===========================
-export const deleteProduct: RequestHandler = async (req, res) => {
+export const deleteProduct = async (req: Request, res: Response): Promise<void> => {
   try {
     const u: any = (req as any).user;
     const { id } = req.params;
@@ -339,9 +513,12 @@ export const deleteProduct: RequestHandler = async (req, res) => {
 };
 
 // ===========================
-// Activar / Desactivar producto
+// Activar / desactivar producto
 // ===========================
-export const toggleProductActive: RequestHandler = async (req, res) => {
+export const toggleProductActive = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const u: any = (req as any).user;
     const { id } = req.params;
@@ -361,25 +538,25 @@ export const toggleProductActive: RequestHandler = async (req, res) => {
        WHERE id = :id AND vendedor_id = :vid`,
       { replacements: { id, vid: u.id, activo: Boolean(activo) } },
     );
-    res.json({ message: "Estado actualizado", activo });
+    res.json({ message: "Estado actualizado", activo: Boolean(activo) });
   } catch (e) {
     console.error("Error en toggleProductActive:", e);
     res
       .status(500)
       .json({ message: "Error al cambiar estado", error: String(e) });
   }
-
-
 };
 
-// ==================================================
-// 🧩 Obtener productos por categoría (para /categorias/[slug])
-// ==================================================
-export const getProductsByCategory: RequestHandler = async (req, res): Promise<void> => {
+// ===========================
+// Productos por categoría (slug)
+// ===========================
+export const getProductsByCategory = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const { slug } = req.params;
 
-    // ✅ 1. Buscar la categoría según su nombre (slug)
     const [categoriaRows]: any = await sequelize.query(
       `
         SELECT id, nombre, imagen_url
@@ -387,10 +564,9 @@ export const getProductsByCategory: RequestHandler = async (req, res): Promise<v
         WHERE LOWER(nombre) = LOWER(:slug)
         LIMIT 1
       `,
-      { replacements: { slug } }
+      { replacements: { slug } },
     );
 
-    // ⚠️ Si no existe la categoría
     if (!categoriaRows || categoriaRows.length === 0) {
       res.status(404).json({ message: "Categoría no encontrada" });
       return;
@@ -398,49 +574,37 @@ export const getProductsByCategory: RequestHandler = async (req, res): Promise<v
 
     const categoria = categoriaRows[0];
 
-    // ✅ 2. Obtener productos asociados a esa categoría
     const [productos]: any = await sequelize.query(
       `
         SELECT 
-          id, 
-          nombre, 
-          precio, 
-          descripcion,
-          imagen_url, 
-          created_at
+          id, nombre, precio, descripcion,
+          imagen_url, created_at
         FROM productos
         WHERE categoria_id = :catId
           AND activo = true
         ORDER BY created_at DESC
       `,
-      { replacements: { catId: categoria.id } }
+      { replacements: { catId: categoria.id } },
     );
 
-    // ✅ 3. Enviar respuesta estructurada
-    res.json({
-      categoria,
-      productos,
-    });
+    res.json({ categoria, productos });
   } catch (error: any) {
     console.error("Error al obtener productos por categoría:", error);
-    res.status(500).json({ message: "Error al obtener productos por categoría" });
+    res.status(500).json({
+      message: "Error al obtener productos por categoría",
+    });
   }
 };
 
-
-
-// ==================================================
-// 🕒 Obtener productos nuevos 
-// ==================================================
-export const getNewProducts: RequestHandler = async (_req, res): Promise<void> => {
+// ===========================
+// Productos nuevos
+// ===========================
+export const getNewProducts = async (_req: Request, res: Response): Promise<void> => {
   try {
     const [rows]: any = await sequelize.query(`
       SELECT 
-        id, 
-        nombre, 
-        precio, 
-        imagen_url, 
-        created_at
+        id, nombre, precio,
+        imagen_url, created_at
       FROM productos
       WHERE created_at >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '15 days'
       AND activo = true
@@ -452,5 +616,225 @@ export const getNewProducts: RequestHandler = async (_req, res): Promise<void> =
   } catch (error: any) {
     console.error("Error al obtener nuevos productos:", error);
     res.status(500).json({ message: "Error al obtener nuevos productos" });
+  }
+};
+
+// ===========================
+// Filtros dinámicos / búsqueda avanzada
+// ===========================
+export const getFilteredProducts = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const {
+      search,
+      categoria_id,
+      precioMin = 0,
+      precioMax = 999999,
+      sort,
+
+      // accesorios
+      accesorio_id,
+      accesorio_tipo_id,
+      accesorio_material_id,
+
+      // telas / hilos
+      clase_id,
+      tela_id,
+
+      // origen
+      departamento,
+      municipio,
+
+      // paginación opcional
+      page = 1,
+      limit = 40,
+    } = req.query as any;
+
+    const whereParts: string[] = ["p.activo = true"];
+    const replacements: any = {};
+
+    // 🔎 Búsqueda por texto (nombre, desc, categoría, origen)
+    if (search && String(search).trim() !== "") {
+      replacements.search = `%${String(search).trim()}%`;
+      whereParts.push(
+        `(p.nombre ILIKE :search
+          OR p.descripcion ILIKE :search
+          OR c.nombre ILIKE :search
+          OR p.categoria_custom ILIKE :search
+          OR p.tela_custom ILIKE :search
+          OR p.departamento ILIKE :search
+          OR p.municipio ILIKE :search)`
+      );
+    }
+
+    // categoría
+    if (categoria_id) {
+      replacements.categoria_id = Number(categoria_id);
+      whereParts.push("p.categoria_id = :categoria_id");
+    }
+
+    // precio
+    replacements.precioMin = Number(precioMin);
+    replacements.precioMax = Number(precioMax);
+    whereParts.push("p.precio BETWEEN :precioMin AND :precioMax");
+
+    // accesorios
+    if (accesorio_id) {
+      replacements.accesorio_id = Number(accesorio_id);
+      whereParts.push("p.accesorio_id = :accesorio_id");
+    }
+    if (accesorio_tipo_id) {
+      replacements.accesorio_tipo_id = Number(accesorio_tipo_id);
+      whereParts.push("p.accesorio_tipo_id = :accesorio_tipo_id");
+    }
+    if (accesorio_material_id) {
+      replacements.accesorio_material_id = Number(accesorio_material_id);
+      whereParts.push("p.accesorio_material_id = :accesorio_material_id");
+    }
+
+    // telas / clase
+    if (clase_id) {
+      replacements.clase_id = Number(clase_id);
+      whereParts.push("p.clase_id = :clase_id");
+    }
+    if (tela_id) {
+      replacements.tela_id = Number(tela_id);
+      whereParts.push("p.tela_id = :tela_id");
+    }
+
+    // origen
+    if (departamento) {
+      replacements.departamento = String(departamento);
+      whereParts.push("p.departamento = :departamento");
+    }
+    if (municipio) {
+      replacements.municipio = String(municipio);
+      whereParts.push("p.municipio = :municipio");
+    }
+
+    const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+
+    // orden
+    let orderSql = "ORDER BY p.created_at DESC";
+    if (sort === "precio_asc") orderSql = "ORDER BY p.precio ASC";
+    if (sort === "precio_desc") orderSql = "ORDER BY p.precio DESC";
+
+    const pageNum = Math.max(Number(page) || 1, 1);
+    const limitNum = Math.min(Math.max(Number(limit) || 40, 1), 60);
+    const offset = (pageNum - 1) * limitNum;
+
+    // Query base (para SELECT y COUNT)
+    const baseSelect = `
+      FROM productos p
+      LEFT JOIN categorias c ON c.id = p.categoria_id
+      ${whereSql}
+    `;
+
+    // Datos
+    const [rows]: any = await sequelize.query(
+      `
+      SELECT
+        p.id,
+        p.nombre,
+        p.descripcion,
+        p.precio,
+        p.imagen_url,
+        c.nombre AS categoria,
+        p.departamento,
+        p.municipio,
+        p.created_at
+      ${baseSelect}
+      ${orderSql}
+      LIMIT :limitNum OFFSET :offset
+    `,
+      {
+        replacements: {
+          ...replacements,
+          limitNum,
+          offset,
+        },
+      },
+    );
+
+    // Total
+    const [countRows]: any = await sequelize.query(
+      `
+      SELECT COUNT(*)::int AS total
+      ${baseSelect}
+    `,
+      { replacements },
+    );
+
+    const total = countRows?.[0]?.total ?? 0;
+
+    // Si no hay resultados pero hay búsqueda → sugerencias relacionadas
+    let related: any[] = [];
+    if (total === 0 && search && String(search).trim() !== "") {
+      const [relatedRows]: any = await sequelize.query(
+        `
+        SELECT
+          p.id,
+          p.nombre,
+          p.descripcion,
+          p.precio,
+          p.imagen_url,
+          c.nombre AS categoria,
+          p.departamento,
+          p.municipio,
+          p.created_at
+        FROM productos p
+        LEFT JOIN categorias c ON c.id = p.categoria_id
+        WHERE p.activo = true
+          AND (p.nombre ILIKE :search OR p.descripcion ILIKE :search OR c.nombre ILIKE :search)
+        ORDER BY p.created_at DESC
+        LIMIT 24
+      `,
+        {
+          replacements: {
+            search: `%${String(search).trim()}%`,
+          },
+        },
+      );
+      related = relatedRows || [];
+    }
+
+    res.json({
+      success: true,
+      total,
+      data: rows,
+      related,
+      page: pageNum,
+      limit: limitNum,
+    });
+  } catch (error) {
+    console.error("Error en getFilteredProducts:", error);
+    res.status(500).json({ error: "Error al obtener productos" });
+  }
+};
+
+// ===========================
+// Filtros únicos (categoría_custom, tela_custom)
+// ===========================
+export const getFilters = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const tipo = req.params.tipo;
+    if (!["categories", "fabrics"].includes(tipo)) {
+      res.status(400).json({ message: "Tipo de filtro no válido" });
+      return;
+    }
+
+    let columna = "categoria_custom";
+    if (tipo === "fabrics") columna = "tela_custom";
+
+    const [rows]: any = await sequelize.query(
+      `SELECT DISTINCT ${columna} AS nombre FROM productos WHERE ${columna} IS NOT NULL ORDER BY nombre ASC`
+    );
+
+    res.json({ data: rows.map((r: any) => r.nombre).filter(Boolean) });
+  } catch (e) {
+    console.error("Error al obtener filtros:", e);
+    res.status(500).json({ message: "Error al obtener filtros" });
   }
 };
