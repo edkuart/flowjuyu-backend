@@ -147,3 +147,4 @@ export const requireRole = (...allowed: Rol[]): RequestHandler => {
   const normalizedAllowed = allowed.map(normalizeRoleName) as Rol[];
   return verifyToken(normalizedAllowed);
 };
+ 
