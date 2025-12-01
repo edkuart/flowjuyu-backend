@@ -43,61 +43,48 @@ export const getSellerOrders = async (_req: Request, res: Response): Promise<voi
 // ==============================
 // Productos del vendedor autenticado
 // ==============================
- 
 export const getSellerProducts: RequestHandler = async (req, res) => {
   try {
-    const u: any = (req as any).user
-    console.log("🧠 Usuario autenticado:", u)
-
+    const u: any = (req as any).user;
     if (!u?.id) {
-      res.status(401).json({ message: "No autenticado" })
-      return
+      res.status(401).json({ message: "No autenticado" });
+      return;
     }
 
-    const [rows] = await sequelize.query(
+    const [rows]: any = await sequelize.query(
       `SELECT id, nombre, precio, stock, activo, imagen_url
        FROM productos
        WHERE vendedor_id = :vid
        ORDER BY created_at DESC`,
       { replacements: { vid: u.id } }
-    )
+    );
 
-    console.log("✅ Productos encontrados:", rows)
-    res.json(rows)
+    res.json(rows);
   } catch (e) {
-    console.error("❌ Error en getSellerProducts:", e)
-    res
-      .status(500)
-      .json({ message: "Error al obtener productos", error: String(e) })
+    console.error("❌ Error en getSellerProducts:", e);
+    res.status(500).json({ message: "Error al obtener productos", error: String(e) });
   }
-}
-
+};
 
 // ==============================
-// 🔹 Obtener perfil del vendedor autenticado
+// Obtener perfil del vendedor (autenticado o público)
 // ==============================
 export const getSellerProfile: RequestHandler = async (req, res): Promise<void> => {
   try {
     const user = (req as any).user || null;
     const { id } = req.params;
 
-    // ✅ Validar que el parámetro id (si existe) sea numérico
     if (id && isNaN(Number(id))) {
-      res.status(400).json({
-        ok: false,
-        message: "El parámetro 'id' debe ser numérico",
-      });
+      res.status(400).json({ ok: false, message: "El parámetro 'id' debe ser numérico" });
       return;
     }
 
-    // Si no viene id en params, usamos el id del usuario autenticado
     const targetId = id || user?.id;
     if (!targetId) {
       res.status(401).json({ ok: false, message: "Usuario no autenticado" });
       return;
     }
 
-    // 🔍 Buscar el perfil por user_id (numérico)
     const perfil = await VendedorPerfil.findOne({
       where: { user_id: targetId },
       include: [
@@ -114,8 +101,7 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
       return;
     }
 
-    // 🧩 Si no es propietario, devolvemos solo los datos públicos
-    const esPropietario = user?.id === perfil.user_id;
+    const esPropietario = Number(user?.id) === Number(perfil.user_id);
     if (!esPropietario) {
       res.json({
         id: perfil.id,
@@ -128,7 +114,6 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
       return;
     }
 
-    // Si es propietario, devolvemos todo el perfil completo
     res.json(perfil);
   } catch (error) {
     console.error("Error en getSellerProfile:", error);
@@ -137,7 +122,7 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
 };
 
 // ==============================
-// 🔹 Actualizar perfil del vendedor autenticado
+// Actualizar perfil del vendedor
 // ==============================
 export const updateSellerProfile: RequestHandler = async (req, res): Promise<void> => {
   try {
@@ -153,24 +138,44 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
       return;
     }
 
-    // 🧩 Subida de logo opcional
     let logoUrl = perfil.logo;
+
+    // 🧹 Eliminar logo explícitamente (primer archivo lo hacía)
+    if (req.body.logo === null || req.body.logo === "null") {
+      if (perfil.logo) {
+        const prevFile = perfil.logo.split("/").pop();
+        if (prevFile) {
+          await supabase.storage.from("vendedores").remove([`vendedores/${prevFile}`]);
+        }
+      }
+      logoUrl = null;
+    }
+
+    // 🖼 Subir nuevo logo
     if (req.file) {
-      const fileExt = req.file.originalname.split(".").pop();
-      const fileName = `vendedores/${uuidv4()}.${fileExt}`;
+      if (perfil.logo) {
+        const prevFile = perfil.logo.split("/").pop();
+        if (prevFile) {
+          await supabase.storage.from("vendedores").remove([`vendedores/${prevFile}`]);
+        }
+      }
+
+      const ext = req.file.originalname.split(".").pop();
+      const fileName = `vendedores/${uuidv4()}.${ext}`;
+
       const { error: uploadError } = await supabase.storage
         .from("vendedores")
-        .upload(fileName, req.file.buffer, {
-          contentType: req.file.mimetype,
-        });
+        .upload(fileName, req.file.buffer, { contentType: req.file.mimetype });
 
       if (uploadError) throw uploadError;
 
-      const { data: publicUrl } = supabase.storage.from("vendedores").getPublicUrl(fileName);
+      const { data: publicUrl } = supabase.storage
+        .from("vendedores")
+        .getPublicUrl(fileName);
+
       logoUrl = publicUrl.publicUrl;
     }
 
-    // 🧩 Campos a actualizar
     const fieldsToUpdate = {
       nombre_comercio: req.body.nombre_comercio ?? perfil.nombre_comercio,
       descripcion: req.body.descripcion ?? perfil.descripcion,
@@ -191,14 +196,18 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
       message: "Perfil actualizado correctamente",
       perfil: updatedPerfil,
     });
-  } catch (error) {
-    console.error("Error en updateSellerProfile:", error);
-    res.status(500).json({ ok: false, message: "Error al actualizar perfil" });
+  } catch (error: any) {
+    console.error("❌ Error en updateSellerProfile:", error);
+    res.status(500).json({
+      ok: false,
+      message: "Error al actualizar perfil",
+      error: error.message,
+    });
   }
 };
 
 // ==============================
-// Validación de comercio (pendiente)
+// Validación de comercio
 // ==============================
 export const validateSellerBusiness = async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -212,9 +221,9 @@ export const validateSellerBusiness = async (_req: Request, res: Response): Prom
   }
 };
 
-// ==================================================
-// 🏪 Obtener tiendas (vendedores) registradas (público)
-// ==================================================
+// ==============================
+// Listado público de vendedores
+// ==============================
 export const getSellers: RequestHandler = async (_req, res): Promise<void> => {
   try {
     const [rows]: any = await sequelize.query(`
