@@ -320,16 +320,36 @@ export const getSellerProducts = async (
 };
 
 // ===========================
-// Obtener producto por ID
+// Obtener producto por ID (PÚBLICO)
 // ===========================
 export const getProductById = async (req: Request, res: Response): Promise<void> => {
   try {
-    const u: any = (req as any).user;
     const { id } = req.params;
 
     const [rows]: any = await sequelize.query(
-      `SELECT * FROM productos WHERE id = :id AND vendedor_id = :vid`,
-      { replacements: { id, vid: u.id } },
+      `
+      SELECT 
+        p.id,
+        p.nombre,
+        p.descripcion,
+        p.precio,
+        p.stock,
+        p.imagen_url AS imagen_principal,
+        p.departamento,
+        p.municipio,
+        c.nombre AS categoria,
+
+        v.nombre_comercio AS vendedor_nombre,
+        v.logo AS vendedor_logo_url,
+
+        p.created_at
+      FROM productos p
+      LEFT JOIN categorias c ON c.id = p.categoria_id
+      LEFT JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
+      WHERE p.id = :id AND p.activo = true
+      LIMIT 1
+      `,
+      { replacements: { id } }
     );
 
     if (!rows || rows.length === 0) {
@@ -337,14 +357,52 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    res.json(rows[0]);
+    const product = rows[0];
+
+    // Obtener imágenes adicionales
+    const [imgs]: any = await sequelize.query(
+      `
+      SELECT id, url
+      FROM producto_imagenes
+      WHERE producto_id = :id
+      ORDER BY id ASC
+      `,
+      { replacements: { id } }
+    );
+
+    product.imagenes = imgs || [];
+
+    // Obtener productos relacionados
+    const [related]: any = await sequelize.query(
+      `
+      SELECT 
+        p.id,
+        p.nombre,
+        p.precio,
+        p.imagen_url AS imagen_url
+      FROM productos p
+      WHERE p.categoria_id = (
+        SELECT categoria_id FROM productos WHERE id = :id
+      )
+      AND p.id != :id
+      AND p.activo = true
+      ORDER BY p.created_at DESC
+      LIMIT 12
+      `,
+      { replacements: { id } }
+    );
+
+    res.json({ product, related });
+
   } catch (e) {
     console.error("Error en getProductById:", e);
-    res
-      .status(500)
-      .json({ message: "Error al obtener producto", error: String(e) });
+    res.status(500).json({
+      message: "Error al obtener producto",
+      error: String(e)
+    });
   }
 };
+
 
 // ===========================
 // Actualizar producto
