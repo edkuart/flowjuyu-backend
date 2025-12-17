@@ -1,11 +1,23 @@
 // src/middleware/auth.ts
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import jwt, { VerifyOptions } from "jsonwebtoken";
+import { User } from "../models/user.model";
 
-export type Rol = "comprador" | "vendedor" | "admin" | "buyer" | "seller";
+// ─────────────────────────────────────────────────────────────
+// 💠 ROLES PERMITIDOS
+// ─────────────────────────────────────────────────────────────
+export type Rol =
+  | "comprador"
+  | "vendedor"
+  | "admin"
+  | "soporte"
+  | "buyer"
+  | "seller"
+  | "support";
 
-interface DecodedLegacyToken {
-  id?: string | number;
+// Token decodificado
+interface DecodedToken {
+  id?: number | string;
   correo?: string;
   rol?: Rol;
   roles?: Rol[];
@@ -14,32 +26,33 @@ interface DecodedLegacyToken {
   sub?: string;
 }
 
-// ──────────────────────────────
-// 🧩 Utilidades internas
-// ──────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 🔧 Utilidades internas
+// ─────────────────────────────────────────────────────────────
 function getBearerToken(req: Request): string | null {
   const header = req.headers.authorization || "";
-  if (header.startsWith("Bearer ")) return header.slice("Bearer ".length).trim();
+  if (header.startsWith("Bearer ")) return header.slice(7).trim();
 
+  // fallback cookie token
   const cookieToken = (req as any).cookies?.access_token as string | undefined;
   return cookieToken || null;
 }
 
-function normalizeRoles(payload: DecodedLegacyToken): Rol[] {
+// Normalizar roles para aceptar inglés ↔ español
+function normalizeRoles(payload: DecodedToken): Rol[] {
   const roles = new Set<Rol>();
 
-  // Extraer roles desde el token
   if (Array.isArray(payload.roles)) {
     payload.roles.forEach((r) => roles.add(r));
   } else if (payload.rol) {
     roles.add(payload.rol);
   }
 
-  // Normalizar equivalencias inglés ↔ español
   const normalized = Array.from(roles).map((r) => {
-    switch (r) {
+    switch (r.toLowerCase()) {
       case "seller": return "vendedor";
       case "buyer": return "comprador";
+      case "support": return "soporte";
       default: return r.toLowerCase() as Rol;
     }
   });
@@ -47,10 +60,12 @@ function normalizeRoles(payload: DecodedLegacyToken): Rol[] {
   return normalized as Rol[];
 }
 
-function getUserId(payload: DecodedLegacyToken): string | number | undefined {
+// ID del usuario desde token
+function getUserId(payload: DecodedToken) {
   return payload.sub ?? payload.id;
 }
 
+// Permitir fallback por sesión opcional
 function readUserFromSession(req: Request) {
   if (process.env.AUTH_ALLOW_SESSION_FALLBACK !== "true") return null;
 
@@ -64,24 +79,25 @@ function readUserFromSession(req: Request) {
   };
 }
 
-// ──────────────────────────────
-// 🔐 verifyToken()
-// ──────────────────────────────
-export const verifyToken = (roles: Rol[] = []): RequestHandler => {
-  return (req: Request, res: Response, next: NextFunction): void => {
+// ─────────────────────────────────────────────────────────────
+// 🔐 verifyToken(rolesRequeridos)
+// ─────────────────────────────────────────────────────────────
+export const verifyToken = (rolesRequeridos: Rol[] = []) => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
       console.error("❌ JWT_SECRET no configurado");
-      res.status(500).json({ message: "JWT no configurado" });
+      res.status(500).json({ message: "Error interno: JWT no configurado" });
       return;
     }
 
     const token = getBearerToken(req);
     if (!token) {
-      const session = readUserFromSession(req);
-      if (session?.id) {
-        (req as any).user = session;
-        return next();
+      const sessionUser = readUserFromSession(req);
+      if (sessionUser) {
+        (req as any).user = sessionUser;
+        next();
+        return;
       }
       res.status(401).json({ message: "Token no proporcionado" });
       return;
@@ -96,30 +112,25 @@ export const verifyToken = (roles: Rol[] = []): RequestHandler => {
 
       if (algs.length) verifyOpts.algorithms = algs as VerifyOptions["algorithms"];
 
-      const decoded = jwt.verify(token, secret, verifyOpts) as DecodedLegacyToken;
+      const decoded = jwt.verify(token, secret, verifyOpts) as DecodedToken;
       const userId = getUserId(decoded);
 
       if (!userId) {
-        res.status(401).json({ message: "Token inválido (sin ID de usuario)" });
+        res.status(401).json({ message: "Token inválido: sin ID" });
         return;
       }
 
       const userRoles = normalizeRoles(decoded);
 
-      const hasRole =
-        roles.length === 0 ||
-        userRoles.some(
-          (r) =>
-            roles.includes(r) ||
-            (r === "vendedor" && roles.includes("seller")) ||
-            (r === "seller" && roles.includes("vendedor")) ||
-            (r === "comprador" && roles.includes("buyer")) ||
-            (r === "buyer" && roles.includes("comprador"))
-        );
+      const tienePermiso =
+        rolesRequeridos.length === 0 ||
+        userRoles.some((rol) => rolesRequeridos.includes(rol));
 
-      if (!hasRole) {
+      if (!tienePermiso) {
         console.warn(
-          `🚫 Acceso denegado. Requerido: ${roles.join(", ")} | Usuario: ${userRoles.join(", ")}`
+          `🚫 Acceso denegado. Requerido: [${rolesRequeridos.join(
+            ", "
+          )}] | Usuario: [${userRoles.join(", ")}]`
         );
         res.status(403).json({ message: "Acceso denegado por rol" });
         return;
@@ -133,27 +144,22 @@ export const verifyToken = (roles: Rol[] = []): RequestHandler => {
       };
 
       next();
-    } catch (err) {
-      console.error("❌ Error al verificar token:", err);
+    } catch (error) {
+      console.error("❌ Error al verificar token:", error);
       res.status(401).json({ message: "Token inválido o expirado" });
     }
   };
 };
 
-// ──────────────────────────────
-// 🧱 Middlewares listos
-// ──────────────────────────────
-function normalizeRoleName(role: Rol): Rol {
-  switch (role.toLowerCase()) {
-    case "seller": return "vendedor";
-    case "buyer": return "comprador";
-    default: return role.toLowerCase() as Rol;
-  }
-}
 
-export const requireAuth: RequestHandler = verifyToken();
+// ─────────────────────────────────────────────────────────────
+// 🧱 Middlewares públicos
+// ─────────────────────────────────────────────────────────────
 
-export const requireRole = (...allowed: Rol[]): RequestHandler => {
-  const normalizedAllowed = allowed.map(normalizeRoleName) as Rol[];
-  return verifyToken(normalizedAllowed);
+// requiere solo login
+export const requireAuth = verifyToken();
+
+// requiere roles específicos
+export const requireRole = (...roles: Rol[]): RequestHandler => {
+  return verifyToken(roles);
 };

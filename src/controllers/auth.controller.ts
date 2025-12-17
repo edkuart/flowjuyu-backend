@@ -10,23 +10,32 @@ import { VendedorPerfil } from "../models/VendedorPerfil";
 // ----------------------------------------------------------
 // NORMALIZADORES DE ROLES (DB ↔ TOKEN)
 // ----------------------------------------------------------
-function normalizeRoleToDB(rol: string): "comprador" | "vendedor" | "admin" {
+function normalizeRoleToDB(
+  rol: string
+): "comprador" | "vendedor" | "admin" | "soporte" {
   switch (rol.toLowerCase()) {
     case "buyer":
       return "comprador";
     case "seller":
       return "vendedor";
+    case "support":
+    case "soporte":
+      return "soporte";
     default:
       return rol.toLowerCase() as any;
   }
 }
 
-function normalizeRoleForToken(rol: string): "buyer" | "seller" | "admin" {
+function normalizeRoleForToken(
+  rol: string
+): "buyer" | "seller" | "admin" | "support" {
   switch (rol) {
     case "comprador":
       return "buyer";
     case "vendedor":
       return "seller";
+    case "soporte":
+      return "support";
     default:
       return rol as any;
   }
@@ -41,7 +50,7 @@ const generateToken = (payload: object) =>
   });
 
 // ----------------------------------------------------------
-// REGISTRO COMPRADOR
+// REGISTRO COMPRADOR / SOPORTE (según rol permitido)
 // ----------------------------------------------------------
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -66,6 +75,13 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const hash = await bcrypt.hash(String(plain), 10);
 
     const rolDB = normalizeRoleToDB(rol);
+
+    // SOLO permitir roles seguros y no permitir admins aquí
+    const allowedRoles = ["comprador", "vendedor", "soporte"];
+    if (!allowedRoles.includes(rolDB)) {
+      res.status(400).json({ message: "Rol no permitido para este registro" });
+      return;
+    }
 
     const nuevoUsuario = await User.create({
       nombre,
@@ -107,7 +123,10 @@ interface MulterFilesMap {
   [fieldname: string]: Express.Multer.File[] | undefined;
 }
 
-export const registerVendedor = async (req: Request, res: Response): Promise<void> => {
+export const registerVendedor = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   const t = await sequelize.transaction();
 
   try {
@@ -143,7 +162,7 @@ export const registerVendedor = async (req: Request, res: Response): Promise<voi
         nombre,
         correo,
         password: hash,
-        rol: "vendedor", // SIEMPRE en español en DB
+        rol: "vendedor", // forzado SIEMPRE en DB
         telefono: (telefono ?? "").toString().trim(),
         direccion: (direccion ?? "").toString().trim(),
       },

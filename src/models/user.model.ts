@@ -10,7 +10,7 @@ interface UserAttributes {
   password: string;
   telefono?: string;
   direccion?: string;
-  rol: "comprador" | "vendedor" | "admin";
+  rol: "comprador" | "vendedor" | "admin" | "soporte";
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -25,7 +25,7 @@ export class User
   public nombre!: string;
   public correo!: string;
   public password!: string;
-  public rol!: "comprador" | "vendedor" | "admin";
+  public rol!: "comprador" | "vendedor" | "admin" | "soporte";
   public telefono?: string;
   public direccion?: string;
   public readonly createdAt?: Date;
@@ -53,12 +53,15 @@ User.init(
     password: {
       type: DataTypes.STRING,
       allowNull: false,
-      field: "contraseña", // mapeo explícito a columna con tilde en la BD
+      field: "contraseña",
     },
     rol: {
       type: DataTypes.STRING,
       allowNull: false,
       defaultValue: "comprador",
+      validate: {
+        isIn: [["comprador", "vendedor", "admin", "soporte"]],
+      },
     },
     telefono: {
       type: DataTypes.STRING,
@@ -91,3 +94,4 @@ User.init(
     underscored: true,
   },
 );
+ 
