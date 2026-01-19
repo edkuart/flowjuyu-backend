@@ -608,49 +608,60 @@ export const toggleProductActive = async (
 // ===========================
 // Productos por categoría (slug)
 // ===========================
-export const getProductsByCategory = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
+export const getProductsByCategory = async (req: Request, res: Response) => {
   try {
     const { slug } = req.params;
 
-    const [categoriaRows]: any = await sequelize.query(
+    // 1️⃣ Buscar categorías relacionadas (NO exact match)
+    const [categorias]: any = await sequelize.query(
       `
-        SELECT id, nombre, imagen_url
-        FROM categorias
-        WHERE LOWER(nombre) = LOWER(:slug)
-        LIMIT 1
+      SELECT id, nombre
+      FROM categorias
+      WHERE LOWER(nombre) LIKE :slug
       `,
-      { replacements: { slug } },
+      {
+        replacements: {
+          slug: `%${slug.toLowerCase()}%`,
+        },
+      }
     );
 
-    if (!categoriaRows || categoriaRows.length === 0) {
+    if (!categorias.length) {
       res.status(404).json({ message: "Categoría no encontrada" });
       return;
     }
 
-    const categoria = categoriaRows[0];
+    const categoriaIds = categorias.map((c: any) => c.id);
 
+    // 2️⃣ Traer productos de TODAS esas categorías
     const [productos]: any = await sequelize.query(
       `
-        SELECT 
-          id, nombre, precio, descripcion,
-          imagen_url, created_at
-        FROM productos
-        WHERE categoria_id = :catId
-          AND activo = true
-        ORDER BY created_at DESC
+      SELECT
+        p.id,
+        p.nombre,
+        p.precio,
+        p.descripcion,
+        p.imagen_url,
+        p.created_at,
+        c.nombre AS categoria
+      FROM productos p
+      JOIN categorias c ON c.id = p.categoria_id
+      WHERE p.activo = true
+        AND p.categoria_id IN (:categoriaIds)
+      ORDER BY p.created_at DESC
       `,
-      { replacements: { catId: categoria.id } },
+      {
+        replacements: { categoriaIds },
+      }
     );
 
-    res.json({ categoria, productos });
-  } catch (error: any) {
-    console.error("Error al obtener productos por categoría:", error);
-    res.status(500).json({
-      message: "Error al obtener productos por categoría",
+    res.json({
+      categoria: categorias[0], // solo para título
+      productos,
     });
+  } catch (error) {
+    console.error("Error al obtener productos por categoría:", error);
+    res.status(500).json({ message: "Error al obtener productos" });
   }
 };
 
@@ -670,12 +681,19 @@ export const getNewProducts = async (_req: Request, res: Response): Promise<void
       LIMIT 20
     `);
 
+    rows.forEach((p: any) => {
+      if (!p.imagen_url || p.imagen_url.includes("/uploads/")) {
+        p.imagen_url = null;
+      }
+    });
+
     res.json(rows ?? []);
   } catch (error: any) {
     console.error("Error al obtener nuevos productos:", error);
     res.status(500).json({ message: "Error al obtener nuevos productos" });
   }
 };
+
 
 // ===========================
 // Filtros dinámicos / búsqueda avanzada
