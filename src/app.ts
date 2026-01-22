@@ -16,6 +16,7 @@ import buyerRoutes from "./routes/buyer.routes"; // /api/buyer/* (buyer auth)
 import sellerRoutes from "./routes/seller.routes"; // /api/seller/* (seller auth)
 import productRoutes from "./routes/product.routes"; // /api/* (catálogos públicos + CRUD productos seller)
 
+
 // Error handler central
 import { errorHandler } from "./middleware/errorHandler";
 
