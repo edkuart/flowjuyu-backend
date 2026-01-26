@@ -97,8 +97,10 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
     });
 
     if (!perfil) {
-      return res.status(404).json({ ok: false, message: "Perfil no encontrado" });
-    }
+  res.status(404).json({ ok: false, message: "Perfil no encontrado" });
+  return;
+}
+
 
     const esPropietario = Number(user?.id) === Number(perfil.user_id);
     if (!esPropietario) {
@@ -126,7 +128,9 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
   try {
     const user = (req as any).user;
     if (!user?.id) {
-      return res.status(401).json({ ok: false, message: "No autorizado" });
+      res.status(401).json({ ok: false, message: "No autorizado" });
+    return;
+
     }
 
     const perfil = await VendedorPerfil.findOne({ where: { user_id: user.id } });

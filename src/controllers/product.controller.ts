@@ -408,6 +408,8 @@ export const updateProduct = async (
     const b = req.body;
 
     // 1) Verificar que el producto pertenece al vendedor
+    const id = Number(req.params.id);
+
     const [rows]: any = await sequelize.query(
       `SELECT id FROM productos WHERE id = :id AND vendedor_id = :vid`,
       { replacements: { id, vid: u.id } },
