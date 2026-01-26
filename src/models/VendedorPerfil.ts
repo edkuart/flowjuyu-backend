@@ -16,7 +16,7 @@ interface VendedorPerfilAttrs {
   departamento?: string | null;
   municipio?: string | null;
   descripcion?: string | null;
-  dpi: string;
+  dpi?: string | null;
   foto_dpi_frente?: string | null;
   foto_dpi_reverso?: string | null;
   selfie_con_dpi?: string | null;
@@ -31,13 +31,13 @@ interface VendedorPerfilAttrs {
 type Creation = Optional<
   VendedorPerfilAttrs,
   | "id"
-  | "telefono"
+  | "telefono_comercio"
   | "direccion"
   | "logo"
-  | "telefono_comercio"
   | "departamento"
   | "municipio"
   | "descripcion"
+  | "dpi"
   | "foto_dpi_frente"
   | "foto_dpi_reverso"
   | "selfie_con_dpi"
@@ -63,7 +63,7 @@ export class VendedorPerfil extends Model<VendedorPerfilAttrs, Creation>
   public departamento?: string | null;
   public municipio?: string | null;
   public descripcion?: string | null;
-  public dpi!: string;
+  public dpi?: string | null;
   public foto_dpi_frente?: string | null;
   public foto_dpi_reverso?: string | null;
   public selfie_con_dpi?: string | null;
@@ -106,21 +106,13 @@ VendedorPerfil.init(
     departamento: { type: DataTypes.STRING(50), allowNull: true },
     municipio: { type: DataTypes.STRING(100), allowNull: true },
     descripcion: { type: DataTypes.TEXT, allowNull: true },
-    dpi: { type: DataTypes.STRING(13), allowNull: false },
+    dpi: { type: DataTypes.STRING(13), allowNull: true },
     foto_dpi_frente: { type: DataTypes.TEXT, allowNull: true },
     foto_dpi_reverso: { type: DataTypes.TEXT, allowNull: true },
     selfie_con_dpi: { type: DataTypes.TEXT, allowNull: true },
-    estado_validacion: {
-      type: DataTypes.STRING(30),
-      allowNull: true,
-      defaultValue: "pendiente",
-    },
+    estado_validacion: { type: DataTypes.STRING(30), allowNull: true, defaultValue: "pendiente" },
     observaciones: { type: DataTypes.TEXT, allowNull: true },
-    estado: {
-      type: DataTypes.STRING(30),
-      allowNull: true,
-      defaultValue: "activo",
-    },
+    estado: { type: DataTypes.STRING(30), allowNull: true, defaultValue: "activo" },
     actualizado_en: { type: DataTypes.DATE, allowNull: true },
     createdAt: { type: DataTypes.DATE, allowNull: true },
     updatedAt: { type: DataTypes.DATE, allowNull: true },
@@ -130,7 +122,7 @@ VendedorPerfil.init(
     tableName: "vendedor_perfil",
     freezeTableName: true,
     timestamps: true,
-  },
+  }
 );
 
 // 🔗 Asociaciones

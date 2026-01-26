@@ -26,9 +26,9 @@ interface DecodedToken {
   sub?: string;
 }
 
-// ─────────────────────────────────────────────────────────────
-// 🔧 Utilidades internas
-// ─────────────────────────────────────────────────────────────
+// ──────────────────────────────
+// 🧩 Utilidades internas
+// ──────────────────────────────
 function getBearerToken(req: Request): string | null {
   const header = req.headers.authorization || "";
   if (header.startsWith("Bearer ")) return header.slice(7).trim();
@@ -42,20 +42,29 @@ function getBearerToken(req: Request): string | null {
 function normalizeRoles(payload: DecodedToken): Rol[] {
   const roles = new Set<Rol>();
 
+  // Extraer roles del token
   if (Array.isArray(payload.roles)) {
     payload.roles.forEach((r) => roles.add(r));
   } else if (payload.rol) {
     roles.add(payload.rol);
   }
 
+  // Normalizar equivalencias inglés ↔ español
   const normalized = Array.from(roles).map((r) => {
-    switch (r.toLowerCase()) {
-      case "seller": return "vendedor";
-      case "buyer": return "comprador";
-      case "support": return "soporte";
-      default: return r.toLowerCase() as Rol;
-    }
-  });
+  const role = r.toLowerCase();
+
+  switch (role) {
+    case "seller":
+      return "vendedor";
+    case "buyer":
+      return "comprador";
+    case "support":
+      return "soporte";
+    default:
+      return role as Rol;
+  }
+});
+
 
   return normalized as Rol[];
 }
@@ -136,6 +145,7 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
         return;
       }
 
+      // ✅ Guardar datos del usuario en req.user
       (req as any).user = {
         id: userId,
         correo: decoded.correo,
@@ -151,15 +161,29 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
   };
 };
 
+// ──────────────────────────────
+// 🌐 Normalizador de roles
+// ──────────────────────────────
+function normalizeRoleName(role: Rol): Rol {
+  switch (role.toLowerCase()) {
+    case "seller":
+      return "vendedor";
+    case "buyer":
+      return "comprador";
+    default:
+      return role.toLowerCase() as Rol;
+  }
+}
 
-// ─────────────────────────────────────────────────────────────
-// 🧱 Middlewares públicos
-// ─────────────────────────────────────────────────────────────
+// ──────────────────────────────
+// 🧱 Middlewares exportados listos
+// ──────────────────────────────
 
-// requiere solo login
-export const requireAuth = verifyToken();
+// ✅ Requiere solo autenticación (sin validar rol)
+export const requireAuth: RequestHandler = verifyToken();
 
-// requiere roles específicos
-export const requireRole = (...roles: Rol[]): RequestHandler => {
-  return verifyToken(roles);
+// ✅ Requiere autenticación + rol específico
+export const requireRole = (...allowed: Rol[]): RequestHandler => {
+  const normalizedAllowed = allowed.map(normalizeRoleName) as Rol[];
+  return verifyToken(normalizedAllowed);
 };

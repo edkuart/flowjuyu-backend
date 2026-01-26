@@ -1,4 +1,3 @@
-// src/routes/product.routes.ts
 import { Router } from "express";
 import { requireRole } from "../middleware/auth";
 import { uploadProductImages } from "../middleware/multerProducts";
@@ -32,41 +31,47 @@ import {
 
 const router: Router = Router();
 
-// ===========================
-// 📦 Catálogos Públicos
-// ===========================
+/* ---------------------------------------------------------
+   📦 1. CATÁLOGOS PÚBLICOS  (sin auth)
+--------------------------------------------------------- */
 router.get("/categorias", getCategorias);
 router.get("/clases", getClases);
 router.get("/regiones", getRegiones); // compatibilidad
 router.get("/telas", getTelas);
 
-// ===========================
-// 🎨 Taxonomía de Accesorios
-// ===========================
+/* ---------------------------------------------------------
+   🎨 2. TAXONOMÍA DE ACCESORIOS (público)
+--------------------------------------------------------- */
 router.get("/accesorios", getAccesorios);
 router.get("/accesorio-tipos", getAccesorioTipos);
 router.get("/accesorio-materiales", getAccesorioMateriales);
 
-// ===========================
-// 🔍 Productos públicos (explorar / home)
-// ===========================
+/* ---------------------------------------------------------
+   🔍 3. BÚSQUEDAS PÚBLICAS (productos visibles)
+--------------------------------------------------------- */
+router.get("/products", getFilteredProducts);     // nuevo estándar
+router.get("/productos", getFilteredProducts);    // compatibilidad legacy
 
-// ⚡ Filtros dinámicos (búsqueda principal)
-router.get("/products", getFilteredProducts);
-router.get("/productos", getFilteredProducts); // compatibilidad frontend
-
-// Filtros únicos
 router.get("/filters/:tipo", getFilters);
-
-// Productos por categoría (slug)
 router.get("/categorias/:slug/productos", getProductsByCategory);
-
-// Nuevos productos (home)
 router.get("/productos/nuevos", getNewProducts);
 
-// ===========================
-// 🛒 CRUD del Vendedor
-// ===========================
+/* ---------------------------------------------------------
+   📌 4. PRODUCTOS — RUTA PÚBLICA (DETALLE)
+      ⚠ IMPORTANTE: esta DEBE ser PÚBLICA
+--------------------------------------------------------- */
+
+// Nuevo endpoint estándar
+router.get("/products/:id", getProductById);
+
+// Compatibilidad con versiones anteriores
+router.get("/productos/:id", getProductById);
+
+/* ---------------------------------------------------------
+   🛒 5. CRUD DEL VENDEDOR (PROTEGIDO con token)
+--------------------------------------------------------- */
+
+// Crear producto (requiere rol vendedor)
 router.post(
   "/productos",
   requireRole("seller"),
@@ -107,5 +112,12 @@ router.patch(
   requireRole("seller"),
   toggleProductActive
 );
+// Obtener los productos del vendedor
+router.get("/seller/productos", requireRole("seller"), getSellerProducts);
+
+// Editar, eliminar, activar/desactivar — SOLO vendedor
+router.put("/productos/:id", requireRole("seller"), updateProduct);
+router.delete("/productos/:id", requireRole("seller"), deleteProduct);
+router.patch("/productos/:id/activo", requireRole("seller"), toggleProductActive);
 
 export default router;

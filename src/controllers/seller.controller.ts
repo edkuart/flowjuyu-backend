@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from "uuid";
 // ==============================
 // Dashboard general del vendedor
 // ==============================
-export const getSellerDashboard = async (req: Request, res: Response): Promise<void> => {
+export const getSellerDashboard: RequestHandler = async (req, res) => {
   try {
     const user = (req as any).user;
     res.json({
@@ -27,7 +27,7 @@ export const getSellerDashboard = async (req: Request, res: Response): Promise<v
 // ==============================
 // Pedidos del vendedor (pendiente)
 // ==============================
-export const getSellerOrders = async (_req: Request, res: Response): Promise<void> => {
+export const getSellerOrders: RequestHandler = async (_req, res) => {
   try {
     res.json({
       ok: true,
@@ -97,13 +97,12 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
     });
 
     if (!perfil) {
-      res.status(404).json({ ok: false, message: "Perfil no encontrado" });
-      return;
+      return res.status(404).json({ ok: false, message: "Perfil no encontrado" });
     }
 
     const esPropietario = Number(user?.id) === Number(perfil.user_id);
     if (!esPropietario) {
-      res.json({
+       res.json({
         id: perfil.id,
         nombre_comercio: perfil.nombre_comercio,
         descripcion: perfil.descripcion,
@@ -111,7 +110,6 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
         departamento: perfil.departamento,
         municipio: perfil.municipio,
       });
-      return;
     }
 
     res.json(perfil);
@@ -128,8 +126,7 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
   try {
     const user = (req as any).user;
     if (!user?.id) {
-      res.status(401).json({ ok: false, message: "No autorizado" });
-      return;
+      return res.status(401).json({ ok: false, message: "No autorizado" });
     }
 
     const perfil = await VendedorPerfil.findOne({ where: { user_id: user.id } });
@@ -209,7 +206,7 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
 // ==============================
 // Validación de comercio
 // ==============================
-export const validateSellerBusiness = async (_req: Request, res: Response): Promise<void> => {
+export const validateSellerBusiness: RequestHandler = async (_req, res) => {
   try {
     res.json({
       ok: true,
