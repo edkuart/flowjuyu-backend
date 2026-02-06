@@ -154,10 +154,23 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
       };
 
       next();
-    } catch (error) {
-      console.error("❌ Error al verificar token:", error);
-      res.status(401).json({ message: "Token inválido o expirado" });
-    }
+     } catch (error: any) {
+  if (error?.name === "TokenExpiredError") {
+    console.warn("⏰ Token expirado");
+    res.status(401).json({
+      message: "Token expirado",
+      code: "TOKEN_EXPIRED",
+    });
+    return;
+  }
+
+  console.error("❌ Error al verificar token:", error);
+  res.status(401).json({
+    message: "Token inválido",
+  });
+  return;
+}
+
   };
 };
 

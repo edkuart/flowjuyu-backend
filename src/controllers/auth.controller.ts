@@ -7,87 +7,42 @@ import { sequelize } from "../config/db";
 import { User } from "../models/user.model";
 import { VendedorPerfil } from "../models/VendedorPerfil";
 
-// ----------------------------------------------------------
-// NORMALIZADORES DE ROLES (DB ↔ TOKEN)
-// ----------------------------------------------------------
-function normalizeRoleToDB(
-  rol: string
-): "comprador" | "vendedor" | "admin" | "soporte" {
-  switch (rol.toLowerCase()) {
-    case "buyer":
-      return "comprador";
-    case "seller":
-      return "vendedor";
-    case "support":
-    case "soporte":
-      return "soporte";
-    default:
-      return rol.toLowerCase() as any;
-  }
-}
-
-function normalizeRoleForToken(
-  rol: string
-): "buyer" | "seller" | "admin" | "support" {
-  switch (rol) {
-    case "comprador":
-      return "buyer";
-    case "vendedor":
-      return "seller";
-    case "soporte":
-      return "support";
-    default:
-      return rol as any;
-  }
-}
-
-// ----------------------------------------------------------
-// JWT
-// ----------------------------------------------------------
+// ────────────────────────────────────────────────────────────
+// Utilidad JWT
+// ────────────────────────────────────────────────────────────
 const generateToken = (payload: object) =>
   jwt.sign(payload, process.env.JWT_SECRET || "cortes_secret", {
     expiresIn: "1d",
   });
 
-// ----------------------------------------------------------
-// REGISTRO COMPRADOR / SOPORTE (según rol permitido)
-// ----------------------------------------------------------
+// ────────────────────────────────────────────────────────────
+// Registro general (comprador)
+// ────────────────────────────────────────────────────────────
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
     const { nombre, correo, rol, telefono, direccion } = req.body;
 
     const plain =
-      req.body["contraseña"] ??
-      req.body["contrasena"] ??
-      req.body["password"];
+      req.body["contraseña"] ?? req.body["contrasena"] ?? req.body["password"];
 
     if (!nombre || !correo || !plain || !rol) {
       res.status(400).json({ message: "Faltan campos obligatorios" });
       return;
     }
 
-    const existe = await User.findOne({ where: { correo } });
-    if (existe) {
+    const usuarioExistente = await User.findOne({ where: { correo } });
+    if (usuarioExistente) {
       res.status(409).json({ message: "El correo ya está registrado" });
       return;
     }
 
     const hash = await bcrypt.hash(String(plain), 10);
 
-    const rolDB = normalizeRoleToDB(rol);
-
-    // SOLO permitir roles seguros y no permitir admins aquí
-    const allowedRoles = ["comprador", "vendedor", "soporte"];
-    if (!allowedRoles.includes(rolDB)) {
-      res.status(400).json({ message: "Rol no permitido para este registro" });
-      return;
-    }
-
     const nuevoUsuario = await User.create({
       nombre,
       correo,
       password: hash,
-      rol: rolDB,
+      rol,
       telefono: (telefono ?? "").toString().trim(),
       direccion: (direccion ?? "").toString().trim(),
     });
@@ -95,7 +50,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const token = generateToken({
       id: nuevoUsuario.id,
       correo: nuevoUsuario.correo,
-      rol: normalizeRoleForToken(nuevoUsuario.rol),
+      rol: nuevoUsuario.rol,
     });
 
     res.status(201).json({
@@ -105,31 +60,29 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         id: nuevoUsuario.id,
         nombre: nuevoUsuario.nombre,
         correo: nuevoUsuario.correo,
-        rol: normalizeRoleForToken(nuevoUsuario.rol),
+        rol: nuevoUsuario.rol,
         telefono: nuevoUsuario.telefono,
         direccion: nuevoUsuario.direccion,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error en register:", error);
     res.status(500).json({ message: "Error al registrar" });
   }
 };
 
-// ----------------------------------------------------------
-// REGISTRO VENDEDOR
-// ----------------------------------------------------------
+// ────────────────────────────────────────────────────────────
+// Registro exclusivo para vendedores
+// ────────────────────────────────────────────────────────────
 interface MulterFilesMap {
   [fieldname: string]: Express.Multer.File[] | undefined;
 }
 
-export const registerVendedor = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const registerVendedor = async (req: Request, res: Response): Promise<void> => {
   const t = await sequelize.transaction();
-
   try {
+    console.log("🧩 req.body recibido:", req.body);
+
     const {
       nombre,
       correo,
@@ -149,37 +102,36 @@ export const registerVendedor = async (
       return;
     }
 
-    const existe = await User.findOne({ where: { correo } });
-    if (existe) {
+    const usuarioExistente = await User.findOne({ where: { correo } });
+    if (usuarioExistente) {
       res.status(409).json({ message: "El correo ya está registrado" });
       return;
     }
 
+    // Crear usuario base
     const hash = await bcrypt.hash(String(password), 10);
-
     const nuevoUsuario = await User.create(
       {
         nombre,
         correo,
         password: hash,
-        rol: "vendedor", // forzado SIEMPRE en DB
+        rol: "vendedor",
         telefono: (telefono ?? "").toString().trim(),
         direccion: (direccion ?? "").toString().trim(),
       },
-      { transaction: t }
+      { transaction: t },
     );
 
-    const files = (req.files as MulterFilesMap) || {};
+    const files = (req.files as MulterFilesMap | undefined) || {};
 
+    // Crear perfil del vendedor
     const perfilPayload = {
       user_id: nuevoUsuario.id,
       nombre,
       correo,
       telefono: (telefono ?? "").toString().trim(),
       direccion: (direccion ?? "").toString().trim(),
-      logo: files["logo"]
-        ? `/uploads/vendedores/${files["logo"][0].filename}`
-        : null,
+      logo: files["logo"] ? `/uploads/vendedores/${files["logo"]![0].filename}` : null,
       nombre_comercio: nombreComercio,
       telefono_comercio: telefonoComercio,
       departamento,
@@ -187,13 +139,13 @@ export const registerVendedor = async (
       descripcion,
       dpi,
       foto_dpi_frente: files["fotoDPIFrente"]
-        ? `/uploads/vendedores/${files["fotoDPIFrente"][0].filename}`
+        ? `/uploads/vendedores/${files["fotoDPIFrente"]![0].filename}`
         : null,
       foto_dpi_reverso: files["fotoDPIReverso"]
-        ? `/uploads/vendedores/${files["fotoDPIReverso"][0].filename}`
+        ? `/uploads/vendedores/${files["fotoDPIReverso"]![0].filename}`
         : null,
       selfie_con_dpi: files["selfieConDPI"]
-        ? `/uploads/vendedores/${files["selfieConDPI"][0].filename}`
+        ? `/uploads/vendedores/${files["selfieConDPI"]![0].filename}`
         : null,
       estado_validacion: "pendiente",
       estado: "activo",
@@ -201,14 +153,13 @@ export const registerVendedor = async (
       actualizado_en: new Date(),
     };
 
-    await VendedorPerfil.create(perfilPayload as any, { transaction: t });
-
+  await VendedorPerfil.create(perfilPayload as any, { transaction: t });
     await t.commit();
 
     const token = generateToken({
       id: nuevoUsuario.id,
       correo: nuevoUsuario.correo,
-      rol: normalizeRoleForToken(nuevoUsuario.rol),
+      rol: nuevoUsuario.rol,
     });
 
     res.status(201).json({
@@ -218,28 +169,26 @@ export const registerVendedor = async (
         id: nuevoUsuario.id,
         nombre: nuevoUsuario.nombre,
         correo: nuevoUsuario.correo,
-        rol: normalizeRoleForToken(nuevoUsuario.rol),
+        rol: nuevoUsuario.rol,
         telefono: nuevoUsuario.telefono,
         direccion: nuevoUsuario.direccion,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     await t.rollback();
     console.error("Error en registerVendedor:", error);
     res.status(500).json({ message: "Error al registrar vendedor" });
   }
 };
 
-// ----------------------------------------------------------
-// LOGIN
-// ----------------------------------------------------------
+// ────────────────────────────────────────────────────────────
+// Login con JWT
+// ────────────────────────────────────────────────────────────
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { correo } = req.body;
     const plain =
-      req.body["contraseña"] ??
-      req.body["contrasena"] ??
-      req.body["password"];
+      req.body["contraseña"] ?? req.body["contraseña"] ?? req.body["password"];
 
     if (!correo || !plain) {
       res.status(400).json({ message: "Correo y contraseña son obligatorios" });
@@ -252,8 +201,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const ok = await bcrypt.compare(String(plain), usuario.password);
-    if (!ok) {
+    const contraseñaValida = await bcrypt.compare(String(plain), usuario.password);
+    if (!contraseñaValida) {
       res.status(401).json({ message: "Correo o contraseña incorrectos" });
       return;
     }
@@ -261,7 +210,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     const token = generateToken({
       id: usuario.id,
       correo: usuario.correo,
-      rol: normalizeRoleForToken(usuario.rol),
+      rol: usuario.rol,
     });
 
     res.status(200).json({
@@ -271,13 +220,15 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         id: usuario.id,
         nombre: usuario.nombre,
         correo: usuario.correo,
-        rol: normalizeRoleForToken(usuario.rol),
+        rol: usuario.rol,
         telefono: usuario.telefono,
         direccion: usuario.direccion,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error en login:", error);
     res.status(500).json({ message: "Error interno del servidor" });
   }
+  console.log("🧩 req.body recibido:", req.body);
+
 };
