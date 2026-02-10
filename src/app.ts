@@ -1,6 +1,6 @@
 // src/app.ts
 import "dotenv/config";
-import express, { Express, Request, Response, RequestHandler } from "express";
+import express, { Express, RequestHandler, ErrorRequestHandler } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import session from "express-session";
@@ -21,6 +21,7 @@ import publicRoutes from "./routes/public.routes";
 
 // Middleware global
 import { errorHandler } from "./middleware/errorHandler";
+import { multerErrorHandler } from "./middleware/multerError.middleware";
 
 // ===========================
 // App base
@@ -97,11 +98,11 @@ app.use(
       pool,
       tableName: "sessions",
     }),
-    secret: process.env.JWT_SECRET || "supersecret", // ⚠️ usar secreto fuerte en prod
+    secret: process.env.JWT_SECRET || "supersecret",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      maxAge: 1000 * 60 * 60 * 24, // 1 día
+      maxAge: 1000 * 60 * 60 * 24,
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
       sameSite: "lax",
@@ -110,7 +111,7 @@ app.use(
 );
 
 // ===========================
-// Rate limiting (rutas sensibles)
+// Rate limiting
 // ===========================
 app.use("/api/login", rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
 app.use("/api/login/google", rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
@@ -126,20 +127,10 @@ app.get("/healthz", healthz);
 // ===========================
 // Rutas
 // ===========================
-
-// 🌍 Rutas públicas (Home, catálogos, destacados, etc.)
 app.use("/api", publicRoutes);
-
-// 🔐 Auth
 app.use("/api", authRoutes);
-
-// 🛒 Comprador
 app.use("/api/buyer", buyerRoutes);
-
-// 🏪 Vendedor
 app.use("/api/seller", sellerRoutes);
-
-// 📦 Productos (públicos + seller CRUD)
 app.use("/api", productRoutes);
 
 // ===========================
@@ -150,8 +141,9 @@ app.use((_req, res) => {
 });
 
 // ===========================
-// Manejo global de errores
+// Errores (ORDEN CRÍTICO)
 // ===========================
+app.use(multerErrorHandler as ErrorRequestHandler);
 app.use(errorHandler);
 
 export default app;

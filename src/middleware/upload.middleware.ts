@@ -2,8 +2,7 @@
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { Request } from "express";
-import { randomUUID } from "crypto"; // ✅ reemplaza a uuid v4 (nativo en Node 16+)
+import { randomUUID } from "crypto";
 
 // ---------------------------
 // 🔧 Configuración general
@@ -23,7 +22,6 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (_req, file, cb) => {
-    // usa el UUID nativo del módulo crypto
     const uniqueName = `${randomUUID()}${path.extname(file.originalname)}`;
     cb(null, uniqueName);
   },
@@ -32,14 +30,22 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // máximo 5 MB por archivo
+    fileSize: 5 * 1024 * 1024, // 5 MB
   },
   fileFilter: (_req, file, cb) => {
-    // Aceptamos solo imágenes comunes
-    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    // ⚠️ PowerShell / Postman suelen enviar application/octet-stream
+    const allowed = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "application/octet-stream",
+    ];
+
     if (!allowed.includes(file.mimetype)) {
+      console.error("❌ Multer fileFilter error:", file.mimetype);
       return cb(new Error("Tipo de archivo no permitido"));
     }
+
     cb(null, true);
   },
 });

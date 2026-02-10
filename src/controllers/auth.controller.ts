@@ -127,31 +127,42 @@ export const registerVendedor = async (req: Request, res: Response): Promise<voi
     // Crear perfil del vendedor
     const perfilPayload = {
       user_id: nuevoUsuario.id,
-      nombre,
-      correo,
-      telefono: (telefono ?? "").toString().trim(),
-      direccion: (direccion ?? "").toString().trim(),
-      logo: files["logo"] ? `/uploads/vendedores/${files["logo"]![0].filename}` : null,
-      nombre_comercio: nombreComercio,
-      telefono_comercio: telefonoComercio,
-      departamento,
-      municipio,
-      descripcion,
-      dpi,
+      nombre: String(nombre).trim(),
+    
+      // ✅ FIX DEFINITIVO
+      email: String(correo).toLowerCase().trim(),
+    
+      telefono: telefono ? String(telefono).trim() : null,
+      direccion: direccion ? String(direccion).trim() : null,
+    
+      logo: files["logo"]
+        ? `/uploads/vendedores/${files["logo"]![0].filename}`
+        : null,
+    
+      nombre_comercio: String(nombreComercio).trim(),
+      telefono_comercio: telefonoComercio ? String(telefonoComercio).trim() : null,
+      departamento: departamento ? String(departamento).trim() : null,
+      municipio: municipio ? String(municipio).trim() : null,
+      descripcion: descripcion ? String(descripcion).trim() : null,
+      dpi: dpi ? String(dpi).trim() : null,
+    
       foto_dpi_frente: files["fotoDPIFrente"]
         ? `/uploads/vendedores/${files["fotoDPIFrente"]![0].filename}`
         : null,
+    
       foto_dpi_reverso: files["fotoDPIReverso"]
         ? `/uploads/vendedores/${files["fotoDPIReverso"]![0].filename}`
         : null,
+    
       selfie_con_dpi: files["selfieConDPI"]
         ? `/uploads/vendedores/${files["selfieConDPI"]![0].filename}`
         : null,
+    
       estado_validacion: "pendiente",
       estado: "activo",
       observaciones: null,
       actualizado_en: new Date(),
-    };
+    };    
 
   await VendedorPerfil.create(perfilPayload as any, { transaction: t });
     await t.commit();
