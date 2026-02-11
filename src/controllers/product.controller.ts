@@ -443,7 +443,26 @@ export const updateProduct = async (
     const activo =
       b.activo === "true" || b.activo === true || b.activo === 1 || b.activo === "1";
 
-    // 4) UPDATE con todos los campos "extendidos"
+    // 4) Subir nuevas imágenes (si vienen en el request)
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    const uploadedImageUrls: string[] = [];
+
+    for (const f of files) {
+      const filename = `products/${Date.now()}-${Math.round(
+        Math.random() * 1e9,
+      )}-${f.originalname}`;
+
+      const { error } = await supabase.storage
+        .from("productos")
+        .upload(filename, f.buffer, { contentType: f.mimetype });
+
+      if (error) throw error;
+
+      const { data } = supabase.storage.from("productos").getPublicUrl(filename);
+      uploadedImageUrls.push(data.publicUrl);
+    }
+
+    // 5) UPDATE con todos los campos "extendidos"
     await sequelize.query(
       `UPDATE productos
        SET
@@ -522,7 +541,28 @@ export const updateProduct = async (
       }
     );
 
-    res.json({ message: "Producto actualizado correctamente" });
+    // 6) Guardar nuevas imágenes como adicionales (append, sin borrar existentes)
+    if (uploadedImageUrls.length > 0) {
+      for (const imageUrl of uploadedImageUrls) {
+        await sequelize.query(
+          `
+          INSERT INTO producto_imagenes (producto_id, url, created_at)
+          VALUES (:producto_id, :url, now())
+          `,
+          {
+            replacements: {
+              producto_id: id,
+              url: imageUrl,
+            },
+          },
+        );
+      }
+    }
+
+    res.json({
+      message: "Producto actualizado correctamente",
+      imagenesAgregadas: uploadedImageUrls.length,
+    });
   } catch (e) {
     console.error("Error en updateProduct:", e);
     res
