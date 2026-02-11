@@ -7,6 +7,14 @@ import Product from "../models/product.model";
 import { Op } from "sequelize";
 
 // ===========================
+// Helpers
+// ===========================
+const toIntOrNull = (v: any) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+// ===========================
 // Multer config (imágenes producto)
 // ===========================
 const storage = multer.memoryStorage();
@@ -83,6 +91,135 @@ export const getTelas = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+import { QueryTypes } from "sequelize";
+
+export const getProductForEdit = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params
+    const u: any = (req as any).user
+
+    const query = `
+      SELECT
+        p.id,
+        p.nombre,
+        p.descripcion,
+        p.precio,
+        p.stock,
+        p.activo,
+        p.categoria_id,
+        p.categoria_custom,
+        p.clase_id,
+        p.tela_id,
+        p.tela_custom,
+        p.departamento,
+        p.municipio,
+        p.departamento_custom,
+        p.municipio_custom,
+        p.accesorio_id,
+        p.accesorio_custom,
+        p.accesorio_tipo_id,
+        p.accesorio_tipo_custom,
+        p.accesorio_material_id,
+        p.accesorio_material_custom,
+        p.imagen_url AS imagen_principal,
+        p.created_at,
+
+        COALESCE(
+          json_agg(
+            DISTINCT jsonb_build_object(
+              'id', pi.id,
+              'url', pi.url
+            )
+          ) FILTER (WHERE pi.id IS NOT NULL),
+          '[]'
+        ) AS imagenes
+
+      FROM productos p
+      LEFT JOIN producto_imagenes pi ON pi.producto_id = p.id
+      WHERE p.id = :id AND p.vendedor_id = :vid
+      GROUP BY p.id
+      LIMIT 1
+    `
+
+    const rows: any = await sequelize.query(query, {
+      replacements: { id, vid: u.id },
+      type: QueryTypes.SELECT,
+    })
+
+    if (!rows || rows.length === 0) {
+      res.status(404).json({ message: "Producto no encontrado" })
+      return
+    }
+
+    res.json({ product: rows[0] })
+    return
+  } catch (error) {
+    console.error("Error getProductForEdit:", error)
+    res.status(500).json({ message: "Error interno" })
+    return
+  }
+}
+
+export const deleteProductImage = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const u: any = (req as any).user
+    const { id, imageId } = req.params
+
+    // 1️⃣ Verificar imagen + producto + vendedor
+    const [rows]: any = await sequelize.query(
+      `
+      SELECT pi.id, pi.url
+      FROM producto_imagenes pi
+      JOIN productos p ON p.id = pi.producto_id
+      WHERE pi.id = :imageId
+        AND p.id = :productId
+        AND p.vendedor_id = :vid
+      `,
+      {
+        replacements: {
+          imageId,
+          productId: id,
+          vid: u.id,
+        },
+      }
+    )
+
+    if (!rows.length) {
+      res.status(404).json({ message: "Imagen no encontrada" })
+      return
+    }
+
+    const image = rows[0]
+
+    // 2️⃣ Eliminar de Supabase
+    const filePath = image.url.split("/productos/")[1]
+    if (filePath) {
+      await supabase.storage
+        .from("productos")
+        .remove([`products/${filePath}`])
+    }
+
+    // 3️⃣ Eliminar de BD
+    await sequelize.query(
+      `DELETE FROM producto_imagenes WHERE id = :imageId`,
+      { replacements: { imageId } }
+    )
+
+    res.json({ message: "Imagen eliminada" })
+    return
+  } catch (error) {
+    console.error("Error deleteProductImage:", error)
+    res.status(500).json({ message: "Error al eliminar imagen" })
+    return
+  }
+}
+
 // ===========================
 // Taxonomía de accesorios
 // ===========================
@@ -151,12 +288,31 @@ export const getAccesorioMateriales = async (
 // CREAR PRODUCTO
 // ===========================
 export const createProduct = async (req: Request, res: Response): Promise<void> => {
+  const t = await sequelize.transaction();
+  const uploadedFiles: string[] = [];
+
   try {
     const u: any = (req as any).user;
     const b = req.body;
 
-    if (!b.nombre || !b.precio || !b.stock) {
+    // =====================
+    // 1️⃣ Validaciones base
+    // =====================
+    if (!u?.id) {
+      await t.rollback();
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    if (!b.nombre || b.precio === undefined || b.stock === undefined) {
+      await t.rollback();
       res.status(400).json({ message: "Campos obligatorios faltantes" });
+      return;
+    }
+
+    if (!b.clase_id) {
+      await t.rollback();
+      res.status(400).json({ message: "clase_id es obligatorio" });
       return;
     }
 
@@ -164,22 +320,26 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     const stock = Number(b.stock);
 
     if (!Number.isFinite(precio) || precio <= 0) {
+      await t.rollback();
       res.status(400).json({ message: "Precio inválido" });
       return;
     }
 
     if (!Number.isInteger(stock) || stock < 0) {
+      await t.rollback();
       res.status(400).json({ message: "Stock inválido" });
       return;
     }
 
-    // Subir imágenes a Supabase
+    // =====================
+    // 2️⃣ Subir imágenes (temporal)
+    // =====================
     const files = (req.files as Express.Multer.File[]) || [];
     const urls: string[] = [];
 
     for (const f of files) {
       const filename = `products/${Date.now()}-${Math.round(
-        Math.random() * 1e9,
+        Math.random() * 1e9
       )}-${f.originalname}`;
 
       const { error } = await supabase.storage
@@ -188,100 +348,167 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
 
       if (error) throw error;
 
-      const { data } = supabase.storage.from("productos").getPublicUrl(filename);
+      uploadedFiles.push(filename);
+
+      const { data } = supabase.storage
+        .from("productos")
+        .getPublicUrl(filename);
+
       urls.push(data.publicUrl);
     }
 
-    const primera = urls[0] ?? null;
+    const imagenPrincipal = urls[0] ?? null;
 
-    // Insert
+    // Galería (máx 5 imágenes incluyendo la principal)
+    const galeria = urls.slice(1, 5);
+
+    // =====================
+    // 3️⃣ Insertar producto (ATÓMICO)
+    // =====================
     const [inserted]: any = await sequelize.query(
       `
       INSERT INTO productos (
         vendedor_id, nombre, descripcion, precio, stock,
-
-        categoria_id,
-        categoria_custom,
-
-        clase_id,
-        tela_id,
-        tela_custom,
-
-        departamento,
-        municipio,
-        departamento_custom,
-        municipio_custom,
-
-        accesorio_id,
-        accesorio_custom,
-        accesorio_tipo_id,
-        accesorio_tipo_custom,
-        accesorio_material_id,
-        accesorio_material_custom,
-
+        categoria_id, categoria_custom,
+        clase_id, tela_id, tela_custom,
+        departamento, municipio, departamento_custom, municipio_custom,
+        accesorio_id, accesorio_custom,
+        accesorio_tipo_id, accesorio_tipo_custom,
+        accesorio_material_id, accesorio_material_custom,
         imagen_url, activo, created_at, updated_at
       ) VALUES (
         :vendedor_id, :nombre, :descripcion, :precio, :stock,
-
-        :categoria_id,
-        :categoria_custom,
-
-        :clase_id,
-        :tela_id,
-        :tela_custom,
-
-        :departamento,
-        :municipio,
-        :departamento_custom,
-        :municipio_custom,
-
-        :accesorio_id,
-        :accesorio_custom,
-        :accesorio_tipo_id,
-        :accesorio_tipo_custom,
-        :accesorio_material_id,
-        :accesorio_material_custom,
-
+        :categoria_id, :categoria_custom,
+        :clase_id, :tela_id, :tela_custom,
+        :departamento, :municipio, :departamento_custom, :municipio_custom,
+        :accesorio_id, :accesorio_custom,
+        :accesorio_tipo_id, :accesorio_tipo_custom,
+        :accesorio_material_id, :accesorio_material_custom,
         :imagen_url, :activo, now(), now()
-      ) RETURNING id`,
+      ) RETURNING id
+      `,
       {
+        transaction: t,
         replacements: {
           vendedor_id: u.id,
+      
           nombre: b.nombre,
           descripcion: b.descripcion || null,
           precio,
           stock,
-
-          categoria_id: b.categoria_id ? Number(b.categoria_id) : null,
+      
+          // ======================
+          // Categoría
+          // ======================
+          categoria_id:
+            b.categoria_id !== undefined && b.categoria_id !== null && b.categoria_id !== ""
+              ? Number(b.categoria_id)
+              : null,
           categoria_custom: b.categoria_custom || null,
-
-          clase_id: b.clase_id ? Number(b.clase_id) : null,
-          tela_id: b.tela_id ? Number(b.tela_id) : null,
+      
+          // ======================
+          // Textiles
+          // ======================
+          clase_id:
+            b.clase_id !== undefined && b.clase_id !== null && b.clase_id !== ""
+              ? Number(b.clase_id)
+              : null,
+      
+          tela_id:
+            b.tela_id !== undefined && b.tela_id !== null && b.tela_id !== ""
+              ? Number(b.tela_id)
+              : null,
+      
           tela_custom: b.tela_custom || null,
-
+      
+          // ======================
+          // Origen
+          // ======================
           departamento: b.departamento || null,
           municipio: b.municipio || null,
           departamento_custom: b.departamento_custom || null,
           municipio_custom: b.municipio_custom || null,
-
-          accesorio_id: b.accesorio_id ? Number(b.accesorio_id) : null,
+      
+          // ======================
+          // Accesorios
+          // ======================
+          accesorio_id:
+            b.accesorio_id !== undefined && b.accesorio_id !== null && b.accesorio_id !== ""
+              ? Number(b.accesorio_id)
+              : null,
+      
           accesorio_custom: b.accesorio_custom || null,
-
-          accesorio_tipo_id: b.accesorio_tipo_id || null,
+      
+          accesorio_tipo_id:
+            b.accesorio_tipo_id !== undefined &&
+            b.accesorio_tipo_id !== null &&
+            b.accesorio_tipo_id !== ""
+              ? Number(b.accesorio_tipo_id)
+              : null,
+      
           accesorio_tipo_custom: b.accesorio_tipo_custom || null,
-
-          accesorio_material_id: b.accesorio_material_id || null,
+      
+          accesorio_material_id:
+            b.accesorio_material_id !== undefined &&
+            b.accesorio_material_id !== null &&
+            b.accesorio_material_id !== ""
+              ? Number(b.accesorio_material_id)
+              : null,
+      
           accesorio_material_custom: b.accesorio_material_custom || null,
-
-          imagen_url: primera,
-          activo: Boolean(b.activo),
+      
+          // ======================
+          // Imagen principal
+          // ======================
+          imagen_url: imagenPrincipal,
+      
+          // 🔒 decisión explícita de negocio
+          activo: false,
         },
       }
+      
     );
 
-    res.status(201).json({ id: inserted[0].id, imagenes: urls });
+        // =====================
+    // 4️⃣ Insertar galería de imágenes (si hay)
+    // =====================
+    if (galeria.length > 0) {
+      for (const url of galeria) {
+        await sequelize.query(
+          `INSERT INTO producto_imagenes (producto_id, url, created_at)
+           VALUES (:producto_id, :url, now())`,
+          {
+            transaction: t,
+            replacements: {
+              producto_id: inserted[0].id,
+              url,
+            },
+          }
+        );
+      }
+    }
+
+    await t.commit();
+
+    res.status(201).json({
+      id: inserted[0].id,
+      imagenes: urls,
+      activo: false,
+    });
   } catch (error) {
-    console.error("Error en createProduct:", error);
+    console.error("❌ Error en createProduct (atomic):", error);
+
+    await t.rollback();
+
+    // =====================
+    // 🧹 Limpieza de imágenes huérfanas
+    // =====================
+    if (uploadedFiles.length > 0) {
+      await supabase.storage
+        .from("productos")
+        .remove(uploadedFiles);
+    }
+
     res.status(500).json({ message: "Error al crear producto" });
   }
 };
@@ -296,13 +523,13 @@ export const getSellerProducts = async (
   try {
     const u: any = (req as any).user;
 
-    const [rows]: any = await sequelize.query(
-      `SELECT id, nombre, precio, stock, activo, imagen_url
-       FROM productos
-       WHERE vendedor_id = :vid
-       ORDER BY created_at DESC`,
-      { replacements: { vid: u.id } }
-    );
+      const [rows]: any = await sequelize.query(
+        `SELECT id, nombre, precio, stock, activo, imagen_url
+        FROM productos
+        WHERE vendedor_id = :vid
+        ORDER BY activo ASC, created_at DESC`,
+        { replacements: { vid: u.id } }
+      );    
 
     res.json(rows);
   } catch (error) {
@@ -395,7 +622,6 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
   }
 };
 
-
 // ===========================
 // Actualizar producto
 // ===========================
@@ -408,11 +634,11 @@ export const updateProduct = async (
     const b = req.body;
 
     // 1) Verificar que el producto pertenece al vendedor
-    const id = Number(req.params.id);
+    const id = req.params.id;
 
     const [rows]: any = await sequelize.query(
       `SELECT id FROM productos WHERE id = :id AND vendedor_id = :vid`,
-      { replacements: { id, vid: u.id } },
+      { replacements: { id, vid: u.id } }
     );
 
     if (!rows || rows.length === 0) {
@@ -447,81 +673,123 @@ export const updateProduct = async (
     await sequelize.query(
       `UPDATE productos
        SET
-         nombre               = :nombre,
-         descripcion          = :descripcion,
-         precio               = :precio,
-         stock                = :stock,
-
-         -- categoría principal
-         categoria_id         = :categoria_id,
-         categoria_custom     = :categoria_custom,
-
-         -- subcategorías de textiles
-         clase_id             = :clase_id,
-         tela_id              = :tela_id,
-         tela_custom          = :tela_custom,
-
-         -- origen (ubicación)
-         departamento         = :departamento,
-         municipio            = :municipio,
-         departamento_custom  = :departamento_custom,
-         municipio_custom     = :municipio_custom,
-
-         -- subcategorías de accesorios
-         accesorio_id             = :accesorio_id,
-         accesorio_custom         = :accesorio_custom,
-         accesorio_tipo_id        = :accesorio_tipo_id,
-         accesorio_tipo_custom    = :accesorio_tipo_custom,
-         accesorio_material_id    = :accesorio_material_id,
-         accesorio_material_custom= :accesorio_material_custom,
-
-         -- estado
-         activo              = :activo,
-         updated_at          = now()
+         nombre = :nombre,
+         descripcion = :descripcion,
+         precio = :precio,
+         stock = :stock,
+         categoria_id = :categoria_id,
+         categoria_custom = :categoria_custom,
+         clase_id = :clase_id,
+         tela_id = :tela_id,
+         tela_custom = :tela_custom,
+         departamento = :departamento,
+         municipio = :municipio,
+         departamento_custom = :departamento_custom,
+         municipio_custom = :municipio_custom,
+         accesorio_id = :accesorio_id,
+         accesorio_custom = :accesorio_custom,
+         accesorio_tipo_id = :accesorio_tipo_id,
+         accesorio_tipo_custom = :accesorio_tipo_custom,
+         accesorio_material_id = :accesorio_material_id,
+         accesorio_material_custom = :accesorio_material_custom,
+         activo = :activo,
+         updated_at = now()
        WHERE id = :id AND vendedor_id = :vid`,
       {
         replacements: {
-          id: req.params.id,
+          id, // 👈 UUID string
           vid: u.id,
-
+    
           nombre: b.nombre,
           descripcion: b.descripcion || null,
           precio,
           stock,
-
-          // categoría principal
+    
           categoria_id: b.categoria_id ? Number(b.categoria_id) : null,
           categoria_custom: b.categoria_custom || null,
-
-          // subcategorías textiles
+    
           clase_id: b.clase_id ? Number(b.clase_id) : null,
           tela_id: b.tela_id ? Number(b.tela_id) : null,
           tela_custom: b.tela_custom || null,
-
-          // origen
+    
           departamento: b.departamento || null,
           municipio: b.municipio || null,
           departamento_custom: b.departamento_custom || null,
           municipio_custom: b.municipio_custom || null,
-
-          // accesorios
+    
           accesorio_id: b.accesorio_id ? Number(b.accesorio_id) : null,
           accesorio_custom: b.accesorio_custom || null,
-          accesorio_tipo_id: b.accesorio_tipo_id
-            ? Number(b.accesorio_tipo_id)
-            : null,
+          accesorio_tipo_id: b.accesorio_tipo_id ? Number(b.accesorio_tipo_id) : null,
           accesorio_tipo_custom: b.accesorio_tipo_custom || null,
-          accesorio_material_id: b.accesorio_material_id
-            ? Number(b.accesorio_material_id)
-            : null,
+          accesorio_material_id: b.accesorio_material_id ? Number(b.accesorio_material_id) : null,
           accesorio_material_custom: b.accesorio_material_custom || null,
-
-          // estado
+    
           activo,
         },
       }
     );
+    
+    // =====================
+    // 5️⃣ Subir nuevas imágenes (si vienen)
+    // =====================
+    const files = (req.files as Express.Multer.File[]) || [];
 
+    if (files.length > 0) {
+      // 1️⃣ Contar cuántas imágenes ya existen
+      const [countRows]: any = await sequelize.query(
+        `
+        SELECT COUNT(*)::int AS total
+        FROM producto_imagenes
+        WHERE producto_id = :id
+        `,
+        { replacements: { id } }
+      );
+
+      const existentes = countRows[0]?.total ?? 0;
+      const maxPermitidas = 9;
+
+      if (existentes + files.length > maxPermitidas) {
+        res.status(400).json({
+          message: `Máximo ${maxPermitidas} imágenes permitidas`,
+        });
+        return;
+      }
+
+      // 2️⃣ Subir cada imagen
+      for (const file of files) {
+        const filename = `products/${Date.now()}-${Math.round(
+          Math.random() * 1e9
+        )}-${file.originalname}`;
+
+        const { error } = await supabase.storage
+          .from("productos")
+          .upload(filename, file.buffer, {
+            contentType: file.mimetype,
+          });
+
+        if (error) {
+          throw error;
+        }
+
+        const { data } = supabase.storage
+          .from("productos")
+          .getPublicUrl(filename);
+
+        // 3️⃣ Guardar en BD
+        await sequelize.query(
+          `
+          INSERT INTO producto_imagenes (producto_id, url, created_at)
+          VALUES (:producto_id, :url, now())
+          `,
+          {
+            replacements: {
+              producto_id: id,
+              url: data.publicUrl,
+            },
+          }
+        );
+      }
+    }
     res.json({ message: "Producto actualizado correctamente" });
   } catch (e) {
     console.error("Error en updateProduct:", e);
@@ -530,6 +798,7 @@ export const updateProduct = async (
       .json({ message: "Error al actualizar producto", error: String(e) });
   }
 };
+
 
 // ===========================
 // Eliminar producto

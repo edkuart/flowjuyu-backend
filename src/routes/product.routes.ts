@@ -14,15 +14,17 @@ import {
   getAccesorioTipos,
   getAccesorioMateriales,
 
-  // CRUD vendedor
+  // CRUD / detalle
   createProduct,
   getSellerProducts,
   getProductById,
+  getProductForEdit,
   updateProduct,
   deleteProduct,
   toggleProductActive,
+  deleteProductImage,
 
-  // Búsquedas / filtros públicos
+  // Públicos
   getFilteredProducts,
   getFilters,
   getProductsByCategory,
@@ -32,11 +34,11 @@ import {
 const router: Router = Router();
 
 /* ---------------------------------------------------------
-   📦 1. CATÁLOGOS PÚBLICOS  (sin auth)
+   📦 1. CATÁLOGOS PÚBLICOS
 --------------------------------------------------------- */
 router.get("/categorias", getCategorias);
 router.get("/clases", getClases);
-router.get("/regiones", getRegiones); // compatibilidad
+router.get("/regiones", getRegiones); // legacy
 router.get("/telas", getTelas);
 
 /* ---------------------------------------------------------
@@ -47,31 +49,34 @@ router.get("/accesorio-tipos", getAccesorioTipos);
 router.get("/accesorio-materiales", getAccesorioMateriales);
 
 /* ---------------------------------------------------------
-   🔍 3. BÚSQUEDAS PÚBLICAS (productos visibles)
+   🔍 3. BÚSQUEDAS PÚBLICAS
 --------------------------------------------------------- */
-router.get("/products", getFilteredProducts);     // nuevo estándar
-router.get("/productos", getFilteredProducts);    // compatibilidad legacy
-
+router.get("/products", getFilteredProducts);
+router.get("/productos", getFilteredProducts); // legacy
 router.get("/filters/:tipo", getFilters);
 router.get("/categorias/:slug/productos", getProductsByCategory);
 router.get("/productos/nuevos", getNewProducts);
 
 /* ---------------------------------------------------------
-   📌 4. PRODUCTOS — RUTA PÚBLICA (DETALLE)
-      ⚠ IMPORTANTE: esta DEBE ser PÚBLICA
+   📌 4. PRODUCTO — DETALLE PÚBLICO
 --------------------------------------------------------- */
-
-// Nuevo endpoint estándar
 router.get("/products/:id", getProductById);
-
-// Compatibilidad con versiones anteriores
-router.get("/productos/:id", getProductById);
+router.get("/productos/:id", getProductById); // legacy
 
 /* ---------------------------------------------------------
-   🛒 5. CRUD DEL VENDEDOR (PROTEGIDO con token)
+   ✏️ 5. PRODUCTO — EDICIÓN (VENDEDOR)
+--------------------------------------------------------- */
+router.get(
+  "/productos/:id/edit",
+  requireRole("seller"),
+  getProductForEdit
+);
+
+/* ---------------------------------------------------------
+   🛒 6. CRUD DEL VENDEDOR (PROTEGIDO)
 --------------------------------------------------------- */
 
-// Crear producto (requiere rol vendedor)
+// Crear producto
 router.post(
   "/productos",
   requireRole("seller"),
@@ -79,19 +84,14 @@ router.post(
   createProduct
 );
 
+// Listado del vendedor
 router.get(
   "/seller/productos",
   requireRole("seller"),
   getSellerProducts
 );
 
-router.get(
-  "/productos/:id",
-  requireRole("seller"),
-  getProductById
-);
-
-// 🛠 PUT ahora permite subir imágenes ✔
+// Actualizar producto (incluye nuevas imágenes)
 router.put(
   "/productos/:id",
   requireRole("seller"),
@@ -99,25 +99,37 @@ router.put(
   updateProduct
 );
 
-// 🗑 Eliminar
+// Eliminar producto completo
 router.delete(
   "/productos/:id",
   requireRole("seller"),
   deleteProduct
 );
 
-// 🔄 Activar / desactivar
+// Activar / desactivar producto
 router.patch(
   "/productos/:id/activo",
   requireRole("seller"),
   toggleProductActive
 );
-// Obtener los productos del vendedor
-router.get("/seller/productos", requireRole("seller"), getSellerProducts);
 
-// Editar, eliminar, activar/desactivar — SOLO vendedor
-router.put("/productos/:id", requireRole("seller"), updateProduct);
-router.delete("/productos/:id", requireRole("seller"), deleteProduct);
-router.patch("/productos/:id/activo", requireRole("seller"), toggleProductActive);
+/* ---------------------------------------------------------
+   🖼️ 7. IMÁGENES DEL PRODUCTO (VENDEDOR)
+--------------------------------------------------------- */
+
+// Eliminar imagen individual
+router.delete(
+  "/productos/:id/imagenes/:imageId",
+  requireRole("seller"),
+  deleteProductImage
+);
+
+// 🔒 Obtener producto para edición (SOLO vendedor)
+router.get(
+  "/productos/:id/edit",
+  requireRole("seller"),
+  getProductForEdit
+);
 
 export default router;
+
