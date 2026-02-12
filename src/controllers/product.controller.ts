@@ -5,6 +5,8 @@ import multer from "multer";
 import supabase from "../lib/supabase";
 import Product from "../models/product.model";
 import { Op } from "sequelize";
+import { validate as isUUID } from "uuid";
+import { QueryTypes } from "sequelize";
 
 // ===========================
 // Helpers
@@ -25,7 +27,7 @@ const fileFilter: multer.Options["fileFilter"] = (_req, file, cb) =>
 
 export const uploadProductImages = multer({
   storage,
-  limits: { files: 9, fileSize: 5 * 1024 * 1024 },
+  limits: { files: 5, fileSize: 5 * 1024 * 1024 },
   fileFilter,
 });
 
@@ -90,8 +92,6 @@ export const getTelas = async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({ message: "Error al obtener telas" });
   }
 };
-
-import { QueryTypes } from "sequelize";
 
 export const getProductForEdit = async (
   req: Request,
@@ -541,12 +541,22 @@ export const getSellerProducts = async (
 // ===========================
 // Obtener producto por ID (PÚBLICO)
 // ===========================
-export const getProductById = async (req: Request, res: Response): Promise<void> => {
+export const getProductById = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { id } = req.params;
 
-    const [rows]: any = await sequelize.query(
-      `
+    // 🔥 VALIDACIÓN CRÍTICA
+    if (!id || !isUUID(id)) {
+      res.status(400).json({
+        message: "ID de producto inválido"
+      });
+      return;
+    }
+
+    const query = `
       SELECT 
         p.id,
         p.nombre,
@@ -561,15 +571,32 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
         v.nombre_comercio AS vendedor_nombre,
         v.logo AS vendedor_logo_url,
 
-        p.created_at
+        p.created_at,
+
+        COALESCE(
+          json_agg(
+            DISTINCT jsonb_build_object(
+              'id', pi.id,
+              'url', pi.url
+            )
+          ) FILTER (WHERE pi.id IS NOT NULL),
+          '[]'
+        ) AS imagenes
+
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
       LEFT JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
+      LEFT JOIN producto_imagenes pi ON pi.producto_id = p.id
+
       WHERE p.id = :id AND p.activo = true
+      GROUP BY p.id, c.nombre, v.nombre_comercio, v.logo
       LIMIT 1
-      `,
-      { replacements: { id } }
-    );
+    `;
+
+    const rows: any = await sequelize.query(query, {
+      replacements: { id },
+      type: QueryTypes.SELECT,
+    });    
 
     if (!rows || rows.length === 0) {
       res.status(404).json({ message: "Producto no encontrado" });
@@ -577,28 +604,22 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
     }
 
     const product = rows[0];
+    console.log("PRODUCT DATA:", product);
 
-    // Obtener imágenes adicionales
-    const [imgs]: any = await sequelize.query(
-      `
-      SELECT id, url
-      FROM producto_imagenes
-      WHERE producto_id = :id
-      ORDER BY id ASC
-      `,
-      { replacements: { id } }
-    );
+    // 🔒 Seguridad extra: limitar a 4 adicionales (principal + 4 = 5 máx)
+    if (Array.isArray(product.imagenes)) {
+      product.imagenes = product.imagenes.slice(0, 4);
+    }
 
-    product.imagenes = imgs || [];
-
-    // Obtener productos relacionados
-    const [related]: any = await sequelize.query(
-      `
+    // ===========================
+    // Productos relacionados
+    // ===========================
+    const relatedQuery = `
       SELECT 
         p.id,
         p.nombre,
         p.precio,
-        p.imagen_url AS imagen_url
+        p.imagen_url
       FROM productos p
       WHERE p.categoria_id = (
         SELECT categoria_id FROM productos WHERE id = :id
@@ -607,17 +628,22 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
       AND p.activo = true
       ORDER BY p.created_at DESC
       LIMIT 12
-      `,
-      { replacements: { id } }
-    );
+    `;
 
-    res.json({ product, related });
+    const related: any = await sequelize.query(relatedQuery, {
+      replacements: { id },
+      type: QueryTypes.SELECT,
+    });    
+
+    res.json({
+      product,
+      related: related || [],
+    });
 
   } catch (e) {
     console.error("Error en getProductById:", e);
     res.status(500).json({
       message: "Error al obtener producto",
-      error: String(e)
     });
   }
 };
@@ -631,11 +657,25 @@ export const updateProduct = async (
 ): Promise<void> => {
   try {
     const u: any = (req as any).user;
-    const b = req.body;
-
-    // 1) Verificar que el producto pertenece al vendedor
+    const b: any = req.body;
     const id = req.params.id;
 
+    // 🔎 Logs útiles
+    console.log("[updateProduct] content-type:", req.headers["content-type"]);
+    console.log("[updateProduct] body keys:", Object.keys(b || {}));
+    console.log(
+      "[updateProduct] files:",
+      Array.isArray(req.files)
+        ? (req.files as any[]).map((f) => ({
+            fieldname: f.fieldname,
+            originalname: f.originalname,
+            mimetype: f.mimetype,
+            size: f.size,
+          }))
+        : req.files
+    );
+
+    // 1️⃣ Verificar pertenencia
     const [rows]: any = await sequelize.query(
       `SELECT id FROM productos WHERE id = :id AND vendedor_id = :vid`,
       { replacements: { id, vid: u.id } }
@@ -646,9 +686,19 @@ export const updateProduct = async (
       return;
     }
 
-    // 2) Validaciones básicas (igual que en createProduct)
-    if (!b.nombre || !b.precio || !b.stock) {
-      res.status(400).json({ message: "Campos obligatorios faltantes" });
+    // 2️⃣ Validaciones seguras
+    if (b.nombre == null || b.nombre === "") {
+      res.status(400).json({ message: "nombre es obligatorio" });
+      return;
+    }
+
+    if (b.precio == null || b.precio === "") {
+      res.status(400).json({ message: "precio es obligatorio" });
+      return;
+    }
+
+    if (b.stock == null || b.stock === "") {
+      res.status(400).json({ message: "stock es obligatorio" });
       return;
     }
 
@@ -665,12 +715,14 @@ export const updateProduct = async (
       return;
     }
 
-    // 3) Normalizar boolean activo
     const activo =
-      b.activo === "true" || b.activo === true || b.activo === 1 || b.activo === "1";
+      b.activo === "true" ||
+      b.activo === true ||
+      b.activo === 1 ||
+      b.activo === "1";
 
-    // 4) Subir nuevas imágenes (si vienen en el request)
-    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    // 3️⃣ Subir imágenes nuevas
+    const files = (Array.isArray(req.files) ? req.files : []) as Express.Multer.File[];
     const uploadedImageUrls: string[] = [];
 
     for (const f of files) {
@@ -684,11 +736,14 @@ export const updateProduct = async (
 
       if (error) throw error;
 
-      const { data } = supabase.storage.from("productos").getPublicUrl(filename);
+      const { data } = supabase.storage
+        .from("productos")
+        .getPublicUrl(filename);
+
       uploadedImageUrls.push(data.publicUrl);
     }
 
-    // 5) UPDATE con todos los campos "extendidos"
+    // 4️⃣ UPDATE principal del producto
     await sequelize.query(
       `UPDATE productos
        SET
@@ -716,41 +771,43 @@ export const updateProduct = async (
        WHERE id = :id AND vendedor_id = :vid`,
       {
         replacements: {
-          id, // 👈 UUID string
+          id,
           vid: u.id,
-    
+
           nombre: b.nombre,
           descripcion: b.descripcion || null,
           precio,
           stock,
-    
+
           categoria_id: b.categoria_id ? Number(b.categoria_id) : null,
           categoria_custom: b.categoria_custom || null,
-    
+
           clase_id: b.clase_id ? Number(b.clase_id) : null,
           tela_id: b.tela_id ? Number(b.tela_id) : null,
           tela_custom: b.tela_custom || null,
-    
+
           departamento: b.departamento || null,
           municipio: b.municipio || null,
           departamento_custom: b.departamento_custom || null,
           municipio_custom: b.municipio_custom || null,
-    
+
           accesorio_id: b.accesorio_id ? Number(b.accesorio_id) : null,
           accesorio_custom: b.accesorio_custom || null,
+
           accesorio_tipo_id: b.accesorio_tipo_id ? Number(b.accesorio_tipo_id) : null,
           accesorio_tipo_custom: b.accesorio_tipo_custom || null,
+
           accesorio_material_id: b.accesorio_material_id ? Number(b.accesorio_material_id) : null,
           accesorio_material_custom: b.accesorio_material_custom || null,
-    
+
           activo,
         },
       }
     );
 
-    // 6) Guardar nuevas imágenes como adicionales (append, sin borrar existentes)
+    // 5️⃣ Guardar imágenes adicionales
     if (uploadedImageUrls.length > 0) {
-      for (const imageUrl of uploadedImageUrls) {
+      for (const url of uploadedImageUrls) {
         await sequelize.query(
           `
           INSERT INTO producto_imagenes (producto_id, url, created_at)
@@ -759,25 +816,107 @@ export const updateProduct = async (
           {
             replacements: {
               producto_id: id,
-              url: imageUrl,
+              url,
             },
-          },
+          }
         );
       }
+
+      // 6️⃣ ACTUALIZAR imagen principal con la primera nueva
+      await sequelize.query(
+        `
+        UPDATE productos
+        SET imagen_url = :imagen_url,
+            updated_at = now()
+        WHERE id = :id AND vendedor_id = :vid
+        `,
+        {
+          replacements: {
+            id,
+            vid: u.id,
+            imagen_url: uploadedImageUrls[0],
+          },
+        }
+      );
     }
 
     res.json({
       message: "Producto actualizado correctamente",
       imagenesAgregadas: uploadedImageUrls.length,
+      imagenPrincipalActualizada: uploadedImageUrls.length > 0,
     });
+
   } catch (e) {
     console.error("Error en updateProduct:", e);
-    res
-      .status(500)
-      .json({ message: "Error al actualizar producto", error: String(e) });
+    res.status(500).json({
+      message: "Error al actualizar producto",
+      error: String(e),
+    });
   }
 };
 
+// ===========================
+// Cambiar imagen principal (VENDEDOR)
+// ===========================
+export const setPrincipalImage = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const u: any = (req as any).user;
+    const { id } = req.params;
+    const { imagen_url } = req.body;
+
+    if (!imagen_url) {
+      res.status(400).json({ message: "imagen_url requerida" });
+      return;
+    }
+
+    // 1️⃣ Verificar que el producto pertenece al vendedor
+    const [rows]: any = await sequelize.query(
+      `
+      SELECT id
+      FROM productos
+      WHERE id = :id AND vendedor_id = :vid
+      `,
+      {
+        replacements: { id, vid: u.id },
+      }
+    );
+
+    if (!rows.length) {
+      res.status(404).json({ message: "Producto no encontrado" });
+      return;
+    }
+
+    // 2️⃣ Actualizar imagen principal
+    await sequelize.query(
+      `
+      UPDATE productos
+      SET imagen_url = :imagen_url,
+          updated_at = now()
+      WHERE id = :id AND vendedor_id = :vid
+      `,
+      {
+        replacements: {
+          id,
+          vid: u.id,
+          imagen_url,
+        },
+      }
+    );
+
+    res.json({
+      message: "Imagen principal actualizada correctamente",
+    });
+
+  } catch (error) {
+    console.error("Error en setPrincipalImage:", error);
+    res.status(500).json({
+      message: "Error al actualizar imagen principal",
+    });
+  }
+};
 
 // ===========================
 // Eliminar producto

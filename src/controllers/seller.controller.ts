@@ -250,7 +250,8 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
       if (perfil.logo) {
         const prevFile = perfil.logo.split("/").pop();
         if (prevFile) {
-          await supabase.storage.from("vendedores").remove([`vendedores/${prevFile}`]);
+          await supabase.storage.from("logos_comercios")
+          .remove([`vendedores/${prevFile}`]);
         }
       }
       logoUrl = null;
@@ -261,7 +262,7 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
       if (perfil.logo) {
         const prevFile = perfil.logo.split("/").pop();
         if (prevFile) {
-          await supabase.storage.from("vendedores").remove([`vendedores/${prevFile}`]);
+          await supabase.storage.from("logos_comercios").remove([`vendedores/${prevFile}`]);
         }
       }
 
@@ -269,13 +270,13 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
       const fileName = `vendedores/${uuidv4()}.${ext}`;
 
       const { error: uploadError } = await supabase.storage
-        .from("vendedores")
+        .from("logos_comercios")
         .upload(fileName, req.file.buffer, { contentType: req.file.mimetype });
 
       if (uploadError) throw uploadError;
 
       const { data: publicUrl } = supabase.storage
-        .from("vendedores")
+        .from("logos_comercios")
         .getPublicUrl(fileName);
 
       logoUrl = publicUrl.publicUrl;

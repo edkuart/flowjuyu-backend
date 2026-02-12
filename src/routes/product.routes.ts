@@ -1,3 +1,5 @@
+//scr/routes/product.routes.ts
+
 import { Router } from "express";
 import { requireRole } from "../middleware/auth";
 import { uploadProductImages } from "../middleware/multerProducts";
@@ -23,6 +25,7 @@ import {
   deleteProduct,
   toggleProductActive,
   deleteProductImage,
+  setPrincipalImage,
 
   // Públicos
   getFilteredProducts,
@@ -38,11 +41,11 @@ const router: Router = Router();
 --------------------------------------------------------- */
 router.get("/categorias", getCategorias);
 router.get("/clases", getClases);
-router.get("/regiones", getRegiones); // legacy
+router.get("/regiones", getRegiones);
 router.get("/telas", getTelas);
 
 /* ---------------------------------------------------------
-   🎨 2. TAXONOMÍA DE ACCESORIOS (público)
+   🎨 2. TAXONOMÍA DE ACCESORIOS
 --------------------------------------------------------- */
 router.get("/accesorios", getAccesorios);
 router.get("/accesorio-tipos", getAccesorioTipos);
@@ -73,7 +76,7 @@ router.get(
 );
 
 /* ---------------------------------------------------------
-   🛒 6. CRUD DEL VENDEDOR (PROTEGIDO)
+   🛒 6. CRUD DEL VENDEDOR
 --------------------------------------------------------- */
 
 // Crear producto
@@ -86,17 +89,24 @@ router.post(
 
 // Listado del vendedor
 router.get(
-  "/seller/productos",
+  "/seller/products",
   requireRole("seller"),
   getSellerProducts
 );
 
-// Actualizar producto (incluye nuevas imágenes)
+// Actualizar producto
 router.put(
   "/productos/:id",
   requireRole("seller"),
   uploadProductImages.array("imagenes[]", 9),
   updateProduct
+);
+
+// Cambiar imagen principal
+router.patch(
+  "/productos/:id/set-principal",
+  requireRole("seller"),
+  setPrincipalImage
 );
 
 // Eliminar producto completo
@@ -114,7 +124,7 @@ router.patch(
 );
 
 /* ---------------------------------------------------------
-   🖼️ 7. IMÁGENES DEL PRODUCTO (VENDEDOR)
+   🖼️ 7. IMÁGENES DEL PRODUCTO
 --------------------------------------------------------- */
 
 // Eliminar imagen individual
@@ -124,12 +134,4 @@ router.delete(
   deleteProductImage
 );
 
-// 🔒 Obtener producto para edición (SOLO vendedor)
-router.get(
-  "/productos/:id/edit",
-  requireRole("seller"),
-  getProductForEdit
-);
-
 export default router;
-
