@@ -7,6 +7,9 @@ import Product from "../models/product.model";
 import { Op } from "sequelize";
 import { validate as isUUID } from "uuid";
 import { QueryTypes } from "sequelize";
+import { buildPublicProductDTO } from "../utils/buildPublicProductDTO";
+import { buildPublicProductCardDTO } from "../utils/buildPublicProductCardDTO"
+import { buildSearchProductDTO } from "../utils/buildSearchProductDTO";
 
 // ===========================
 // Helpers
@@ -331,6 +334,20 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    // ======================
+    // 🔒 Validación categoría obligatoria
+    // ======================
+    if (
+      (!b.categoria_id || b.categoria_id === "") &&
+      (!b.categoria_custom || String(b.categoria_custom).trim() === "")
+    ) {
+      await t.rollback();
+      res.status(400).json({
+        message: "Debe seleccionar una categoría o ingresar una personalizada",
+      });
+      return;
+    }
+
     // =====================
     // 2️⃣ Subir imágenes (temporal)
     // =====================
@@ -548,30 +565,35 @@ export const getProductById = async (
   try {
     const { id } = req.params;
 
-    // 🔥 VALIDACIÓN CRÍTICA
+    // 🔒 Validación UUID
     if (!id || !isUUID(id)) {
       res.status(400).json({
-        message: "ID de producto inválido"
+        message: "ID de producto inválido",
       });
       return;
     }
 
+    // ===========================
+    // 🔎 PRODUCTO DETALLE
+    // ===========================
     const query = `
       SELECT 
         p.id,
         p.nombre,
         p.descripcion,
         p.precio,
-        p.stock,
         p.imagen_url AS imagen_principal,
         p.departamento,
         p.municipio,
-        c.nombre AS categoria,
 
-        v.nombre_comercio AS vendedor_nombre,
-        v.logo AS vendedor_logo_url,
+        -- Categoria estructurada
+        c.id AS categoria_id,
+        c.nombre AS categoria_nombre,
 
-        p.created_at,
+        -- Vendedor estructurado
+        v.user_id AS vendedor_id,
+        v.nombre_comercio,
+        v.logo,
 
         COALESCE(
           json_agg(
@@ -589,38 +611,49 @@ export const getProductById = async (
       LEFT JOIN producto_imagenes pi ON pi.producto_id = p.id
 
       WHERE p.id = :id AND p.activo = true
-      GROUP BY p.id, c.nombre, v.nombre_comercio, v.logo
+      GROUP BY 
+        p.id,
+        c.id,
+        c.nombre,
+        v.user_id,
+        v.nombre_comercio,
+        v.logo
       LIMIT 1
     `;
 
     const rows: any = await sequelize.query(query, {
       replacements: { id },
       type: QueryTypes.SELECT,
-    });    
+    });
 
     if (!rows || rows.length === 0) {
       res.status(404).json({ message: "Producto no encontrado" });
       return;
     }
 
-    const product = rows[0];
-    console.log("PRODUCT DATA:", product);
+    const rawProduct = rows[0];
+    const product = buildPublicProductDTO(rawProduct);
 
-    // 🔒 Seguridad extra: limitar a 4 adicionales (principal + 4 = 5 máx)
+    // 🔒 Limitar galería adicional a 4
     if (Array.isArray(product.imagenes)) {
       product.imagenes = product.imagenes.slice(0, 4);
     }
 
     // ===========================
-    // Productos relacionados
+    // 🔎 PRODUCTOS RELACIONADOS (CardDTO)
     // ===========================
     const relatedQuery = `
       SELECT 
         p.id,
         p.nombre,
         p.precio,
-        p.imagen_url
+        p.imagen_url,
+        p.departamento,
+        p.municipio,
+        c.id AS categoria_id,
+        c.nombre AS categoria_nombre
       FROM productos p
+      LEFT JOIN categorias c ON c.id = p.categoria_id
       WHERE p.categoria_id = (
         SELECT categoria_id FROM productos WHERE id = :id
       )
@@ -630,14 +663,21 @@ export const getProductById = async (
       LIMIT 12
     `;
 
-    const related: any = await sequelize.query(relatedQuery, {
+    const relatedRows: any = await sequelize.query(relatedQuery, {
       replacements: { id },
       type: QueryTypes.SELECT,
-    });    
+    });
 
+    const related = (relatedRows || []).map((r: any) =>
+      buildPublicProductCardDTO(r)
+    );
+
+    // ===========================
+    // 📦 RESPUESTA FINAL
+    // ===========================
     res.json({
       product,
-      related: related || [],
+      related,
     });
 
   } catch (e) {
@@ -712,6 +752,17 @@ export const updateProduct = async (
 
     if (!Number.isInteger(stock) || stock < 0) {
       res.status(400).json({ message: "Stock inválido" });
+      return;
+    }
+
+    // 🔒 Validación categoría obligatoria
+    if (
+      (!b.categoria_id || b.categoria_id === "") &&
+      (!b.categoria_custom || String(b.categoria_custom).trim() === "")
+    ) {
+      res.status(400).json({
+        message: "Debe seleccionar una categoría o ingresar una personalizada",
+      });
       return;
     }
 
@@ -1059,225 +1110,291 @@ export const getProductsByCategory = async (req: Request, res: Response) => {
 // ===========================
 // Productos nuevos
 // ===========================
-export const getNewProducts = async (_req: Request, res: Response): Promise<void> => {
+export const getNewProducts = async (
+  _req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const [rows]: any = await sequelize.query(`
-      SELECT 
-        id, nombre, precio,
-        imagen_url, created_at
-      FROM productos
-      WHERE created_at >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '15 days'
-      AND activo = true
-      ORDER BY created_at DESC
-      LIMIT 20
-    `);
 
-    rows.forEach((p: any) => {
-      if (!p.imagen_url || p.imagen_url.includes("/uploads/")) {
-        p.imagen_url = null;
-      }
+    console.log("🔥 NUEVO getNewProducts ejecutándose");
+
+    const query = `
+      SELECT 
+        p.id,
+        p.nombre,
+        p.precio,
+        p.imagen_url,
+        p.departamento,
+        p.municipio,
+        c.id AS categoria_id,
+        c.nombre AS categoria_nombre
+      FROM productos p
+      LEFT JOIN categorias c ON c.id = p.categoria_id
+      WHERE p.created_at >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '15 days'
+      AND p.activo = true
+      ORDER BY p.created_at DESC
+      LIMIT 20
+    `;
+
+    const rows: any = await sequelize.query(query, {
+      type: QueryTypes.SELECT,
     });
 
-    res.json(rows ?? []);
-  } catch (error: any) {
+    const data = (rows || []).map((r: any) =>
+      buildPublicProductCardDTO(r)
+    );
+
+    res.json(data);
+  } catch (error) {
     console.error("Error al obtener nuevos productos:", error);
     res.status(500).json({ message: "Error al obtener nuevos productos" });
   }
 };
-
 
 // ===========================
 // Filtros dinámicos / búsqueda avanzada
 // ===========================
 export const getFilteredProducts = async (
   req: Request,
-  res: Response,
+  res: Response
 ): Promise<void> => {
   try {
     const {
       search,
       categoria_id,
-      precioMin = 0,
-      precioMax = 999999,
-      sort,
+      clase_id,
+      tela_id,
 
       // accesorios
       accesorio_id,
       accesorio_tipo_id,
       accesorio_material_id,
 
-      // telas / hilos
-      clase_id,
-      tela_id,
-
       // origen
       departamento,
       municipio,
 
-      // paginación opcional
-      page = 1,
-      limit = 40,
+      // precio
+      precioMin,
+      precioMax,
+
+      // orden
+      sort,
+
+      // paginación
+      page = "1",
+      limit = "40",
     } = req.query as any;
 
-    const whereParts: string[] = ["p.activo = true"];
-    const replacements: any = {};
+    // ============================
+    // 📄 Paginación segura
+    // ============================
+    const pageNumber = Math.max(Number(page) || 1, 1);
+    const limitNumber = Math.min(Math.max(Number(limit) || 40, 1), 60);
+    const offset = (pageNumber - 1) * limitNumber;
 
-    // 🔎 Búsqueda por texto (nombre, desc, categoría, origen)
+    const whereConditions: string[] = ["p.activo = true"];
+    const replacements: any = {
+      limit: limitNumber,
+      offset,
+    };
+
+    // ============================
+    // 🔎 Search extendido
+    // ============================
     if (search && String(search).trim() !== "") {
-      replacements.search = `%${String(search).trim()}%`;
-      whereParts.push(
-        `(p.nombre ILIKE :search
-          OR p.descripcion ILIKE :search
-          OR c.nombre ILIKE :search
-          OR p.categoria_custom ILIKE :search
-          OR p.tela_custom ILIKE :search
-          OR p.departamento ILIKE :search
-          OR p.municipio ILIKE :search)`
-      );
-    }
+      whereConditions.push(`
+        p.search_vector @@ plainto_tsquery('spanish', :search)
+      `);
+    
+      replacements.search = String(search).trim();
+    }        
 
-    // categoría
+    // ============================
+    // 📂 Filtros estructurados
+    // ============================
     if (categoria_id) {
+      whereConditions.push("p.categoria_id = :categoria_id");
       replacements.categoria_id = Number(categoria_id);
-      whereParts.push("p.categoria_id = :categoria_id");
     }
 
-    // precio
-    replacements.precioMin = Number(precioMin);
-    replacements.precioMax = Number(precioMax);
-    whereParts.push("p.precio BETWEEN :precioMin AND :precioMax");
+    if (clase_id) {
+      whereConditions.push("p.clase_id = :clase_id");
+      replacements.clase_id = Number(clase_id);
+    }
+
+    if (tela_id) {
+      whereConditions.push("p.tela_id = :tela_id");
+      replacements.tela_id = Number(tela_id);
+    }
 
     // accesorios
     if (accesorio_id) {
+      whereConditions.push("p.accesorio_id = :accesorio_id");
       replacements.accesorio_id = Number(accesorio_id);
-      whereParts.push("p.accesorio_id = :accesorio_id");
-    }
-    if (accesorio_tipo_id) {
-      replacements.accesorio_tipo_id = Number(accesorio_tipo_id);
-      whereParts.push("p.accesorio_tipo_id = :accesorio_tipo_id");
-    }
-    if (accesorio_material_id) {
-      replacements.accesorio_material_id = Number(accesorio_material_id);
-      whereParts.push("p.accesorio_material_id = :accesorio_material_id");
     }
 
-    // telas / clase
-    if (clase_id) {
-      replacements.clase_id = Number(clase_id);
-      whereParts.push("p.clase_id = :clase_id");
+    if (accesorio_tipo_id) {
+      whereConditions.push("p.accesorio_tipo_id = :accesorio_tipo_id");
+      replacements.accesorio_tipo_id = Number(accesorio_tipo_id);
     }
-    if (tela_id) {
-      replacements.tela_id = Number(tela_id);
-      whereParts.push("p.tela_id = :tela_id");
+
+    if (accesorio_material_id) {
+      whereConditions.push("p.accesorio_material_id = :accesorio_material_id");
+      replacements.accesorio_material_id = Number(accesorio_material_id);
     }
 
     // origen
     if (departamento) {
-      replacements.departamento = String(departamento);
-      whereParts.push("p.departamento = :departamento");
+      whereConditions.push("p.departamento = :departamento");
+      replacements.departamento = departamento;
     }
+
     if (municipio) {
-      replacements.municipio = String(municipio);
-      whereParts.push("p.municipio = :municipio");
+      whereConditions.push("p.municipio = :municipio");
+      replacements.municipio = municipio;
     }
 
-    const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+    // precio
+    if (precioMin !== undefined) {
+      whereConditions.push("p.precio >= :precioMin");
+      replacements.precioMin = Number(precioMin);
+    }
+    
+    if (precioMax !== undefined) {
+      whereConditions.push("p.precio <= :precioMax");
+      replacements.precioMax = Number(precioMax);
+    }    
 
-    // orden
-    let orderSql = "ORDER BY p.created_at DESC";
-    if (sort === "precio_asc") orderSql = "ORDER BY p.precio ASC";
-    if (sort === "precio_desc") orderSql = "ORDER BY p.precio DESC";
+    const whereSQL = whereConditions.length
+      ? `WHERE ${whereConditions.join(" AND ")}`
+      : "";
 
-    const pageNum = Math.max(Number(page) || 1, 1);
-    const limitNum = Math.min(Math.max(Number(limit) || 40, 1), 60);
-    const offset = (pageNum - 1) * limitNum;
+    // ============================
+    // 🔃 Ordenamiento inteligente
+    // ============================
+    let orderSQL = "ORDER BY p.created_at DESC";
 
-    // Query base (para SELECT y COUNT)
-    const baseSelect = `
-      FROM productos p
-      LEFT JOIN categorias c ON c.id = p.categoria_id
-      ${whereSql}
-    `;
+    // 🔎 Si hay búsqueda → ordenar por relevancia
+    if (search && String(search).trim() !== "") {
+      orderSQL = `
+        ORDER BY 
+        ts_rank(
+          p.search_vector,
+          plainto_tsquery('spanish', :search)
+        ) DESC,
+        p.created_at DESC
+      `;
+    }
 
-    // Datos
-    const [rows]: any = await sequelize.query(
-      `
-      SELECT
+    // 💰 Orden explícito por precio (sobrescribe todo)
+    if (sort === "precio_asc") orderSQL = "ORDER BY p.precio ASC";
+    if (sort === "precio_desc") orderSQL = "ORDER BY p.precio DESC";
+
+
+    // ============================
+    // 📊 Query principal
+    // ============================
+    const query = `
+      SELECT 
         p.id,
         p.nombre,
-        p.descripcion,
         p.precio,
         p.imagen_url,
-        c.nombre AS categoria,
         p.departamento,
         p.municipio,
-        p.created_at
-      ${baseSelect}
-      ${orderSql}
-      LIMIT :limitNum OFFSET :offset
-    `,
-      {
-        replacements: {
-          ...replacements,
-          limitNum,
-          offset,
-        },
-      },
-    );
+        c.id AS categoria_id,
+        c.nombre AS categoria_nombre,
+        ${
+          search && String(search).trim() !== ""
+            ? "ts_rank(p.search_vector, plainto_tsquery('spanish', :search)) AS rank"
+            : "0 AS rank"
+        }
+      FROM productos p
+      LEFT JOIN categorias c ON c.id = p.categoria_id
+      ${whereSQL}
+      ${orderSQL}
+      LIMIT :limit
+      OFFSET :offset
+    `;
 
-    // Total
-    const [countRows]: any = await sequelize.query(
-      `
+    const rows: any = await sequelize.query(query, {
+      replacements,
+      type: QueryTypes.SELECT,
+    });
+
+    // ============================
+    // 📈 Total count
+    // ============================
+    const countQuery = `
       SELECT COUNT(*)::int AS total
-      ${baseSelect}
-    `,
-      { replacements },
-    );
+      FROM productos p
+      ${whereSQL}
+    `;
 
-    const total = countRows?.[0]?.total ?? 0;
+    const countResult: any = await sequelize.query(countQuery, {
+      replacements,
+      type: QueryTypes.SELECT,
+    });
 
-    // Si no hay resultados pero hay búsqueda → sugerencias relacionadas
+    const total = countResult[0]?.total || 0;
+
+    // ============================
+    // 🔁 Related si no hay resultados
+    // ============================
     let related: any[] = [];
-    if (total === 0 && search && String(search).trim() !== "") {
-      const [relatedRows]: any = await sequelize.query(
-        `
-        SELECT
+
+    if (total === 0 && search) {
+      const relatedQuery = `
+        SELECT 
           p.id,
           p.nombre,
-          p.descripcion,
           p.precio,
           p.imagen_url,
-          c.nombre AS categoria,
           p.departamento,
           p.municipio,
-          p.created_at
+          c.id AS categoria_id,
+          c.nombre AS categoria_nombre
         FROM productos p
         LEFT JOIN categorias c ON c.id = p.categoria_id
         WHERE p.activo = true
-          AND (p.nombre ILIKE :search OR p.descripcion ILIKE :search OR c.nombre ILIKE :search)
+          AND (
+            p.nombre ILIKE :search
+            OR p.descripcion ILIKE :search
+            OR c.nombre ILIKE :search
+          )
         ORDER BY p.created_at DESC
         LIMIT 24
-      `,
-        {
-          replacements: {
-            search: `%${String(search).trim()}%`,
-          },
-        },
-      );
-      related = relatedRows || [];
+      `;
+
+      related = await sequelize.query(relatedQuery, {
+        replacements: { search: `%${String(search).trim()}%` },
+        type: QueryTypes.SELECT,
+      });
     }
+
+    const data = rows.map((r: any) =>
+      buildSearchProductDTO(r)
+    );
+
+    const relatedCards = related.map((r: any) =>
+      buildPublicProductCardDTO(r)
+    );
 
     res.json({
       success: true,
       total,
-      data: rows,
-      related,
-      page: pageNum,
-      limit: limitNum,
+      page: pageNumber,
+      limit: limitNumber,
+      data,
+      related: relatedCards,
     });
+
   } catch (error) {
     console.error("Error en getFilteredProducts:", error);
-    res.status(500).json({ error: "Error al obtener productos" });
+    res.status(500).json({
+      message: "Error al obtener productos",
+    });
   }
 };
 

@@ -1,5 +1,11 @@
 // src/middleware/errorHandler.ts
-import type { Request, Response, NextFunction } from "express";
+
+import type {
+  Request,
+  Response,
+  NextFunction,
+  ErrorRequestHandler,
+} from "express";
 import multer from "multer";
 
 type PublicError = Error & {
@@ -8,13 +14,17 @@ type PublicError = Error & {
   details?: unknown;
 };
 
-export function errorHandler(
+export const errorHandler: ErrorRequestHandler = (
   err: PublicError,
-  _req: Request,
+  req: Request,
   res: Response,
-  _next: NextFunction,
-) {
-  // 🔥 Manejo específico de errores Multer
+  _next: NextFunction
+): void => {
+  const status = err.status ?? 500;
+
+  // ===============================
+  // 🔹 Multer errors (upload)
+  // ===============================
   if (err instanceof multer.MulterError) {
     let message = "Error al subir archivos.";
 
@@ -26,27 +36,51 @@ export function errorHandler(
       message = "Cada imagen puede pesar máximo 5MB.";
     }
 
-    return res.status(400).json({ message });
+    res.status(400).json({ message });
+    return;
   }
 
-  // 🔥 Error por tipo de archivo no permitido
+  // ===============================
+  // 🔹 Error por tipo de archivo
+  // ===============================
   if (err.message === "Formato de imagen no permitido") {
-    return res.status(400).json({
-      message: err.message,
-    });
+    res.status(400).json({ message: err.message });
+    return;
   }
 
-  const status = err.status ?? 500;
+  // ===============================
+  // 🔹 Logging estructurado
+  // ===============================
+  const log = (req as any)?.log;
 
-  // Log estructurado mínimo (seguro)
-  // console.error({ err: { name: err.name, message: err.message, stack: err.stack } });
+  if (log?.error) {
+    log.error(
+      {
+        err: {
+          name: err.name,
+          message: err.message,
+          stack: err.stack,
+        },
+        status,
+      },
+      "Unhandled error"
+    );
+  } else {
+    console.error("Unhandled error:", err);
+  }
 
+  // ===============================
+  // 🔹 Respuesta pública segura
+  // ===============================
   const body: Record<string, unknown> = {
     message:
-      err.publicMessage || (status === 500 ? "Internal error" : err.message),
+      err.publicMessage ||
+      (status === 500 ? "Internal server error" : err.message),
   };
 
-  if (err.details) body.details = err.details;
+  if (err.details) {
+    body.details = err.details;
+  }
 
   res.status(status).json(body);
-}
+};

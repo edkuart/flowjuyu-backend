@@ -9,6 +9,7 @@ import path from "path";
 import { Pool } from "pg";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
+import compression from "compression";
 
 // ===========================
 // Rutas
@@ -22,6 +23,7 @@ import publicRoutes from "./routes/public.routes";
 // Middleware global
 import { errorHandler } from "./middleware/errorHandler";
 import { multerErrorHandler } from "./middleware/multerError.middleware";
+import { httpLogger } from "./middleware/httpLogger";
 
 // ===========================
 // App base
@@ -30,7 +32,7 @@ const app: Express = express();
 const PgSession = pgSession(session);
 
 // ===========================
-// Seguridad base
+// Seguridad HTTP
 // ===========================
 app.use(
   helmet({
@@ -38,10 +40,24 @@ app.use(
   })
 );
 
+// ===========================
+// Trust proxy (IMPORTANTE)
+// ===========================
+app.set("trust proxy", 1);
+app.use(httpLogger);
+
+// ===========================
+// Compresión (reduce payload)
+// ===========================
+app.use(compression());
+
+// ===========================
+// Cookies
+// ===========================
 app.use(cookieParser());
 
 // ===========================
-// CORS con allowlist
+// CORS seguro con allowlist
 // ===========================
 const allowlist = (
   process.env.CORS_ORIGIN_ALLOWLIST ||
@@ -69,10 +85,12 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // Archivos estáticos (solo dev)
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+if (process.env.NODE_ENV !== "production") {
+  app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+}
 
 // ===========================
-// Sesiones en PostgreSQL
+// PostgreSQL pool para sesiones
 // ===========================
 const pool = new Pool(
   process.env.DATABASE_URL
@@ -90,15 +108,16 @@ const pool = new Pool(
       }
 );
 
-app.set("trust proxy", 1);
-
+// ===========================
+// Sesiones seguras
+// ===========================
 app.use(
   session({
     store: new PgSession({
       pool,
       tableName: "sessions",
     }),
-    secret: process.env.JWT_SECRET || "supersecret",
+    secret: process.env.SESSION_SECRET || process.env.JWT_SECRET || "fallback_secret",
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -111,17 +130,32 @@ app.use(
 );
 
 // ===========================
-// Rate limiting
+// Rate limiting global
 // ===========================
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 400,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/api", apiLimiter);
+
+// Protección especial login
 app.use("/api/login", rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
 app.use("/api/login/google", rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
 
 // ===========================
-// Healthcheck
+// Healthcheck real
 // ===========================
 const healthz: RequestHandler = (_req, res): void => {
-  res.json({ ok: true });
+  res.status(200).json({
+    status: "ok",
+    uptime: process.uptime(),
+    timestamp: Date.now(),
+  });
 };
+
 app.get("/healthz", healthz);
 
 // ===========================
@@ -141,7 +175,7 @@ app.use((_req, res) => {
 });
 
 // ===========================
-// Errores (ORDEN CRÍTICO)
+// Error handling (orden crítico)
 // ===========================
 app.use(multerErrorHandler as ErrorRequestHandler);
 app.use(errorHandler);
