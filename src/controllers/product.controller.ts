@@ -47,9 +47,12 @@ export const getCategorias = async (_req: Request, res: Response): Promise<void>
 
     res.json(rows);
   } catch (error: any) {
-    console.error("Error al obtener categorías:", error);
-    res.status(500).json({ message: "Error al obtener categorías" });
-  }
+      console.error("🔥 ERROR TRENDING:");
+      console.error(error);
+      console.error(error?.message);
+      console.error(error?.parent);
+      res.status(500).json({ message: error?.message || "Error interno" });
+    } 
 };
 
 export const getClases = async (_req: Request, res: Response): Promise<void> => {
@@ -585,6 +588,8 @@ export const getProductById = async (
         p.imagen_url AS imagen_principal,
         p.departamento,
         p.municipio,
+        p.rating_avg,
+        p.rating_count,
 
         -- Categoria estructurada
         c.id AS categoria_id,
@@ -1115,9 +1120,6 @@ export const getNewProducts = async (
   res: Response
 ): Promise<void> => {
   try {
-
-    console.log("🔥 NUEVO getNewProducts ejecutándose");
-
     const query = `
       SELECT 
         p.id,
@@ -1130,8 +1132,8 @@ export const getNewProducts = async (
         c.nombre AS categoria_nombre
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
-      WHERE p.created_at >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '15 days'
-      AND p.activo = true
+      WHERE p.activo = true
+        AND p.imagen_url IS NOT NULL
       ORDER BY p.created_at DESC
       LIMIT 20
     `;
@@ -1177,6 +1179,8 @@ export const getFilteredProducts = async (
       // precio
       precioMin,
       precioMax,
+
+      ratingMin,
 
       // orden
       sort,
@@ -1266,6 +1270,16 @@ export const getFilteredProducts = async (
       replacements.precioMax = Number(precioMax);
     }    
 
+    // ⭐ Filtro por rating mínimo
+    if (ratingMin !== undefined) {
+      const ratingMinNumber = Number(ratingMin);
+
+      if (Number.isFinite(ratingMinNumber)) {
+        whereConditions.push("COALESCE(p.rating_avg, 0) >= :ratingMin");
+        replacements.ratingMin = ratingMinNumber;
+      }
+    }
+
     const whereSQL = whereConditions.length
       ? `WHERE ${whereConditions.join(" AND ")}`
       : "";
@@ -1291,6 +1305,24 @@ export const getFilteredProducts = async (
     if (sort === "precio_asc") orderSQL = "ORDER BY p.precio ASC";
     if (sort === "precio_desc") orderSQL = "ORDER BY p.precio DESC";
 
+    if (sort === "top_rated") {
+      orderSQL = `
+        ORDER BY 
+          (p.rating_avg * LN(1 + p.rating_count)) DESC,
+          p.rating_count DESC,
+          p.created_at DESC
+      `;
+    }        
+
+    const ratingMinNumber =
+      ratingMin !== undefined && ratingMin !== null
+        ? Number(ratingMin)
+        : null;
+
+    if (ratingMinNumber !== null && Number.isFinite(ratingMinNumber)) {
+      whereConditions.push("COALESCE(p.rating_avg, 0) >= :ratingMin");
+      replacements.ratingMin = ratingMinNumber;
+    }    
 
     // ============================
     // 📊 Query principal
@@ -1303,6 +1335,8 @@ export const getFilteredProducts = async (
         p.imagen_url,
         p.departamento,
         p.municipio,
+        p.rating_avg,
+        p.rating_count,
         c.id AS categoria_id,
         c.nombre AS categoria_nombre,
         ${
@@ -1420,5 +1454,256 @@ export const getFilters = async (req: Request, res: Response): Promise<void> => 
   } catch (e) {
     console.error("Error al obtener filtros:", e);
     res.status(500).json({ message: "Error al obtener filtros" });
+  }
+};
+
+export const getProductReviews = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const rows: any = await sequelize.query(
+      `
+      SELECT 
+        r.id,
+        r.rating,
+        r.comentario,
+        r.created_at,
+        u.nombre AS buyer_nombre
+      FROM reviews r
+      JOIN users u ON u.id = r.buyer_id
+      WHERE r.producto_id = :id
+      ORDER BY r.created_at DESC
+      `,
+      {
+        replacements: { id },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    res.json({ reviews: rows });
+  } catch (error) {
+    console.error("Error getProductReviews:", error);
+    res.status(500).json({ message: "Error al obtener reseñas" });
+  }
+};
+
+export const createProductReview = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const user: any = (req as any).user;
+    const { id } = req.params;
+    const { rating, comentario } = req.body;
+
+    // 🔒 Validar autenticación
+    if (!user?.id) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    // 🔒 Validar rol buyer
+    if (user.rol !== "comprador")   {
+      res.status(403).json({ message: "Solo compradores pueden reseñar" });
+      return;
+    }
+
+    // 🔒 Validar rating
+    const ratingNumber = Number(rating);
+    if (!Number.isInteger(ratingNumber) || ratingNumber < 1 || ratingNumber > 5) {
+      res.status(400).json({ message: "Rating debe ser entre 1 y 5" });
+      return;
+    }
+
+    // 🔎 Verificar producto activo
+    const product: any = await sequelize.query(
+      `SELECT id FROM productos WHERE id = :id AND activo = true`,
+      {
+        replacements: { id },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    if (!product.length) {
+      res.status(404).json({ message: "Producto no encontrado o inactivo" });
+      return;
+    }
+
+    // 🔒 Verificar si ya existe review
+    const existing: any = await sequelize.query(
+      `
+      SELECT id FROM reviews
+      WHERE producto_id = :id AND buyer_id = :buyer_id
+      `,
+      {
+        replacements: { id, buyer_id: user.id },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    if (existing.length > 0) {
+      res.status(400).json({ message: "Ya reseñaste este producto" });
+      return;
+    }
+
+    // ✅ Insertar review
+    await sequelize.query(
+      `
+      INSERT INTO reviews (producto_id, buyer_id, rating, comentario)
+      VALUES (:producto_id, :buyer_id, :rating, :comentario)
+      `,
+      {
+        replacements: {
+          producto_id: id,
+          buyer_id: user.id,
+          rating: ratingNumber,
+          comentario: comentario || null,
+        },
+      }
+    );
+
+    res.status(201).json({ message: "Reseña creada correctamente" });
+
+  } catch (error) {
+    console.error("Error createProductReview:", error);
+    res.status(500).json({ message: "Error al crear reseña" });
+  }
+};
+
+export const getTopProductsByCategory = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const categoriaId = Number(req.params.categoriaId);
+
+    if (!categoriaId) {
+      return res.status(400).json({ message: "Categoría inválida" });
+    }
+
+    const products = await sequelize.query(
+      `
+      SELECT
+        p.id,
+        p.nombre,
+        p.precio,
+        p.imagen_url,
+        COUNT(r.id) AS total_reviews,
+        COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0) AS rating_avg,
+        (
+          (COUNT(r.id)::float / (COUNT(r.id) + 5)) * COALESCE(AVG(r.rating), 0)
+          +
+          (5.0 / (COUNT(r.id) + 5)) * 3.5
+        ) AS weighted_score
+      FROM productos p
+      LEFT JOIN reviews r ON r.producto_id = p.id
+      WHERE p.activo = true
+      GROUP BY p.id
+      ORDER BY weighted_score DESC NULLS LAST
+      LIMIT 8
+      `,
+      { type: QueryTypes.SELECT }
+    );    
+
+    const normalized = (products as any[]).map((p) => ({
+      id: p.id,
+      nombre: p.nombre,
+      precio: Number(p.precio),
+      imagen_url: p.imagen_url,
+      total_reviews: Number(p.total_reviews),
+      rating_avg: Number(Number(p.rating_avg).toFixed(2)),
+      weighted_score: Number(Number(p.weighted_score).toFixed(3)),
+    }));
+
+    res.json({
+      success: true,
+      data: normalized,
+    });
+  } catch (error) {
+    console.error("Error obteniendo top productos por categoría:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const getTrendingProducts = async (req: Request, res: Response) => {
+  try {
+    const products = await sequelize.query(
+      `
+      SELECT *
+      FROM (
+        SELECT
+          p.id,
+          p.nombre,
+          p.precio,
+          p.created_at,
+          (
+            SELECT pi.url
+            FROM producto_imagenes pi
+            WHERE pi.producto_id = p.id
+            ORDER BY pi.created_at ASC
+            LIMIT 1
+          ) AS imagen_url,
+          COUNT(r.id) AS total_reviews,
+          COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0) AS rating_avg,
+          (
+            (
+              (
+                (COUNT(r.id)::float / (COUNT(r.id) + 5)) * COALESCE(AVG(r.rating), 0)
+                +
+                (5.0 / (COUNT(r.id) + 5)) * 3.5
+              ) * 0.7
+              +
+              (
+                GREATEST(0, 1 - EXTRACT(EPOCH FROM (NOW() - p.created_at)) / 864000)
+              ) * 0.3
+            )
+            *
+            (
+              CASE 
+                WHEN EXISTS (
+                  SELECT 1 
+                  FROM producto_imagenes pi2
+                  WHERE pi2.producto_id = p.id
+                )
+                THEN 1
+                ELSE 0.85
+              END
+            )
+          ) AS trending_score
+        FROM productos p
+        LEFT JOIN reviews r ON r.producto_id = p.id
+        WHERE p.activo = true
+        GROUP BY p.id
+      ) sub
+      ORDER BY
+        sub.trending_score DESC,
+        sub.total_reviews DESC,
+        sub.created_at DESC
+      LIMIT 8
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    const normalized = (products as any[]).map((p: any) => ({
+      id: p.id,
+      nombre: p.nombre,
+      precio: Number(p.precio),
+      imagen_url: p.imagen_url,
+      total_reviews: Number(p.total_reviews),
+      rating_avg: Number(p.rating_avg),
+      trending_score: Number(p.trending_score),
+    }));
+
+    res.json({
+      success: true,
+      data: normalized,
+    });
+
+  } catch (error) {
+    console.error("Error obteniendo trending products:", error);
+    res.status(500).json({ message: "Error interno" });
   }
 };

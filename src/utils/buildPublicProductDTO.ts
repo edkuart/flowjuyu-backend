@@ -1,3 +1,4 @@
+//src/utils/buildPublicProductDTO.ts
 // =============================================
 // Public Product Contract (DEMO v1 - STABLE)
 // =============================================
@@ -20,6 +21,8 @@ export interface PublicProductDTO {
       nombre_comercio: string
       logo: string | null
     }
+    rating_avg: number
+    rating_count: number
   }
   
   // =============================================
@@ -91,6 +94,8 @@ export interface PublicProductDTO {
           row.logo ?? row.vendedor_logo_url
         ),
       },
+      rating_avg: toSafeNumber(row.rating_avg),
+      rating_count: toSafeNumber(row.rating_count),
     }
   }
   

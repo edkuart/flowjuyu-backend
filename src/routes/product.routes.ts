@@ -3,6 +3,7 @@
 import { Router } from "express";
 import { requireRole } from "../middleware/auth";
 import { uploadProductImages } from "../middleware/multerProducts";
+import asyncHandler from "../middleware/asyncHandler";
 
 import {
   // Catálogos
@@ -32,6 +33,12 @@ import {
   getFilters,
   getProductsByCategory,
   getNewProducts,
+  getTrendingProducts,
+
+  getTopProductsByCategory,
+  getProductReviews,
+  createProductReview,
+
 } from "../controllers/product.controller";
 
 const router: Router = Router();
@@ -59,6 +66,7 @@ router.get("/productos", getFilteredProducts); // legacy
 router.get("/filters/:tipo", getFilters);
 router.get("/categorias/:slug/productos", getProductsByCategory);
 router.get("/productos/nuevos", getNewProducts);
+router.get("/products/trending", getTrendingProducts);
 
 /* ---------------------------------------------------------
    📌 4. PRODUCTO — DETALLE PÚBLICO
@@ -132,6 +140,19 @@ router.delete(
   "/productos/:id/imagenes/:imageId",
   requireRole("seller"),
   deleteProductImage
+);
+
+router.get(
+  "/products/top-by-category/:categoriaId",
+  asyncHandler(getTopProductsByCategory)
+);
+
+router.get("/products/:id/reviews", getProductReviews);
+
+router.post(
+  "/products/:id/reviews",
+  requireRole("comprador"),
+  createProductReview
 );
 
 export default router;

@@ -4,6 +4,7 @@ import multer from "multer";
 import asyncHandler from "../utils/asyncHandler";
 import { verifyToken, requireRole } from "../middleware/auth";
 import * as SellerController from "../controllers/seller.controller";
+import { getTopSellers } from "../controllers/seller.controller";
 
 const router = Router();
 
@@ -85,6 +86,8 @@ router.get("/tiendas", asyncHandler(SellerController.getSellers));
 
 // 👁️ Perfil público de vendedor por ID
 router.get("/:id", asyncHandler(SellerController.getSellerProfile));
+
+router.get("/sellers/top", asyncHandler(SellerController.getTopSellers));
 
 // ==================================================
 // ✅ Export

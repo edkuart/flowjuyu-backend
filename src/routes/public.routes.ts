@@ -23,24 +23,6 @@ router.get("/categorias", async (req, res) => {
 });
 
 /* ============================
-   NUEVOS PRODUCTOS (PÚBLICO)
-=============================== */
-router.get("/productos/nuevos", async (req, res) => {
-  try {
-    const productos = await Producto.findAll({
-      attributes: ["id", "nombre", "precio", "imagen_url", "created_at"],
-      order: [["created_at", "DESC"]],
-      limit: 15,
-    });
-
-    res.json(productos);
-  } catch (error) {
-    console.error("Error obteniendo nuevos productos:", error);
-    res.status(500).json({ error: "Error al obtener nuevos productos" });
-  }
-});
-
-/* ============================
    TIENDAS DESTACADAS (PÚBLICO)
 =============================== */
 router.get("/vendedores/destacados", async (req, res) => {

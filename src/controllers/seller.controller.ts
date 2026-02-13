@@ -1,6 +1,7 @@
 // src/controllers/seller.controller.ts
 import { Request, Response, RequestHandler } from "express";
 import { VendedorPerfil } from "../models/VendedorPerfil";
+import { QueryTypes } from "sequelize";
 import { User } from "../models/user.model";
 import { sequelize } from "../config/db";
 import supabase from "../lib/supabase";
@@ -351,5 +352,49 @@ export const getSellers: RequestHandler = async (_req, res): Promise<void> => {
   } catch (error: any) {
     console.error("Error al obtener tiendas:", error);
     res.status(500).json({ message: "Error al obtener tiendas", error: error.message });
+  }
+};
+
+export const getTopSellers = async (req: Request, res: Response) => {
+  try {
+    const sellers = await sequelize.query(
+      `
+      SELECT
+        vp.user_id AS vendedor_id,
+        vp.nombre_comercio,
+        vp.logo,
+        COUNT(r.id) AS total_reviews,
+        COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0) AS rating_avg,
+        (
+          (COUNT(r.id)::float / (COUNT(r.id) + 5)) * COALESCE(AVG(r.rating), 0)
+          +
+          (5.0 / (COUNT(r.id) + 5)) * 3.5
+        ) AS weighted_score
+      FROM vendedor_perfil vp
+      LEFT JOIN productos p ON p.vendedor_id = vp.user_id
+      LEFT JOIN reviews r ON r.producto_id = p.id
+      GROUP BY vp.user_id, vp.nombre_comercio, vp.logo
+      ORDER BY weighted_score DESC NULLS LAST
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    const normalized = (sellers as any[]).map((s) => ({
+      vendedor_id: Number(s.vendedor_id),
+      nombre_comercio: s.nombre_comercio,
+      logo: s.logo,
+      total_reviews: Number(s.total_reviews),
+      rating_avg: Number(Number(s.rating_avg).toFixed(2)),
+      weighted_score: Number(Number(s.weighted_score).toFixed(3)),
+    }));
+
+    res.json({
+      success: true,
+      data: normalized,
+    });
+
+  } catch (error) {
+    console.error("Error obteniendo top sellers:", error);
+    res.status(500).json({ message: "Error interno" });
   }
 };

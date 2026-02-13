@@ -3,16 +3,16 @@ import dotenv from "dotenv";
 import app from "./app";
 import { sequelize, assertDbConnection } from "./config/db";
 
+console.log("🚀 SERVIDOR NUEVO ARRANCANDO 2026 🔥");  // 👈 AQUÍ
+
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 8800);
 
 async function bootstrap() {
   try {
-    // Verificar conexión a la base de datos
     await assertDbConnection();
 
-    // Levantar servidor
     app.listen(PORT, () => {
       console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
     });
@@ -23,3 +23,4 @@ async function bootstrap() {
 }
 
 bootstrap();
+
