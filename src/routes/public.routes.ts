@@ -2,6 +2,7 @@ import { Router } from "express";
 import Categoria from "../models/category.model"; // ✔ nombre correcto
 import Producto from "../models/product.model";   // ✔ existe
 import { VendedorPerfil } from "../models/VendedorPerfil"; // ✔ exportación correcta
+import { getPublicSellerStore } from "../controllers/seller.controller";
 
 const router = Router();
 
@@ -46,5 +47,7 @@ router.get("/vendedores/destacados", async (req, res) => {
     res.status(500).json({ error: "Error al obtener vendedores" });
   }
 });
+
+router.get("/public/seller/:id", getPublicSellerStore);
 
 export default router;

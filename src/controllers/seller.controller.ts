@@ -398,3 +398,98 @@ export const getTopSellers = async (req: Request, res: Response) => {
     res.status(500).json({ message: "Error interno" });
   }
 };
+
+// ==============================
+// Vista pública completa de tienda
+// ==============================
+export const getPublicSellerStore: RequestHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id || isNaN(Number(id))) {
+      res.status(400).json({ message: "ID inválido" });
+      return;
+    }
+
+    // 1️⃣ Obtener info del vendedor
+    const seller: any = await sequelize.query(
+      `
+      SELECT 
+        vp.user_id AS id,
+        vp.nombre_comercio,
+        vp.descripcion,
+        vp.logo,
+        vp.departamento,
+        vp.municipio
+      FROM vendedor_perfil vp
+      WHERE vp.user_id = :id
+      `,
+      {
+        replacements: { id },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    if (!seller || seller.length === 0) {
+      res.status(404).json({ message: "Vendedor no encontrado" });
+      return;
+    }
+
+    const sellerData = seller[0];
+
+    // 2️⃣ Productos activos del vendedor
+    const products: any = await sequelize.query(
+      `
+      SELECT 
+        p.id,
+        p.nombre,
+        p.precio,
+        p.imagen_url,
+        p.departamento,
+        p.municipio
+      FROM productos p
+      WHERE p.vendedor_id = :id
+      AND p.activo = true
+      ORDER BY p.created_at DESC
+      `,
+      {
+        replacements: { id },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    // 3️⃣ Rating agregado de la tienda
+    const rating: any = await sequelize.query(
+      `
+      SELECT 
+        COUNT(r.id) AS rating_count,
+        COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0) AS rating_avg
+      FROM productos p
+      LEFT JOIN reviews r ON r.producto_id = p.id
+      WHERE p.vendedor_id = :id
+      `,
+      {
+        replacements: { id },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    const ratingData = rating[0];
+
+    res.json({
+      seller: {
+        ...sellerData,
+        rating_avg: Number(ratingData.rating_avg),
+        rating_count: Number(ratingData.rating_count),
+      },
+      products: products ?? [],
+      stats: {
+        total_products: products.length,
+        total_reviews: Number(ratingData.rating_count),
+      },
+    });
+  } catch (error) {
+    console.error("Error en getPublicSellerStore:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
