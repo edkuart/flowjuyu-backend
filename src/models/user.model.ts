@@ -11,11 +11,17 @@ interface UserAttributes {
   telefono?: string;
   direccion?: string;
   rol: "comprador" | "vendedor" | "admin" | "soporte";
+  token_version: number;
+  
+  reset_password_token?: string | null;
+  reset_password_expires?: Date | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
 
-interface UserCreationAttributes extends Optional<UserAttributes, "id"> {}
+interface UserCreationAttributes
+  extends Optional<UserAttributes, "id" | "token_version"> {}
 
 export class User
   extends Model<UserAttributes, UserCreationAttributes>
@@ -28,8 +34,11 @@ export class User
   public rol!: "comprador" | "vendedor" | "admin" | "soporte";
   public telefono?: string;
   public direccion?: string;
+  public token_version!: number;
   public readonly createdAt?: Date;
   public readonly updatedAt?: Date;
+  public reset_password_token?: string | null;
+  public reset_password_expires?: Date | null;
 }
 
 User.init(
@@ -38,6 +47,11 @@ User.init(
       type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true,
+    },
+    token_version: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
     },
     nombre: {
       type: DataTypes.STRING,
@@ -54,6 +68,15 @@ User.init(
       type: DataTypes.STRING,
       allowNull: false,
       field: "contraseña",
+    },
+    reset_password_token: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    reset_password_expires: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     rol: {
       type: DataTypes.STRING,

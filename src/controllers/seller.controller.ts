@@ -16,74 +16,57 @@ export const getSellerDashboard: RequestHandler = async (req, res) => {
     const user = (req as any).user;
 
     if (!user || (user.rol !== "seller" && user.rol !== "vendedor")) {
-      res.status(403).json({
-        message: "No autorizado",
-      });
+      res.status(403).json({ message: "No autorizado" });
       return;
     }
 
-    // ⚠️ MOCK TEMPORAL — estructura FINAL esperada por el frontend
+    const vendedorId = user.id;
+
+    // ============================
+    // 📦 Métricas de productos
+    // ============================
+    const [productoStats]: any = await sequelize.query(
+      `
+      SELECT
+        COUNT(*)::int AS total_productos,
+        COUNT(*) FILTER (WHERE activo = true)::int AS activos,
+        COUNT(*) FILTER (WHERE activo = false)::int AS inactivos,
+        COUNT(*) FILTER (WHERE stock < 5 AND activo = true)::int AS stock_bajo
+      FROM productos
+      WHERE vendedor_id = :vid
+      `,
+      {
+        replacements: { vid: vendedorId },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    // ============================
+    // 📊 KPIs base (ventas aún no implementadas)
+    // ============================
+    const kpi = {
+      ventasMes: 0,
+      pedidosMes: 0,
+      ticketPromedio: 0,
+      productosActivos: productoStats.activos ?? 0,
+    };
+
     res.json({
-      kpi: {
-        ventasMes: 3200,
-        pedidosMes: 22,
-        ticketPromedio: 145.45,
-        productosActivos: 10,
+      kpi,
+
+      productoStats: {
+        total: productoStats.total_productos ?? 0,
+        activos: productoStats.activos ?? 0,
+        inactivos: productoStats.inactivos ?? 0,
+        stock_bajo: productoStats.stock_bajo ?? 0,
       },
 
-      ventasPorMes: [
-        { mes: "Ene", ventas: 800 },
-        { mes: "Feb", ventas: 1100 },
-        { mes: "Mar", ventas: 950 },
-        { mes: "Abr", ventas: 1200 },
-        { mes: "May", ventas: 600 },
-        { mes: "Jun", ventas: 1300 },
-        { mes: "Jul", ventas: 500 },
-        { mes: "Ago", ventas: 1000 },
-        { mes: "Sep", ventas: 1150 },
-        { mes: "Oct", ventas: 950 },
-        { mes: "Nov", ventas: 1250 },
-        { mes: "Dic", ventas: 1400 },
-      ],
-
-      topCategorias: [
-        { name: "Blusas", value: 8 },
-        { name: "Trajes", value: 6 },
-        { name: "Carteras", value: 4 },
-        { name: "Accesorios", value: 3 },
-        { name: "Otros", value: 2 },
-      ],
-
-      actividad: [
-        {
-          id: "1249",
-          cliente: "Ana López",
-          total: 120,
-          estado: "Entregado",
-          fecha: "2025-06-24",
-        },
-        {
-          id: "1250",
-          cliente: "Carlos Pérez",
-          total: 330,
-          estado: "En camino",
-          fecha: "2025-06-23",
-        },
-        {
-          id: "1251",
-          cliente: "Luis García",
-          total: 90,
-          estado: "Pendiente",
-          fecha: "2025-06-22",
-        },
-      ],
-
-      lowStock: [
-        { id: "P-101", nombre: "Blusa roja bordada", stock: 2 },
-        { id: "P-143", nombre: "Faja multicolor", stock: 1 },
-      ],
-
-      validaciones: ["Selfie con DPI pendiente"],
+      // 🔜 placeholders conscientes (no fake data)
+      ventasPorMes: [],
+      topCategorias: [],
+      actividad: [],
+      lowStock: [],
+      validaciones: [],
     });
   } catch (error) {
     console.error("Error en getSellerDashboard:", error);

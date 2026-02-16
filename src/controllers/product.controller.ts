@@ -301,6 +301,37 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     const u: any = (req as any).user;
     const b = req.body;
 
+  // ======================
+  // 🔒 Validación de comercio aprobado
+  // ======================
+  const vendedorEstado: any = await sequelize.query(
+    `
+    SELECT estado_validacion
+    FROM vendedor_perfil
+    WHERE user_id = :userId
+    `,
+    {
+      replacements: { userId: u.id },
+      type: QueryTypes.SELECT,
+    }
+  )
+
+  if (!vendedorEstado.length) {
+    await t.rollback()
+    res.status(403).json({
+      message: "Perfil de vendedor no encontrado"
+    })
+    return
+  }
+
+  if (vendedorEstado[0].estado_validacion !== "aprobado") {
+    await t.rollback()
+    res.status(403).json({
+      message: "Tu comercio está en proceso de validación. No puedes publicar productos aún."
+    })
+    return
+  }
+
     // =====================
     // 1️⃣ Validaciones base
     // =====================

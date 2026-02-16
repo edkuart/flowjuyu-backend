@@ -1,11 +1,13 @@
 // src/controllers/auth.controller.ts
 
-import { Request, Response } from "express";
+import { Request, Response, RequestHandler } from "express";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { sequelize } from "../config/db";
 import { User } from "../models/user.model";
 import { VendedorPerfil } from "../models/VendedorPerfil";
+import { sendResetPasswordEmail } from "../services/email.service";
 
 // ────────────────────────────────────────────────────────────
 // Utilidad JWT
@@ -18,12 +20,17 @@ const generateToken = (payload: object) =>
 // ────────────────────────────────────────────────────────────
 // Registro general (comprador)
 // ────────────────────────────────────────────────────────────
-export const register = async (req: Request, res: Response): Promise<void> => {
+export const register = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { nombre, correo, rol, telefono, direccion } = req.body;
 
     const plain =
-      req.body["contraseña"] ?? req.body["contrasena"] ?? req.body["password"];
+      req.body["contraseña"] ??
+      req.body["contrasena"] ??
+      req.body["password"];
 
     if (!nombre || !correo || !plain || !rol) {
       res.status(400).json({ message: "Faltan campos obligatorios" });
@@ -51,6 +58,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       id: nuevoUsuario.id,
       correo: nuevoUsuario.correo,
       rol: nuevoUsuario.rol,
+      token_version: nuevoUsuario.token_version,
     });
 
     res.status(201).json({
@@ -65,7 +73,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         direccion: nuevoUsuario.direccion,
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error en register:", error);
     res.status(500).json({ message: "Error al registrar" });
   }
@@ -78,11 +86,13 @@ interface MulterFilesMap {
   [fieldname: string]: Express.Multer.File[] | undefined;
 }
 
-export const registerVendedor = async (req: Request, res: Response): Promise<void> => {
+export const registerVendedor = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   const t = await sequelize.transaction();
-  try {
-    console.log("🧩 req.body recibido:", req.body);
 
+  try {
     const {
       nombre,
       correo,
@@ -108,8 +118,8 @@ export const registerVendedor = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    // Crear usuario base
     const hash = await bcrypt.hash(String(password), 10);
+
     const nuevoUsuario = await User.create(
       {
         nombre,
@@ -119,58 +129,53 @@ export const registerVendedor = async (req: Request, res: Response): Promise<voi
         telefono: (telefono ?? "").toString().trim(),
         direccion: (direccion ?? "").toString().trim(),
       },
-      { transaction: t },
+      { transaction: t }
     );
 
     const files = (req.files as MulterFilesMap | undefined) || {};
 
-    // Crear perfil del vendedor
-    const perfilPayload = {
-      user_id: nuevoUsuario.id,
-      nombre: String(nombre).trim(),
-    
-      // ✅ FIX DEFINITIVO
-      email: String(correo).toLowerCase().trim(),
-    
-      telefono: telefono ? String(telefono).trim() : null,
-      direccion: direccion ? String(direccion).trim() : null,
-    
-      logo: files["logo"]
-        ? `/uploads/vendedores/${files["logo"]![0].filename}`
-        : null,
-    
-      nombre_comercio: String(nombreComercio).trim(),
-      telefono_comercio: telefonoComercio ? String(telefonoComercio).trim() : null,
-      departamento: departamento ? String(departamento).trim() : null,
-      municipio: municipio ? String(municipio).trim() : null,
-      descripcion: descripcion ? String(descripcion).trim() : null,
-      dpi: dpi ? String(dpi).trim() : null,
-    
-      foto_dpi_frente: files["fotoDPIFrente"]
-        ? `/uploads/vendedores/${files["fotoDPIFrente"]![0].filename}`
-        : null,
-    
-      foto_dpi_reverso: files["fotoDPIReverso"]
-        ? `/uploads/vendedores/${files["fotoDPIReverso"]![0].filename}`
-        : null,
-    
-      selfie_con_dpi: files["selfieConDPI"]
-        ? `/uploads/vendedores/${files["selfieConDPI"]![0].filename}`
-        : null,
-    
-      estado_validacion: "pendiente",
-      estado: "activo",
-      observaciones: null,
-      actualizado_en: new Date(),
-    };    
+    await VendedorPerfil.create(
+      {
+        user_id: nuevoUsuario.id,
+        nombre: nombre.trim(),
+        email: correo.toLowerCase().trim(),
+        telefono: telefono ? telefono.trim() : null,
+        direccion: direccion ? direccion.trim() : null,
+        logo: files["logo"]
+          ? `/uploads/vendedores/${files["logo"]![0].filename}`
+          : null,
+        nombre_comercio: nombreComercio.trim(),
+        telefono_comercio: telefonoComercio
+          ? telefonoComercio.trim()
+          : null,
+        departamento: departamento ?? null,
+        municipio: municipio ?? null,
+        descripcion: descripcion ?? null,
+        dpi: dpi.trim(),
+        foto_dpi_frente: files["fotoDPIFrente"]
+          ? `/uploads/vendedores/${files["fotoDPIFrente"]![0].filename}`
+          : null,
+        foto_dpi_reverso: files["fotoDPIReverso"]
+          ? `/uploads/vendedores/${files["fotoDPIReverso"]![0].filename}`
+          : null,
+        selfie_con_dpi: files["selfieConDPI"]
+          ? `/uploads/vendedores/${files["selfieConDPI"]![0].filename}`
+          : null,
+        estado_validacion: "pendiente",
+        estado: "activo",
+        observaciones: null,
+        actualizado_en: new Date(),
+      } as any,
+      { transaction: t }
+    );
 
-  await VendedorPerfil.create(perfilPayload as any, { transaction: t });
     await t.commit();
 
     const token = generateToken({
       id: nuevoUsuario.id,
       correo: nuevoUsuario.correo,
       rol: nuevoUsuario.rol,
+      token_version: nuevoUsuario.token_version,
     });
 
     res.status(201).json({
@@ -185,7 +190,7 @@ export const registerVendedor = async (req: Request, res: Response): Promise<voi
         direccion: nuevoUsuario.direccion,
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     await t.rollback();
     console.error("Error en registerVendedor:", error);
     res.status(500).json({ message: "Error al registrar vendedor" });
@@ -193,28 +198,43 @@ export const registerVendedor = async (req: Request, res: Response): Promise<voi
 };
 
 // ────────────────────────────────────────────────────────────
-// Login con JWT
+// Login
 // ────────────────────────────────────────────────────────────
-export const login = async (req: Request, res: Response): Promise<void> => {
+export const login = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { correo } = req.body;
     const plain =
-      req.body["contraseña"] ?? req.body["contraseña"] ?? req.body["password"];
+      req.body["contraseña"] ??
+      req.body["contrasena"] ??
+      req.body["password"];
 
     if (!correo || !plain) {
-      res.status(400).json({ message: "Correo y contraseña son obligatorios" });
+      res.status(400).json({
+        message: "Correo y contraseña son obligatorios",
+      });
       return;
     }
 
     const usuario = await User.findOne({ where: { correo } });
     if (!usuario) {
-      res.status(401).json({ message: "Correo o contraseña incorrectos" });
+      res.status(401).json({
+        message: "Correo o contraseña incorrectos",
+      });
       return;
     }
 
-    const contraseñaValida = await bcrypt.compare(String(plain), usuario.password);
-    if (!contraseñaValida) {
-      res.status(401).json({ message: "Correo o contraseña incorrectos" });
+    const passwordValida = await bcrypt.compare(
+      String(plain),
+      usuario.password
+    );
+
+    if (!passwordValida) {
+      res.status(401).json({
+        message: "Correo o contraseña incorrectos",
+      });
       return;
     }
 
@@ -222,6 +242,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       id: usuario.id,
       correo: usuario.correo,
       rol: usuario.rol,
+      token_version: usuario.token_version,
     });
 
     res.status(200).json({
@@ -236,10 +257,210 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         direccion: usuario.direccion,
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error en login:", error);
     res.status(500).json({ message: "Error interno del servidor" });
   }
-  console.log("🧩 req.body recibido:", req.body);
+};
 
+// ────────────────────────────────────────────────────────────
+// Cambiar contraseña (tipado correcto)
+// ────────────────────────────────────────────────────────────
+export const changePassword: RequestHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      res.status(401).json({ message: "Usuario no autenticado" });
+      return;
+    }
+
+    const { passwordActual, passwordNueva } = req.body;
+
+    if (!passwordActual || !passwordNueva) {
+      res.status(400).json({ message: "Debes completar ambos campos" });
+      return;
+    }
+
+    if (passwordNueva.length < 8) {
+      res.status(400).json({
+        message: "La nueva contraseña debe tener mínimo 8 caracteres",
+      });
+      return;
+    }
+
+    const user = await User.findByPk(userId);
+
+    if (!user) {
+      res.status(404).json({ message: "Usuario no encontrado" });
+      return;
+    }
+
+    const passwordValida = await bcrypt.compare(
+      passwordActual,
+      user.password
+    );
+
+    if (!passwordValida) {
+      res.status(400).json({
+        message: "La contraseña actual es incorrecta",
+      });
+      return;
+    }
+
+    const nuevaPasswordHash = await bcrypt.hash(passwordNueva, 12);
+
+    user.password = nuevaPasswordHash;
+    user.token_version += 1;
+    await user.save();
+
+    res.status(200).json({
+      message: "Contraseña actualizada correctamente",
+    });
+  } catch (error) {
+    console.error("❌ Error al cambiar contraseña:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
+// ─────────────────────────────────────────────
+// Logout global (invalidate all tokens)
+// ─────────────────────────────────────────────
+export const logoutAll: RequestHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      res.status(401).json({ message: "Usuario no autenticado" });
+      return;
+    }
+
+    const user = await User.findByPk(userId);
+
+    if (!user) {
+      res.status(404).json({ message: "Usuario no encontrado" });
+      return;
+    }
+
+    user.token_version += 1;
+    await user.save();
+
+    res.status(200).json({
+      message: "Sesión cerrada en todos los dispositivos",
+    });
+  } catch (error) {
+    console.error("❌ Error en logoutAll:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
+// ─────────────────────────────────────────────
+// Forgot Password
+// ─────────────────────────────────────────────
+export const forgotPassword: RequestHandler = async (req, res) => {
+  try {
+    const { correo } = req.body;
+
+    if (!correo) {
+      res.status(400).json({ message: "Correo es obligatorio" });
+      return;
+    }
+
+    const user = await User.findOne({ where: { correo } });
+
+    // Siempre responder 200 para no revelar existencia
+    if (!user) {
+      res.status(200).json({
+        message: "Si el correo existe, recibirás instrucciones.",
+      });
+      return;
+    }
+
+    const rawToken = crypto.randomBytes(32).toString("hex");
+
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(rawToken)
+      .digest("hex");
+
+    user.reset_password_token = hashedToken;
+    user.reset_password_expires = new Date(Date.now() + 15 * 60 * 1000);
+    await user.save();
+
+    // 🔥 Enviar email real
+    await sendResetPasswordEmail(
+      user.correo,
+      rawToken,
+      user.nombre
+    );
+
+    res.status(200).json({
+      message: "Si el correo existe, recibirás instrucciones.",
+    });
+
+  } catch (error) {
+    console.error("❌ Error en forgotPassword:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
+// ─────────────────────────────────────────────
+// Reset Password
+// ─────────────────────────────────────────────
+export const resetPassword: RequestHandler = async (req, res) => {
+  try {
+    const { token, passwordNueva } = req.body;
+
+    if (!token || !passwordNueva) {
+      res.status(400).json({ message: "Token y nueva contraseña requeridos" });
+      return;
+    }
+
+    if (passwordNueva.length < 8) {
+      res.status(400).json({
+        message: "La nueva contraseña debe tener mínimo 8 caracteres",
+      });
+      return;
+    }
+
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    const user = await User.findOne({
+      where: {
+        reset_password_token: hashedToken,
+      },
+    });
+
+    if (!user) {
+      res.status(400).json({ message: "Token inválido" });
+      return;
+    }
+
+    if (!user.reset_password_expires || user.reset_password_expires < new Date()) {
+      res.status(400).json({ message: "Token expirado" });
+      return;
+    }
+
+    const nuevaPasswordHash = await bcrypt.hash(passwordNueva, 12);
+
+    user.password = nuevaPasswordHash;
+    user.token_version += 1;
+
+    // Limpiar campos
+    user.reset_password_token = null;
+    user.reset_password_expires = null;
+
+    await user.save();
+
+    res.status(200).json({
+      message: "Contraseña restablecida correctamente",
+    });
+
+  } catch (error) {
+    console.error("❌ Error en resetPassword:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
 };

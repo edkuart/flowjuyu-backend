@@ -1,12 +1,18 @@
-import "express-session"
+import { Rol } from "../middleware/auth";
 
-declare module "express-session" {
-  interface SessionData {
-    user: {
-      id: number
-      nombre: string
-      correo: string
-      rol: string
+declare global {
+  namespace Express {
+    interface UserPayload {
+      id: string | number;
+      correo?: string;
+      rol?: Rol;
+      roles?: Rol[];
+    }
+
+    interface Request {
+      user?: UserPayload;
     }
   }
 }
+
+export {};

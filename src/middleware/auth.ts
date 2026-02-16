@@ -24,6 +24,7 @@ interface DecodedToken {
   iat?: number;
   exp?: number;
   sub?: string;
+  token_version?: number;
 }
 
 // ──────────────────────────────
@@ -34,7 +35,7 @@ function getBearerToken(req: Request): string | null {
   if (header.startsWith("Bearer ")) return header.slice(7).trim();
 
   // fallback cookie token
-  const cookieToken = (req as any).cookies?.access_token as string | undefined;
+  const cookieToken = req.cookies?.access_token as string | undefined;
   return cookieToken || null;
 }
 
@@ -78,7 +79,7 @@ function getUserId(payload: DecodedToken) {
 function readUserFromSession(req: Request) {
   if (process.env.AUTH_ALLOW_SESSION_FALLBACK !== "true") return null;
 
-  const s = (req.session as any)?.user;
+  const s = (req.session as { user?: any } | undefined)?.user;
   if (!s?.id) return null;
 
   return {
@@ -104,7 +105,7 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
     if (!token) {
       const sessionUser = readUserFromSession(req);
       if (sessionUser) {
-        (req as any).user = sessionUser;
+        req.user = sessionUser;
         next();
         return;
       }
@@ -129,6 +130,27 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
         return;
       }
 
+      // 🔎 Verificar que el usuario exista en base de datos
+      const user = await User.findByPk(userId);
+
+      if (!user) {
+        res.status(401).json({ message: "Usuario no existe" });
+        return;
+      }
+
+      if (decoded.token_version !== user.token_version) {
+        res.status(401).json({
+          message: "Sesión inválida. Inicia sesión nuevamente.",
+        });
+        return;
+      }
+
+      // Opcional pero muy recomendado
+      if ((user as any).estado === "suspendido") {
+        res.status(403).json({ message: "Cuenta suspendida" });
+        return;
+      }
+
       const userRoles = normalizeRoles(decoded);
 
       const tienePermiso =
@@ -146,7 +168,7 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
       }
 
       // ✅ Guardar datos del usuario en req.user
-      (req as any).user = {
+      req.user = {
         id: userId,
         correo: decoded.correo,
         rol: decoded.rol || userRoles[0],
