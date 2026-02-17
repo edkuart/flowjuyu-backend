@@ -13,6 +13,7 @@ import { v4 as uuidv4 } from "uuid";
 // ==============================
 export const getSellerDashboard: RequestHandler = async (req, res) => {
   try {
+    
     const user = (req as any).user;
 
     if (!user || (user.rol !== "seller" && user.rol !== "vendedor")) {
@@ -299,15 +300,94 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
 // ==============================
 // Validación de comercio
 // ==============================
-export const validateSellerBusiness: RequestHandler = async (_req, res) => {
+export const validateSellerBusiness: RequestHandler = async (req, res) => {
   try {
+    const user = (req as any).user;
+
+    if (!user?.id) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const perfil = await VendedorPerfil.findOne({
+      where: { user_id: user.id },
+    });
+
+    if (!perfil) {
+      res.status(404).json({ message: "Perfil no encontrado" });
+      return;
+    }
+
+    const files = req.files as {
+      [fieldname: string]: Express.Multer.File[];
+    };
+
+    if (!files || Object.keys(files).length === 0) {
+      res.status(400).json({ message: "Debes subir al menos un documento" });
+      return;
+    }
+
+    const updateFields: any = {};
+
+    const uploadToSupabase = async (file: Express.Multer.File, folder: string) => {
+      const ext = file.originalname.split(".").pop();
+      const fileName = `${folder}/${uuidv4()}.${ext}`;
+
+      const { error } = await supabase.storage
+        .from("documentos_vendedores")
+        .upload(fileName, file.buffer, {
+          contentType: file.mimetype,
+        });
+
+      if (error) throw error;
+
+      const { data } = supabase.storage
+        .from("documentos_vendedores")
+        .getPublicUrl(fileName);
+
+      return data.publicUrl;
+    };
+
+    if (files.foto_dpi_frente) {
+      updateFields.foto_dpi_frente = await uploadToSupabase(
+        files.foto_dpi_frente[0],
+        "dpi_frente"
+      );
+    }
+
+    if (files.foto_dpi_reverso) {
+      updateFields.foto_dpi_reverso = await uploadToSupabase(
+        files.foto_dpi_reverso[0],
+        "dpi_reverso"
+      );
+    }
+
+    if (files.selfie_con_dpi) {
+      updateFields.selfie_con_dpi = await uploadToSupabase(
+        files.selfie_con_dpi[0],
+        "selfie"
+      );
+    }
+
+    updateFields.estado_validacion = "en_revision";
+    updateFields.observaciones = null;
+    updateFields.actualizado_en = new Date();
+
+    await VendedorPerfil.update(updateFields, {
+      where: { user_id: user.id },
+    });
+
     res.json({
       ok: true,
-      message: "Documentos enviados para validación del comercio (pendiente de implementar)",
+      message: "Documentos enviados correctamente. Están en revisión.",
     });
-  } catch (error) {
+
+  } catch (error: any) {
     console.error("Error en validateSellerBusiness:", error);
-    res.status(500).json({ ok: false, message: "Error al procesar validación" });
+    res.status(500).json({
+      message: "Error al enviar documentos",
+      error: error.message,
+    });
   }
 };
 
@@ -474,5 +554,234 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
   } catch (error) {
     console.error("Error en getPublicSellerStore:", error);
     res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const getSellerAccountStatus: RequestHandler = async (req, res) => {
+  try {
+    const user = (req as any).user;
+
+    if (!user?.id) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const perfil = await VendedorPerfil.findOne({
+      where: { user_id: user.id },
+    });
+
+    if (!perfil) {
+      res.status(404).json({ message: "Perfil no encontrado" });
+      return;
+    }
+
+    const estado = perfil.estado_validacion ?? "pendiente";
+
+    const response = {
+      estado_validacion: estado,
+      ultima_revision: perfil.actualizado_en ?? perfil.updatedAt ?? null,
+      observaciones_generales: perfil.observaciones ?? null,
+
+      documentos: {
+        dpi_frente: { subido: !!perfil.foto_dpi_frente },
+        dpi_reverso: { subido: !!perfil.foto_dpi_reverso },
+        selfie_con_dpi: { subido: !!perfil.selfie_con_dpi },
+      },
+
+      puede_publicar: estado === "aprobado",
+      visible_publicamente: estado === "aprobado",
+    };
+
+    res.json(response);
+  } catch (error) {
+    console.error("Error en getSellerAccountStatus:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const getSellerAnalytics: RequestHandler = async (req, res) => {
+  try {
+    const user: any = (req as any).user;
+
+    if (!user?.id) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const sellerId = user.id;
+
+    // =============================
+    // Total vistas de productos
+    // =============================
+    const productViews: any[] = await sequelize.query(
+      `
+      SELECT COUNT(*)::int AS total
+      FROM product_views
+      WHERE seller_id = :sellerId
+      `,
+      {
+        replacements: { sellerId },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    // =============================
+    // Total vistas de perfil
+    // (Si no existe seller_views aún, lo dejamos en 0)
+    // =============================
+    let totalProfileViews = 0;
+
+    try {
+      const profileViews: any[] = await sequelize.query(
+        `
+        SELECT COUNT(*)::int AS total
+        FROM seller_views
+        WHERE seller_id = :sellerId
+        `,
+        {
+          replacements: { sellerId },
+          type: QueryTypes.SELECT,
+        }
+      );
+
+      totalProfileViews = profileViews[0]?.total ?? 0;
+    } catch (e) {
+      // Si la tabla no existe aún, no rompemos el endpoint
+      totalProfileViews = 0;
+    }
+
+    // =============================
+    // Top productos
+    // =============================
+    const topProducts: any[] = await sequelize.query(
+      `
+      SELECT 
+        p.id,
+        p.nombre,
+        COUNT(pv.id)::int AS total_views
+      FROM productos p
+      LEFT JOIN product_views pv ON pv.product_id = p.id
+      WHERE p.vendedor_id = :sellerId
+      GROUP BY p.id
+      ORDER BY total_views DESC
+      LIMIT 5
+      `,
+      {
+        replacements: { sellerId },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    res.json({
+      success: true,
+      totalProductViews: productViews[0]?.total ?? 0,
+      totalProfileViews,
+      topProducts,
+    });
+
+  } catch (error) {
+    console.error("Error getSellerAnalytics:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
+export const getSellerAnalyticsDaily: RequestHandler = async (req, res) => {
+  try {
+    const user: any = (req as any).user;
+
+    if (!user?.id) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const sellerId = Number(user.id);
+    if (!Number.isFinite(sellerId)) {
+      res.status(400).json({ message: "sellerId inválido" });
+      return;
+    }
+
+    const days = 30;
+
+    const productDaily: any[] = await sequelize.query(
+      `
+      WITH date_range AS (
+        SELECT (CURRENT_DATE - (gs || ' days')::interval)::date AS day
+        FROM generate_series(:daysMinus1, 0, -1) gs
+      )
+      SELECT
+        dr.day::text AS date,
+        COALESCE(pv.cnt, 0)::int AS product_views
+      FROM date_range dr
+      LEFT JOIN (
+        SELECT view_date AS day, COUNT(*)::int AS cnt
+        FROM product_views
+        WHERE seller_id = :sellerId
+          AND view_date >= (CURRENT_DATE - (:daysMinus1 || ' days')::interval)::date
+        GROUP BY view_date
+      ) pv ON pv.day = dr.day
+      ORDER BY dr.day ASC
+      `,
+      {
+        replacements: {
+          sellerId,
+          daysMinus1: days - 1,
+        },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    let profileDaily: any[] = [];
+    try {
+      profileDaily = await sequelize.query(
+        `
+        WITH date_range AS (
+          SELECT (CURRENT_DATE - (gs || ' days')::interval)::date AS day
+          FROM generate_series(:daysMinus1, 0, -1) gs
+        )
+        SELECT
+          dr.day::text AS date,
+          COALESCE(sv.cnt, 0)::int AS profile_views
+        FROM date_range dr
+        LEFT JOIN (
+          SELECT view_date AS day, COUNT(*)::int AS cnt
+          FROM seller_views
+          WHERE seller_id = :sellerId
+            AND view_date >= (CURRENT_DATE - (:daysMinus1 || ' days')::interval)::date
+          GROUP BY view_date
+        ) sv ON sv.day = dr.day
+        ORDER BY dr.day ASC
+        `,
+        {
+          replacements: {
+            sellerId,
+            daysMinus1: days - 1,
+          },
+          type: QueryTypes.SELECT,
+        }
+      );
+    } catch {
+      profileDaily = productDaily.map((r) => ({
+        date: r.date,
+        profile_views: 0,
+      }));
+    }
+
+    const merged = productDaily.map((p) => {
+      const s = profileDaily.find((x) => x.date === p.date);
+      return {
+        date: p.date,
+        product_views: p.product_views ?? 0,
+        profile_views: s?.profile_views ?? 0,
+      };
+    });
+
+    res.json({
+      success: true,
+      days,
+      data: merged,
+    });
+  } catch (error) {
+    console.error("Error getSellerAnalyticsDaily:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
   }
 };

@@ -19,6 +19,7 @@ import buyerRoutes from "./routes/buyer.routes";
 import sellerRoutes from "./routes/seller.routes";
 import productRoutes from "./routes/product.routes";
 import publicRoutes from "./routes/public.routes";
+import analyticsRoutes from "./routes/analytics.routes";
 
 // Middleware global
 import { errorHandler } from "./middleware/errorHandler";
@@ -41,13 +42,13 @@ app.use(
 );
 
 // ===========================
-// Trust proxy (IMPORTANTE)
+// Trust proxy
 // ===========================
 app.set("trust proxy", 1);
 app.use(httpLogger);
 
 // ===========================
-// Compresión (reduce payload)
+// Compresión
 // ===========================
 app.use(compression());
 
@@ -57,7 +58,7 @@ app.use(compression());
 app.use(cookieParser());
 
 // ===========================
-// CORS seguro con allowlist
+// CORS seguro
 // ===========================
 const allowlist = (
   process.env.CORS_ORIGIN_ALLOWLIST ||
@@ -84,19 +85,23 @@ app.use(
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Archivos estáticos (solo dev)
+// ===========================
+// Static (dev only)
+// ===========================
 if (process.env.NODE_ENV !== "production") {
   app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 }
 
 // ===========================
-// PostgreSQL pool para sesiones
+// PostgreSQL Pool (Sessions)
 // ===========================
 const pool = new Pool(
   process.env.DATABASE_URL
     ? {
         connectionString: process.env.DATABASE_URL,
-        ssl: { rejectUnauthorized: false },
+        ssl: process.env.NODE_ENV === "production"
+          ? { rejectUnauthorized: false }
+          : false,
       }
     : {
         user: process.env.DB_USER,
@@ -104,20 +109,31 @@ const pool = new Pool(
         database: process.env.DB_NAME,
         password: process.env.DB_PASSWORD,
         port: Number(process.env.DB_PORT || 5432),
-        ssl: { rejectUnauthorized: false },
+        ssl: process.env.NODE_ENV === "production"
+          ? { rejectUnauthorized: false }
+          : false,
       }
 );
 
+// 🔎 Confirmar DB usada por sesiones
+pool.query("SELECT current_database()")
+  .then(r => console.log("📦 SESSION DB:", r.rows[0].current_database))
+  .catch(e => console.error("Error checking session DB:", e));
+
 // ===========================
-// Sesiones seguras
+// Sesiones
 // ===========================
 app.use(
   session({
     store: new PgSession({
       pool,
       tableName: "sessions",
+      createTableIfMissing: true, // 🔥 Esto evita el error definitivo
     }),
-    secret: process.env.SESSION_SECRET || process.env.JWT_SECRET || "fallback_secret",
+    secret:
+      process.env.SESSION_SECRET ||
+      process.env.JWT_SECRET ||
+      "fallback_secret",
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -130,7 +146,7 @@ app.use(
 );
 
 // ===========================
-// Rate limiting global
+// Rate limiting
 // ===========================
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -140,13 +156,11 @@ const apiLimiter = rateLimit({
 });
 
 app.use("/api", apiLimiter);
-
-// Protección especial login
 app.use("/api/login", rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
 app.use("/api/login/google", rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
 
 // ===========================
-// Healthcheck real
+// Healthcheck
 // ===========================
 const healthz: RequestHandler = (_req, res): void => {
   res.status(200).json({
@@ -166,6 +180,17 @@ app.use("/api", authRoutes);
 app.use("/api/buyer", buyerRoutes);
 app.use("/api/seller", sellerRoutes);
 app.use("/api", productRoutes);
+app.use("/api/analytics", analyticsRoutes);
+
+// ===========================
+// Session debug endpoint
+// ===========================
+app.get("/api/session-check", (req, res) => {
+  res.json({
+    sessionID: req.sessionID,
+    session: req.session,
+  });
+});
 
 // ===========================
 // 404

@@ -4,18 +4,18 @@ import multer from "multer";
 import asyncHandler from "../utils/asyncHandler";
 import { verifyToken, requireRole } from "../middleware/auth";
 import * as SellerController from "../controllers/seller.controller";
-import { getTopSellers } from "../controllers/seller.controller";
 
 const router = Router();
 
-// ===========================
-// Configuración de Multer
-// ===========================
+/* ==================================================
+   📦 Configuración Multer
+================================================== */
+
 const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // máx 5MB
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!/^image\/(png|jpe?g|webp|avif)$/.test(file.mimetype)) {
       return cb(new Error("Solo se permiten imágenes (png, jpg, webp, avif)"));
@@ -24,11 +24,10 @@ const upload = multer({
   },
 });
 
-// ==================================================
-// 🔐 Rutas privadas (solo vendedores autenticados)
-// ==================================================
+/* ==================================================
+   🔐 RUTAS PRIVADAS (Vendedor autenticado)
+================================================== */
 
-// 📊 Dashboard general (ping / info básica)
 router.get(
   "/dashboard",
   verifyToken(["seller", "vendedor"]),
@@ -36,7 +35,6 @@ router.get(
   asyncHandler(SellerController.getSellerDashboard)
 );
 
-// 📦 Productos del vendedor
 router.get(
   "/products",
   verifyToken(["seller", "vendedor"]),
@@ -44,7 +42,6 @@ router.get(
   asyncHandler(SellerController.getSellerProducts)
 );
 
-// 🧾 Pedidos del vendedor
 router.get(
   "/orders",
   verifyToken(["seller", "vendedor"]),
@@ -52,7 +49,6 @@ router.get(
   asyncHandler(SellerController.getSellerOrders)
 );
 
-// 👤 Perfil del vendedor autenticado
 router.get(
   "/profile",
   verifyToken(["seller", "vendedor"]),
@@ -60,7 +56,6 @@ router.get(
   asyncHandler(SellerController.getSellerProfile)
 );
 
-// ✏️ Actualizar perfil (logo opcional)
 router.patch(
   "/profile",
   verifyToken(["seller", "vendedor"]),
@@ -69,27 +64,48 @@ router.patch(
   asyncHandler(SellerController.updateSellerProfile)
 );
 
-// 🧾 Enviar documentos para validación
 router.post(
   "/validar",
   verifyToken(["seller", "vendedor"]),
   requireRole("seller", "vendedor"),
+  upload.fields([
+    { name: "foto_dpi_frente", maxCount: 1 },
+    { name: "foto_dpi_reverso", maxCount: 1 },
+    { name: "selfie_con_dpi", maxCount: 1 },
+  ]),
   asyncHandler(SellerController.validateSellerBusiness)
 );
 
-// ==================================================
-// 🌍 Rutas públicas (buyers / visitantes)
-// ==================================================
+router.get(
+  "/analytics",
+  verifyToken(["seller", "vendedor"]),
+  requireRole("seller", "vendedor"),
+  asyncHandler(SellerController.getSellerAnalytics)
+);
 
-// 🏪 Listado público de tiendas
-router.get("/tiendas", asyncHandler(SellerController.getSellers));
+router.get(
+  "/analytics/daily",
+  verifyToken(["seller", "vendedor"]),
+  requireRole("seller", "vendedor"),
+  asyncHandler(SellerController.getSellerAnalyticsDaily)
+);
 
-// 👁️ Perfil público de vendedor por ID
-router.get("/:id", asyncHandler(SellerController.getSellerProfile));
+router.get(
+  "/account/status",
+  verifyToken(["seller", "vendedor"]),
+  requireRole("seller", "vendedor"),
+  asyncHandler(SellerController.getSellerAccountStatus)
+);
+
+/* ==================================================
+   🌍 RUTAS PÚBLICAS
+   ⚠️ Las específicas SIEMPRE antes que :id
+================================================== */
 
 router.get("/sellers/top", asyncHandler(SellerController.getTopSellers));
+router.get("/tiendas", asyncHandler(SellerController.getSellers));
 
-// ==================================================
-// ✅ Export
-// ==================================================
+// ⚠️ ESTA SIEMPRE AL FINAL
+router.get("/:id", asyncHandler(SellerController.getSellerProfile));
+
 export default router;

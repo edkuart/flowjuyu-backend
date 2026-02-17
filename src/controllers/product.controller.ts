@@ -10,6 +10,7 @@ import { QueryTypes } from "sequelize";
 import { buildPublicProductDTO } from "../utils/buildPublicProductDTO";
 import { buildPublicProductCardDTO } from "../utils/buildPublicProductCardDTO"
 import { buildSearchProductDTO } from "../utils/buildSearchProductDTO";
+import { logEvent } from "../utils/eventLogger";
 
 // ===========================
 // Helpers
@@ -646,7 +647,9 @@ export const getProductById = async (
       LEFT JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       LEFT JOIN producto_imagenes pi ON pi.producto_id = p.id
 
-      WHERE p.id = :id AND p.activo = true
+      WHERE p.id = :id 
+      AND p.activo = true
+      AND v.estado_validacion = 'aprobado'
       GROUP BY 
         p.id,
         c.id,
@@ -668,7 +671,36 @@ export const getProductById = async (
     }
 
     const rawProduct = rows[0];
+
+    // ===========================
+    // 📊 Registrar vista
+    // ===========================
+    try {
+      await sequelize.query(
+        `
+        INSERT INTO product_views (product_id, ip_address, user_agent)
+        VALUES (:product_id, :ip, :ua)
+        `,
+        {
+          replacements: {
+            product_id: rawProduct.id,
+            ip: req.ip || null,
+            ua: req.headers["user-agent"] || null,
+          },
+          type: QueryTypes.INSERT,
+        }
+      );
+    } catch (viewError) {
+      console.error("Error registrando vista:", viewError);
+    }
+
     const product = buildPublicProductDTO(rawProduct);
+
+    await logEvent({
+      type: "product_view",
+      user_id: (req as any).user?.id || null,
+      product_id: id,
+    });
 
     // 🔒 Limitar galería adicional a 4
     if (Array.isArray(product.imagenes)) {
@@ -690,11 +722,13 @@ export const getProductById = async (
         c.nombre AS categoria_nombre
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
+      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       WHERE p.categoria_id = (
         SELECT categoria_id FROM productos WHERE id = :id
       )
       AND p.id != :id
       AND p.activo = true
+      AND v.estado_validacion = 'aprobado'
       ORDER BY p.created_at DESC
       LIMIT 12
     `;
@@ -1050,6 +1084,31 @@ export const toggleProductActive = async (
     const u: any = (req as any).user;
     const { activo } = req.body;
 
+    // 🔐 Verificar estado de validación del vendedor
+    const vendedorEstado: any = await sequelize.query(
+      `
+      SELECT estado_validacion
+      FROM vendedor_perfil
+      WHERE user_id = :userId
+      `,
+      {
+        replacements: { userId: u.id },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    if (!vendedorEstado.length) {
+      res.status(403).json({ message: "Perfil de vendedor no encontrado" });
+      return;
+    }
+
+    if (Boolean(activo) === true && vendedorEstado[0].estado_validacion !== "aprobado") {
+      res.status(403).json({
+        message: "No puedes activar productos hasta que tu comercio sea aprobado",
+      });
+      return;
+    }
+
     const [rows] = await sequelize.query(
       `
       SELECT id
@@ -1124,8 +1183,10 @@ export const getProductsByCategory = async (req: Request, res: Response) => {
         c.nombre AS categoria
       FROM productos p
       JOIN categorias c ON c.id = p.categoria_id
+      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       WHERE p.activo = true
-        AND p.categoria_id IN (:categoriaIds)
+      AND v.estado_validacion = 'aprobado'
+      AND p.categoria_id IN (:categoriaIds)
       ORDER BY p.created_at DESC
       `,
       {
@@ -1163,7 +1224,9 @@ export const getNewProducts = async (
         c.nombre AS categoria_nombre
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
+      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       WHERE p.activo = true
+      AND v.estado_validacion = 'aprobado'
         AND p.imagen_url IS NOT NULL
       ORDER BY p.created_at DESC
       LIMIT 20
@@ -1228,7 +1291,11 @@ export const getFilteredProducts = async (
     const limitNumber = Math.min(Math.max(Number(limit) || 40, 1), 60);
     const offset = (pageNumber - 1) * limitNumber;
 
-    const whereConditions: string[] = ["p.activo = true"];
+    const whereConditions: string[] = [
+      "p.activo = true",
+      "v.estado_validacion = 'aprobado'"
+    ];
+
     const replacements: any = {
       limit: limitNumber,
       offset,
@@ -1348,12 +1415,7 @@ export const getFilteredProducts = async (
     const ratingMinNumber =
       ratingMin !== undefined && ratingMin !== null
         ? Number(ratingMin)
-        : null;
-
-    if (ratingMinNumber !== null && Number.isFinite(ratingMinNumber)) {
-      whereConditions.push("COALESCE(p.rating_avg, 0) >= :ratingMin");
-      replacements.ratingMin = ratingMinNumber;
-    }    
+        : null;    
 
     // ============================
     // 📊 Query principal
@@ -1376,6 +1438,7 @@ export const getFilteredProducts = async (
             : "0 AS rank"
         }
       FROM productos p
+      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       LEFT JOIN categorias c ON c.id = p.categoria_id
       ${whereSQL}
       ${orderSQL}
@@ -1388,12 +1451,21 @@ export const getFilteredProducts = async (
       type: QueryTypes.SELECT,
     });
 
+    if (search && String(search).trim() !== "") {
+      await logEvent({
+        type: "search_query",
+        user_id: (req as any).user?.id || null,
+        metadata: { query: search },
+      });
+}
+
     // ============================
     // 📈 Total count
     // ============================
     const countQuery = `
       SELECT COUNT(*)::int AS total
       FROM productos p
+      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       ${whereSQL}
     `;
 
@@ -1403,6 +1475,17 @@ export const getFilteredProducts = async (
     });
 
     const total = countResult[0]?.total || 0;
+
+    if (total === 0 && search) {
+      await logEvent({
+        type: "search_query",
+        user_id: (req as any).user?.id || null,
+        metadata: {
+          query: search,
+          no_results: true,
+        },
+      });
+    }
 
     // ============================
     // 🔁 Related si no hay resultados
@@ -1421,13 +1504,15 @@ export const getFilteredProducts = async (
           c.id AS categoria_id,
           c.nombre AS categoria_nombre
         FROM productos p
+        JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
         LEFT JOIN categorias c ON c.id = p.categoria_id
         WHERE p.activo = true
-          AND (
-            p.nombre ILIKE :search
-            OR p.descripcion ILIKE :search
-            OR c.nombre ILIKE :search
-          )
+        AND v.estado_validacion = 'aprobado'
+        AND (
+          p.nombre ILIKE :search
+          OR p.descripcion ILIKE :search
+          OR c.nombre ILIKE :search
+        )
         ORDER BY p.created_at DESC
         LIMIT 24
       `;
@@ -1596,6 +1681,12 @@ export const createProductReview = async (
       }
     );
 
+    await logEvent({
+      type: "review_created",
+      user_id: user.id,
+      product_id: id,
+    });
+
     res.status(201).json({ message: "Reseña creada correctamente" });
 
   } catch (error) {
@@ -1630,8 +1721,10 @@ export const getTopProductsByCategory = async (
           (5.0 / (COUNT(r.id) + 5)) * 3.5
         ) AS weighted_score
       FROM productos p
+      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       LEFT JOIN reviews r ON r.producto_id = p.id
       WHERE p.activo = true
+      AND v.estado_validacion = 'aprobado'
       GROUP BY p.id
       ORDER BY weighted_score DESC NULLS LAST
       LIMIT 8
@@ -1705,8 +1798,10 @@ export const getTrendingProducts = async (req: Request, res: Response) => {
             )
           ) AS trending_score
         FROM productos p
+        JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
         LEFT JOIN reviews r ON r.producto_id = p.id
         WHERE p.activo = true
+        AND v.estado_validacion = 'aprobado'
         GROUP BY p.id
       ) sub
       ORDER BY

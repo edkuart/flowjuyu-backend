@@ -3,6 +3,18 @@ import { DataTypes, Model, Optional } from "sequelize";
 import { sequelize } from "../config/db";
 import { User } from "./user.model";
 
+/* ======================================================
+   🎯 Tipo oficial de estado de validación
+====================================================== */
+export type EstadoValidacion =
+  | "pendiente"
+  | "en_revision"
+  | "aprobado"
+  | "rechazado";
+
+/* ======================================================
+   🧱 Interface base
+====================================================== */
 interface VendedorPerfilAttrs {
   id: number;
   user_id: number;
@@ -20,14 +32,20 @@ interface VendedorPerfilAttrs {
   foto_dpi_frente?: string | null;
   foto_dpi_reverso?: string | null;
   selfie_con_dpi?: string | null;
-  estado_validacion?: "pendiente" | "aprobado" | "rechazado" | null;
+
+  estado_validacion?: EstadoValidacion | null;
+
   observaciones?: string | null;
   estado?: "activo" | "inactivo" | null;
   actualizado_en?: Date | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
 
+/* ======================================================
+   🧱 Creation type
+====================================================== */
 type Creation = Optional<
   VendedorPerfilAttrs,
   | "id"
@@ -49,8 +67,13 @@ type Creation = Optional<
   | "updatedAt"
 >;
 
-export class VendedorPerfil extends Model<VendedorPerfilAttrs, Creation>
-  implements VendedorPerfilAttrs {
+/* ======================================================
+   🧱 Modelo Sequelize
+====================================================== */
+export class VendedorPerfil
+  extends Model<VendedorPerfilAttrs, Creation>
+  implements VendedorPerfilAttrs
+{
   public id!: number;
   public user_id!: number;
   public nombre!: string;
@@ -67,10 +90,13 @@ export class VendedorPerfil extends Model<VendedorPerfilAttrs, Creation>
   public foto_dpi_frente?: string | null;
   public foto_dpi_reverso?: string | null;
   public selfie_con_dpi?: string | null;
-  public estado_validacion?: "pendiente" | "aprobado" | "rechazado" | null;
+
+  public estado_validacion?: EstadoValidacion | null;
+
   public observaciones?: string | null;
   public estado?: "activo" | "inactivo" | null;
   public actualizado_en?: Date | null;
+
   public readonly createdAt?: Date;
   public readonly updatedAt?: Date;
 }
@@ -110,10 +136,23 @@ VendedorPerfil.init(
     foto_dpi_frente: { type: DataTypes.TEXT, allowNull: true },
     foto_dpi_reverso: { type: DataTypes.TEXT, allowNull: true },
     selfie_con_dpi: { type: DataTypes.TEXT, allowNull: true },
-    estado_validacion: { type: DataTypes.STRING(30), allowNull: true, defaultValue: "pendiente" },
+
+    estado_validacion: {
+      type: DataTypes.STRING(30),
+      allowNull: true,
+      defaultValue: "pendiente",
+    },
+
     observaciones: { type: DataTypes.TEXT, allowNull: true },
-    estado: { type: DataTypes.STRING(30), allowNull: true, defaultValue: "activo" },
+
+    estado: {
+      type: DataTypes.STRING(30),
+      allowNull: true,
+      defaultValue: "activo",
+    },
+
     actualizado_en: { type: DataTypes.DATE, allowNull: true },
+
     createdAt: { type: DataTypes.DATE, allowNull: true },
     updatedAt: { type: DataTypes.DATE, allowNull: true },
   },
@@ -125,7 +164,9 @@ VendedorPerfil.init(
   }
 );
 
-// 🔗 Asociaciones
+/* ======================================================
+   🔗 Asociaciones
+====================================================== */
 User.hasOne(VendedorPerfil, {
   foreignKey: "user_id",
   as: "perfil",
