@@ -2,6 +2,10 @@ import { RequestHandler } from "express";
 import { sequelize } from "../config/db";
 import { QueryTypes } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
+import {
+  getSellerAnalyticsData,
+  SellerAnalyticsData,
+} from "../services/analytics.service"
 
 /* ============================================
    Helper: asegurar creación de sesión
@@ -115,9 +119,6 @@ export const trackProductView: RequestHandler = async (req, res) => {
         res.json({ success: true, deduped: true });
         return;
         }
-
-        res.json({ success: true, inserted: true });
-
 
     res.json({ success: true, inserted: true });
   } catch (error) {
@@ -295,5 +296,31 @@ export const endProductSession: RequestHandler = async (req, res) => {
   } catch (error) {
     console.error("Error endProductSession:", error);
     res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const getSellerAnalyticsOverview: RequestHandler = async (req, res) => {
+  try {
+    const sellerId = req.user?.id;
+
+    if (!sellerId) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const data = await getSellerAnalyticsData(Number(sellerId));
+
+    res.json({
+      success: true,
+      totalProductViews: data.totalProductViews,
+      totalProfileViews: data.totalProfileViews,
+      topProducts: data.topProducts,
+      last30Days: data.last30Days, // 🔥 ESTA ES LA CLAVE
+    });
+  } catch (error) {
+    console.error("Error getSellerAnalyticsOverview:", error);
+    res.status(500).json({
+      message: "Error interno del servidor",
+    });
   }
 };

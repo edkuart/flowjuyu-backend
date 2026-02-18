@@ -1,7 +1,8 @@
-//scr/routes/product.routes.ts
+// src/routes/product.routes.ts
 
 import { Router } from "express";
-import { requireRole } from "../middleware/auth";
+import { verifyToken, requireRole } from "../middleware/auth";
+import { requireActiveSeller } from "../middleware/requireActiveSeller";
 import { uploadProductImages } from "../middleware/multerProducts";
 import asyncHandler from "../middleware/asyncHandler";
 
@@ -34,7 +35,6 @@ import {
   getProductsByCategory,
   getNewProducts,
   getTrendingProducts,
-
   getTopProductsByCategory,
   getProductReviews,
   createProductReview,
@@ -43,116 +43,112 @@ import {
 
 const router: Router = Router();
 
-/* ---------------------------------------------------------
+/* =========================================================
    📦 1. CATÁLOGOS PÚBLICOS
---------------------------------------------------------- */
-router.get("/categorias", getCategorias);
-router.get("/clases", getClases);
-router.get("/regiones", getRegiones);
-router.get("/telas", getTelas);
+========================================================= */
+router.get("/categorias", asyncHandler(getCategorias));
+router.get("/clases", asyncHandler(getClases));
+router.get("/regiones", asyncHandler(getRegiones));
+router.get("/telas", asyncHandler(getTelas));
 
-/* ---------------------------------------------------------
-   🎨 2. TAXONOMÍA DE ACCESORIOS
---------------------------------------------------------- */
-router.get("/accesorios", getAccesorios);
-router.get("/accesorio-tipos", getAccesorioTipos);
-router.get("/accesorio-materiales", getAccesorioMateriales);
+/* =========================================================
+   🎨 2. TAXONOMÍA ACCESORIOS (PÚBLICO)
+========================================================= */
+router.get("/accesorios", asyncHandler(getAccesorios));
+router.get("/accesorio-tipos", asyncHandler(getAccesorioTipos));
+router.get("/accesorio-materiales", asyncHandler(getAccesorioMateriales));
 
-/* ---------------------------------------------------------
+/* =========================================================
    🔍 3. BÚSQUEDAS PÚBLICAS
---------------------------------------------------------- */
-router.get("/products", getFilteredProducts);
-router.get("/productos", getFilteredProducts); // legacy
-router.get("/filters/:tipo", getFilters);
-router.get("/categorias/:slug/productos", getProductsByCategory);
-router.get("/productos/nuevos", getNewProducts);
-router.get("/products/trending", getTrendingProducts);
+========================================================= */
+router.get("/products", asyncHandler(getFilteredProducts));
+router.get("/productos", asyncHandler(getFilteredProducts)); // legacy
+router.get("/filters/:tipo", asyncHandler(getFilters));
+router.get("/categorias/:slug/productos", asyncHandler(getProductsByCategory));
+router.get("/productos/nuevos", asyncHandler(getNewProducts));
+router.get("/products/trending", asyncHandler(getTrendingProducts));
+router.get("/products/top-by-category/:categoriaId", asyncHandler(getTopProductsByCategory));
 
-/* ---------------------------------------------------------
+/* =========================================================
    📌 4. PRODUCTO — DETALLE PÚBLICO
---------------------------------------------------------- */
-router.get("/products/:id", getProductById);
-router.get("/productos/:id", getProductById); // legacy
+========================================================= */
+router.get("/products/:id", asyncHandler(getProductById));
+router.get("/productos/:id", asyncHandler(getProductById)); // legacy
+router.get("/products/:id/reviews", asyncHandler(getProductReviews));
 
-/* ---------------------------------------------------------
-   ✏️ 5. PRODUCTO — EDICIÓN (VENDEDOR)
---------------------------------------------------------- */
-router.get(
-  "/productos/:id/edit",
-  requireRole("seller"),
-  getProductForEdit
+router.post(
+  "/products/:id/reviews",
+  verifyToken(["buyer"]),
+  requireRole("buyer"),
+  asyncHandler(createProductReview)
 );
 
-/* ---------------------------------------------------------
-   🛒 6. CRUD DEL VENDEDOR
---------------------------------------------------------- */
+/* =========================================================
+   🔒 5. RUTAS PRIVADAS VENDEDOR
+   (Middleware global para simplificar)
+========================================================= */
+
+router.use(
+  verifyToken(["seller"]),
+  requireRole("seller"),
+  requireActiveSeller
+);
+
+/* =========================================================
+   🛒 6. CRUD VENDEDOR
+========================================================= */
 
 // Crear producto
 router.post(
   "/productos",
-  requireRole("seller"),
-  uploadProductImages.array("imagenes[]", 9),
-  createProduct
+  uploadProductImages.array("imagenes[]", 5),
+  asyncHandler(createProduct)
 );
 
 // Listado del vendedor
 router.get(
   "/seller/products",
-  requireRole("seller"),
-  getSellerProducts
+  asyncHandler(getSellerProducts)
+);
+
+// Obtener producto para editar
+router.get(
+  "/productos/:id/edit",
+  asyncHandler(getProductForEdit)
 );
 
 // Actualizar producto
 router.put(
   "/productos/:id",
-  requireRole("seller"),
-  uploadProductImages.array("imagenes[]", 9),
-  updateProduct
+  uploadProductImages.array("imagenes[]", 5),
+  asyncHandler(updateProduct)
 );
 
 // Cambiar imagen principal
 router.patch(
   "/productos/:id/set-principal",
-  requireRole("seller"),
-  setPrincipalImage
+  asyncHandler(setPrincipalImage)
 );
 
-// Eliminar producto completo
-router.delete(
-  "/productos/:id",
-  requireRole("seller"),
-  deleteProduct
-);
-
-// Activar / desactivar producto
+// Activar / desactivar
 router.patch(
   "/productos/:id/activo",
-  requireRole("seller"),
-  toggleProductActive
+  asyncHandler(toggleProductActive)
 );
 
-/* ---------------------------------------------------------
-   🖼️ 7. IMÁGENES DEL PRODUCTO
---------------------------------------------------------- */
+// Eliminar producto
+router.delete(
+  "/productos/:id",
+  asyncHandler(deleteProduct)
+);
 
-// Eliminar imagen individual
+/* =========================================================
+   🖼️ 7. IMÁGENES INDIVIDUALES
+========================================================= */
+
 router.delete(
   "/productos/:id/imagenes/:imageId",
-  requireRole("seller"),
-  deleteProductImage
-);
-
-router.get(
-  "/products/top-by-category/:categoriaId",
-  asyncHandler(getTopProductsByCategory)
-);
-
-router.get("/products/:id/reviews", getProductReviews);
-
-router.post(
-  "/products/:id/reviews",
-  requireRole("comprador"),
-  createProductReview
+  asyncHandler(deleteProductImage)
 );
 
 export default router;

@@ -3,6 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import asyncHandler from "../utils/asyncHandler";
 import { verifyToken, requireRole } from "../middleware/auth";
+import { requireActiveSeller } from "../middleware/requireActiveSeller";
 import * as SellerController from "../controllers/seller.controller";
 
 const router = Router();
@@ -25,49 +26,49 @@ const upload = multer({
 });
 
 /* ==================================================
-   🔐 RUTAS PRIVADAS (Vendedor autenticado)
+   🔐 RUTAS PRIVADAS (Seller autenticado)
 ================================================== */
 
 router.get(
   "/dashboard",
-  verifyToken(["seller", "vendedor"]),
-  requireRole("seller", "vendedor"),
+  verifyToken(),
+  requireRole("seller"),
   asyncHandler(SellerController.getSellerDashboard)
 );
 
 router.get(
   "/products",
-  verifyToken(["seller", "vendedor"]),
-  requireRole("seller", "vendedor"),
+  verifyToken(),
+  requireRole("seller"),
   asyncHandler(SellerController.getSellerProducts)
 );
 
 router.get(
   "/orders",
-  verifyToken(["seller", "vendedor"]),
-  requireRole("seller", "vendedor"),
+  verifyToken(),
+  requireRole("seller"),
   asyncHandler(SellerController.getSellerOrders)
 );
 
 router.get(
   "/profile",
-  verifyToken(["seller", "vendedor"]),
-  requireRole("seller", "vendedor"),
+  verifyToken(),
+  requireRole("seller"),
   asyncHandler(SellerController.getSellerProfile)
 );
 
 router.patch(
   "/profile",
-  verifyToken(["seller", "vendedor"]),
-  requireRole("seller", "vendedor"),
+  verifyToken(),
+  requireRole("seller"),
   upload.single("logo"),
   asyncHandler(SellerController.updateSellerProfile)
 );
 
 router.post(
   "/validar",
-  verifyToken(["seller", "vendedor"]),
-  requireRole("seller", "vendedor"),
+  verifyToken(),
+  requireRole("seller"),
   upload.fields([
     { name: "foto_dpi_frente", maxCount: 1 },
     { name: "foto_dpi_reverso", maxCount: 1 },
@@ -78,28 +79,35 @@ router.post(
 
 router.get(
   "/analytics",
-  verifyToken(["seller", "vendedor"]),
-  requireRole("seller", "vendedor"),
+  verifyToken(),
+  requireRole("seller"),
   asyncHandler(SellerController.getSellerAnalytics)
 );
 
 router.get(
   "/analytics/daily",
-  verifyToken(["seller", "vendedor"]),
-  requireRole("seller", "vendedor"),
+  verifyToken(),
+  requireRole("seller"),
   asyncHandler(SellerController.getSellerAnalyticsDaily)
 );
 
 router.get(
-  "/account/status",
-  verifyToken(["seller", "vendedor"]),
-  requireRole("seller", "vendedor"),
+  "/account-status", 
+  verifyToken(),
+  requireRole("seller"),
   asyncHandler(SellerController.getSellerAccountStatus)
+);
+
+router.get(
+  "/dashboard",
+  verifyToken(["seller"]),
+  requireRole("seller"),
+  requireActiveSeller,
+  asyncHandler(SellerController.getSellerDashboard)
 );
 
 /* ==================================================
    🌍 RUTAS PÚBLICAS
-   ⚠️ Las específicas SIEMPRE antes que :id
 ================================================== */
 
 router.get("/sellers/top", asyncHandler(SellerController.getTopSellers));

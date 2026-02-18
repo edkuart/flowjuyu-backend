@@ -99,9 +99,10 @@ const pool = new Pool(
   process.env.DATABASE_URL
     ? {
         connectionString: process.env.DATABASE_URL,
-        ssl: process.env.NODE_ENV === "production"
-          ? { rejectUnauthorized: false }
-          : false,
+        ssl:
+          process.env.NODE_ENV === "production"
+            ? { rejectUnauthorized: false }
+            : false,
       }
     : {
         user: process.env.DB_USER,
@@ -109,16 +110,18 @@ const pool = new Pool(
         database: process.env.DB_NAME,
         password: process.env.DB_PASSWORD,
         port: Number(process.env.DB_PORT || 5432),
-        ssl: process.env.NODE_ENV === "production"
-          ? { rejectUnauthorized: false }
-          : false,
+        ssl:
+          process.env.NODE_ENV === "production"
+            ? { rejectUnauthorized: false }
+            : false,
       }
 );
 
-// 🔎 Confirmar DB usada por sesiones
-pool.query("SELECT current_database()")
-  .then(r => console.log("📦 SESSION DB:", r.rows[0].current_database))
-  .catch(e => console.error("Error checking session DB:", e));
+// Confirmar DB de sesiones
+pool
+  .query("SELECT current_database()")
+  .then((r) => console.log("📦 SESSION DB:", r.rows[0].current_database))
+  .catch((e) => console.error("Error checking session DB:", e));
 
 // ===========================
 // Sesiones
@@ -128,7 +131,7 @@ app.use(
     store: new PgSession({
       pool,
       tableName: "sessions",
-      createTableIfMissing: true, // 🔥 Esto evita el error definitivo
+      createTableIfMissing: true,
     }),
     secret:
       process.env.SESSION_SECRET ||
@@ -146,7 +149,7 @@ app.use(
 );
 
 // ===========================
-// Rate limiting
+// Rate limiting global
 // ===========================
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -172,18 +175,28 @@ const healthz: RequestHandler = (_req, res): void => {
 
 app.get("/healthz", healthz);
 
-// ===========================
-// Rutas
-// ===========================
+// ======================================================
+// 🔥 RUTAS (ORDEN IMPORTANTE)
+// ======================================================
+
+// Públicas
 app.use("/api", publicRoutes);
 app.use("/api", authRoutes);
-app.use("/api/buyer", buyerRoutes);
-app.use("/api/seller", sellerRoutes);
 app.use("/api", productRoutes);
-app.use("/api/analytics", analyticsRoutes);
+
+// Buyer
+app.use("/api/buyer", buyerRoutes);
+
+// Seller
+app.use("/api/seller", sellerRoutes);
+
+// Analytics
+// IMPORTANTE: NO montar bajo /api/seller aquí
+// analytics.routes ya define /seller/analytics internamente
+app.use("/api", analyticsRoutes);
 
 // ===========================
-// Session debug endpoint
+// Session debug
 // ===========================
 app.get("/api/session-check", (req, res) => {
   res.json({
@@ -200,7 +213,7 @@ app.use((_req, res) => {
 });
 
 // ===========================
-// Error handling (orden crítico)
+// Error handling
 // ===========================
 app.use(multerErrorHandler as ErrorRequestHandler);
 app.use(errorHandler);

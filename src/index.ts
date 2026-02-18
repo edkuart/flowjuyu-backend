@@ -1,11 +1,11 @@
 // src/index.ts
 import dotenv from "dotenv";
+dotenv.config(); // ✅ SIEMPRE PRIMERO
+
 import app from "./app";
 import { sequelize, assertDbConnection } from "./config/db";
 
-console.log("🚀 SERVIDOR NUEVO ARRANCANDO 2026 🔥");  // 👈 AQUÍ
-
-dotenv.config();
+console.log("🚀 SERVIDOR NUEVO ARRANCANDO 2026 🔥");
 
 const PORT = Number(process.env.PORT || 8800);
 
@@ -23,4 +23,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-

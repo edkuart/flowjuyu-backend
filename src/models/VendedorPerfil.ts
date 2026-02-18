@@ -36,7 +36,7 @@ interface VendedorPerfilAttrs {
   estado_validacion?: EstadoValidacion | null;
 
   observaciones?: string | null;
-  estado?: "activo" | "inactivo" | null;
+  estado?: "activo" | "inactivo" | "suspendido" | null;
   actualizado_en?: Date | null;
 
   createdAt?: Date;

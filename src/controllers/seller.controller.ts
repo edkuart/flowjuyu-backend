@@ -158,22 +158,36 @@ export const getSellerProducts: RequestHandler = async (req, res) => {
 // ==============================
 // Obtener perfil del vendedor (autenticado o público)
 // ==============================
-export const getSellerProfile: RequestHandler = async (req, res): Promise<void> => {
+export const getSellerProfile: RequestHandler = async (
+  req,
+  res
+): Promise<void> => {
   try {
     const user = (req as any).user || null;
     const { id } = req.params;
 
+    // ================================
+    // Validación ID numérico
+    // ================================
     if (id && isNaN(Number(id))) {
-      res.status(400).json({ ok: false, message: "El parámetro 'id' debe ser numérico" });
+      res
+        .status(400)
+        .json({ ok: false, message: "El parámetro 'id' debe ser numérico" });
       return;
     }
 
     const targetId = id || user?.id;
+
     if (!targetId) {
-      res.status(401).json({ ok: false, message: "Usuario no autenticado" });
+      res
+        .status(401)
+        .json({ ok: false, message: "Usuario no autenticado" });
       return;
     }
 
+    // ================================
+    // Buscar perfil
+    // ================================
     const perfil = await VendedorPerfil.findOne({
       where: { user_id: targetId },
       include: [
@@ -186,27 +200,69 @@ export const getSellerProfile: RequestHandler = async (req, res): Promise<void> 
     });
 
     if (!perfil) {
-  res.status(404).json({ ok: false, message: "Perfil no encontrado" });
-  return;
-}
+      res.status(404).json({ ok: false, message: "Perfil no encontrado" });
+      return;
+    }
 
+    // ================================
+    // Obtener rating agregado REAL
+    // ================================
+    const ratingRows: any[] = await sequelize.query(
+      `
+      SELECT 
+        COUNT(r.id) AS rating_count,
+        COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0) AS rating_avg
+      FROM productos p
+      LEFT JOIN reviews r ON r.producto_id = p.id
+      WHERE p.vendedor_id = :sellerId
+      `,
+      {
+        replacements: { sellerId: perfil.user_id },
+        type: QueryTypes.SELECT,
+      }
+    );
 
-    const esPropietario = Number(user?.id) === Number(perfil.user_id);
-    if (!esPropietario) {
-       res.json({
+    const ratingData = ratingRows[0] || {
+      rating_avg: 0,
+      rating_count: 0,
+    };
+
+    // ================================
+    // Determinar modo público / preview
+    // ================================
+    const esPropietario =
+      Number(user?.id) === Number(perfil.user_id);
+
+    const forcePublic = req.query.preview === "true";
+
+    if (!esPropietario || forcePublic) {
+      res.json({
         id: perfil.id,
         nombre_comercio: perfil.nombre_comercio,
         descripcion: perfil.descripcion,
         logo: perfil.logo,
         departamento: perfil.departamento,
         municipio: perfil.municipio,
+        rating_avg: Number(ratingData.rating_avg),
+        rating_count: Number(ratingData.rating_count),
       });
+      return;
     }
 
-    res.json(perfil);
+    // ================================
+    // Respuesta completa para dueño
+    // ================================
+    res.json({
+      ...perfil.toJSON(),
+      rating_avg: Number(ratingData.rating_avg),
+      rating_count: Number(ratingData.rating_count),
+    });
+
   } catch (error) {
     console.error("Error en getSellerProfile:", error);
-    res.status(500).json({ ok: false, message: "Error al obtener perfil" });
+    res
+      .status(500)
+      .json({ ok: false, message: "Error al obtener perfil" });
   }
 };
 
@@ -559,45 +615,66 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
 
 export const getSellerAccountStatus: RequestHandler = async (req, res) => {
   try {
-    const user = (req as any).user;
+    const userId = req.user?.id
 
-    if (!user?.id) {
-      res.status(401).json({ message: "No autenticado" });
-      return;
+    if (!userId) {
+      res.status(401).json({ ok: false, message: "No autenticado" })
+      return
     }
 
-    const perfil = await VendedorPerfil.findOne({
-      where: { user_id: user.id },
+    const [rows]: any = await sequelize.query(
+      `
+      SELECT
+        estado_validacion,
+        observaciones,
+        actualizado_en,
+        foto_dpi_frente,
+        foto_dpi_reverso,
+        selfie_con_dpi
+      FROM vendedor_perfil
+      WHERE user_id = :user_id
+      `,
+      {
+        replacements: { user_id: userId },
+      }
+    )
+
+    if (!rows.length) {
+      res.status(404).json({ ok: false, message: "Perfil no encontrado" })
+      return
+    }
+
+    const perfil = rows[0]
+
+    const puedeOperar =
+      perfil.estado === "activo" &&
+      perfil.estado_validacion === "aprobado";
+
+    res.json({
+      ok: true,
+      data: {
+        estado_validacion: perfil.estado_validacion,
+        estado_admin: perfil.estado, 
+        ultima_revision: perfil.actualizado_en,
+        observaciones_generales: perfil.observaciones,
+
+        documentos: {
+          dpi_frente: { subido: !!perfil.foto_dpi_frente },
+          dpi_reverso: { subido: !!perfil.foto_dpi_reverso },
+          selfie_con_dpi: { subido: !!perfil.selfie_con_dpi },
+        },
+
+        puede_publicar: puedeOperar,
+        visible_publicamente: puedeOperar,
+        puede_operar: puedeOperar,
+      },
     });
 
-    if (!perfil) {
-      res.status(404).json({ message: "Perfil no encontrado" });
-      return;
-    }
-
-    const estado = perfil.estado_validacion ?? "pendiente";
-
-    const response = {
-      estado_validacion: estado,
-      ultima_revision: perfil.actualizado_en ?? perfil.updatedAt ?? null,
-      observaciones_generales: perfil.observaciones ?? null,
-
-      documentos: {
-        dpi_frente: { subido: !!perfil.foto_dpi_frente },
-        dpi_reverso: { subido: !!perfil.foto_dpi_reverso },
-        selfie_con_dpi: { subido: !!perfil.selfie_con_dpi },
-      },
-
-      puede_publicar: estado === "aprobado",
-      visible_publicamente: estado === "aprobado",
-    };
-
-    res.json(response);
   } catch (error) {
-    console.error("Error en getSellerAccountStatus:", error);
-    res.status(500).json({ message: "Error interno" });
+    console.error("Error getSellerAccountStatus:", error)
+    res.status(500).json({ ok: false, message: "Error interno del servidor" })
   }
-};
+}
 
 export const getSellerAnalytics: RequestHandler = async (req, res) => {
   try {
