@@ -1,10 +1,12 @@
 // src/routes/seller.routes.ts
+
 import { Router } from "express";
 import multer from "multer";
 import asyncHandler from "../utils/asyncHandler";
 import { verifyToken, requireRole } from "../middleware/auth";
 import { requireActiveSeller } from "../middleware/requireActiveSeller";
 import * as SellerController from "../controllers/seller.controller";
+import * as SellerTicketController from "../controllers/sellerTicket.controller";
 
 const router = Router();
 
@@ -26,49 +28,62 @@ const upload = multer({
 });
 
 /* ==================================================
-   🔐 RUTAS PRIVADAS (Seller autenticado)
+   🌍 RUTAS PÚBLICAS
+   (SIEMPRE PRIMERO)
 ================================================== */
 
+router.get("/sellers/top", asyncHandler(SellerController.getTopSellers));
+router.get("/tiendas", asyncHandler(SellerController.getSellers));
+
+/* ==================================================
+   🔐 MIDDLEWARE GLOBAL SELLER
+================================================== */
+
+router.use(
+  verifyToken(["seller"]),
+  requireRole("seller")
+);
+
+/* ==================================================
+   🔒 RUTAS PRIVADAS (Seller autenticado)
+================================================== */
+
+// Dashboard (requiere vendedor activo)
 router.get(
   "/dashboard",
-  verifyToken(),
-  requireRole("seller"),
+  requireActiveSeller,
   asyncHandler(SellerController.getSellerDashboard)
 );
 
+// Productos del seller
 router.get(
   "/products",
-  verifyToken(),
-  requireRole("seller"),
+  requireActiveSeller,
   asyncHandler(SellerController.getSellerProducts)
 );
 
+// Órdenes (placeholder futuro)
 router.get(
   "/orders",
-  verifyToken(),
-  requireRole("seller"),
+  requireActiveSeller,
   asyncHandler(SellerController.getSellerOrders)
 );
 
+// Perfil
 router.get(
   "/profile",
-  verifyToken(),
-  requireRole("seller"),
   asyncHandler(SellerController.getSellerProfile)
 );
 
 router.patch(
   "/profile",
-  verifyToken(),
-  requireRole("seller"),
   upload.single("logo"),
   asyncHandler(SellerController.updateSellerProfile)
 );
 
+// Validación legal (NO requiere active seller aún)
 router.post(
   "/validar",
-  verifyToken(),
-  requireRole("seller"),
   upload.fields([
     { name: "foto_dpi_frente", maxCount: 1 },
     { name: "foto_dpi_reverso", maxCount: 1 },
@@ -77,43 +92,57 @@ router.post(
   asyncHandler(SellerController.validateSellerBusiness)
 );
 
+// Analytics
 router.get(
   "/analytics",
-  verifyToken(),
-  requireRole("seller"),
+  requireActiveSeller,
   asyncHandler(SellerController.getSellerAnalytics)
 );
 
 router.get(
   "/analytics/daily",
-  verifyToken(),
-  requireRole("seller"),
+  requireActiveSeller,
   asyncHandler(SellerController.getSellerAnalyticsDaily)
 );
 
+// Estado de cuenta (NO requiere activo)
 router.get(
-  "/account-status", 
-  verifyToken(),
-  requireRole("seller"),
+  "/account-status",
   asyncHandler(SellerController.getSellerAccountStatus)
 );
 
+/* ==================================================
+   🎫 TICKETS (SELLER)
+================================================== */
+
+// Crear ticket
+router.post(
+  "/tickets",
+  asyncHandler(SellerTicketController.createTicket)
+);
+
+// Listar mis tickets
 router.get(
-  "/dashboard",
-  verifyToken(["seller"]),
-  requireRole("seller"),
-  requireActiveSeller,
-  asyncHandler(SellerController.getSellerDashboard)
+  "/tickets",
+  asyncHandler(SellerTicketController.getMyTickets)
+);
+
+// Detalle de un ticket
+router.get(
+  "/tickets/:id",
+  asyncHandler(SellerTicketController.getMyTicketDetail)
+);
+
+// Responder ticket
+router.post(
+  "/tickets/:id/reply",
+  asyncHandler(SellerTicketController.replyToTicketSeller)
 );
 
 /* ==================================================
-   🌍 RUTAS PÚBLICAS
+   ⚠️ ESTA SIEMPRE AL FINAL
 ================================================== */
 
-router.get("/sellers/top", asyncHandler(SellerController.getTopSellers));
-router.get("/tiendas", asyncHandler(SellerController.getSellers));
-
-// ⚠️ ESTA SIEMPRE AL FINAL
 router.get("/:id", asyncHandler(SellerController.getSellerProfile));
 
 export default router;

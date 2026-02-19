@@ -16,8 +16,8 @@ const router = Router();
    🔒 Rate limit específico para tracking público
 ===================================================== */
 const trackingLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minuto
-  max: 120,            // 120 requests por IP por minuto
+  windowMs: 60 * 1000,
+  max: 120,
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -26,12 +26,11 @@ const trackingLimiter = rateLimit({
    📊 Público / Admin
 ===================================================== */
 
-// Top productos más vistos (puede ser público)
+// Top productos más vistos (público)
 router.get("/top-products", getTopViewedProducts);
 
 /* =====================================================
    👁 Tracking público
-   (no requiere autenticación)
 ===================================================== */
 
 router.post(
@@ -47,14 +46,13 @@ router.post(
 );
 
 /* =====================================================
-   🏪 Analytics privadas del vendedor
-   (requiere rol vendedor)
+   🏪 Analytics privadas del seller
+   (requiere rol seller)
 ===================================================== */
 
-// 🔥 ESTA es la ruta correcta que tu frontend ya usa
 router.get(
   "/seller/analytics",
-  requireRole("vendedor"),
+  requireRole("seller"),
   getSellerAnalyticsOverview
 );
 

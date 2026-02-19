@@ -38,7 +38,6 @@ import {
   getTopProductsByCategory,
   getProductReviews,
   createProductReview,
-
 } from "../controllers/product.controller";
 
 const router: Router = Router();
@@ -67,7 +66,10 @@ router.get("/filters/:tipo", asyncHandler(getFilters));
 router.get("/categorias/:slug/productos", asyncHandler(getProductsByCategory));
 router.get("/productos/nuevos", asyncHandler(getNewProducts));
 router.get("/products/trending", asyncHandler(getTrendingProducts));
-router.get("/products/top-by-category/:categoriaId", asyncHandler(getTopProductsByCategory));
+router.get(
+  "/products/top-by-category/:categoriaId",
+  asyncHandler(getTopProductsByCategory)
+);
 
 /* =========================================================
    📌 4. PRODUCTO — DETALLE PÚBLICO
@@ -84,23 +86,15 @@ router.post(
 );
 
 /* =========================================================
-   🔒 5. RUTAS PRIVADAS VENDEDOR
-   (Middleware global para simplificar)
-========================================================= */
-
-router.use(
-  verifyToken(["seller"]),
-  requireRole("seller"),
-  requireActiveSeller
-);
-
-/* =========================================================
-   🛒 6. CRUD VENDEDOR
+   🛒 5. CRUD VENDEDOR (RUTAS PRIVADAS)
 ========================================================= */
 
 // Crear producto
 router.post(
   "/productos",
+  verifyToken(["seller"]),
+  requireRole("seller"),
+  requireActiveSeller,
   uploadProductImages.array("imagenes[]", 5),
   asyncHandler(createProduct)
 );
@@ -108,18 +102,27 @@ router.post(
 // Listado del vendedor
 router.get(
   "/seller/products",
+  verifyToken(["seller"]),
+  requireRole("seller"),
+  requireActiveSeller,
   asyncHandler(getSellerProducts)
 );
 
 // Obtener producto para editar
 router.get(
   "/productos/:id/edit",
+  verifyToken(["seller"]),
+  requireRole("seller"),
+  requireActiveSeller,
   asyncHandler(getProductForEdit)
 );
 
 // Actualizar producto
 router.put(
   "/productos/:id",
+  verifyToken(["seller"]),
+  requireRole("seller"),
+  requireActiveSeller,
   uploadProductImages.array("imagenes[]", 5),
   asyncHandler(updateProduct)
 );
@@ -127,27 +130,39 @@ router.put(
 // Cambiar imagen principal
 router.patch(
   "/productos/:id/set-principal",
+  verifyToken(["seller"]),
+  requireRole("seller"),
+  requireActiveSeller,
   asyncHandler(setPrincipalImage)
 );
 
 // Activar / desactivar
 router.patch(
   "/productos/:id/activo",
+  verifyToken(["seller"]),
+  requireRole("seller"),
+  requireActiveSeller,
   asyncHandler(toggleProductActive)
 );
 
 // Eliminar producto
 router.delete(
   "/productos/:id",
+  verifyToken(["seller"]),
+  requireRole("seller"),
+  requireActiveSeller,
   asyncHandler(deleteProduct)
 );
 
 /* =========================================================
-   🖼️ 7. IMÁGENES INDIVIDUALES
+   🖼️ 6. IMÁGENES INDIVIDUALES
 ========================================================= */
 
 router.delete(
   "/productos/:id/imagenes/:imageId",
+  verifyToken(["seller"]),
+  requireRole("seller"),
+  requireActiveSeller,
   asyncHandler(deleteProductImage)
 );
 

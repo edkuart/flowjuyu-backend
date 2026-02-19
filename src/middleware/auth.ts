@@ -56,7 +56,6 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
     res: Response,
     next: NextFunction
   ): Promise<void> => {
-
     const secret = process.env.JWT_SECRET;
 
     if (!secret) {
@@ -73,8 +72,10 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
     }
 
     try {
+      // ─────────────────────────────────────────
+      // 🔐 Verificación JWT
+      // ─────────────────────────────────────────
       const verifyOpts: VerifyOptions = {};
-
       const algs = (process.env.JWT_ALGS || "HS256")
         .split(",")
         .map((s) => s.trim())
@@ -86,14 +87,19 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
 
       const decoded = jwt.verify(token, secret, verifyOpts) as DecodedToken;
 
-      const userId = getUserId(decoded);
+      // ─────────────────────────────────────────
+      // 🆔 Resolver userId (sub o id)
+      // ─────────────────────────────────────────
+      const userId = decoded.sub ?? decoded.id;
 
       if (!userId) {
         res.status(401).json({ message: "Token inválido: sin ID" });
         return;
       }
 
-      // 🔎 Verificar usuario en base de datos
+      // ─────────────────────────────────────────
+      // 🔎 Usuario en BD
+      // ─────────────────────────────────────────
       const user = await User.findByPk(userId);
 
       if (!user) {
@@ -101,51 +107,79 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
         return;
       }
 
-      // 🔒 Verificar token_version (logout global)
-      if (decoded.token_version !== user.token_version) {
+      // ─────────────────────────────────────────
+      // 🔒 token_version (logout global)
+      // ─────────────────────────────────────────
+      if (
+        typeof decoded.token_version === "number" &&
+        decoded.token_version !== user.token_version
+      ) {
         res.status(401).json({
           message: "Sesión inválida. Inicia sesión nuevamente.",
         });
         return;
       }
 
-      // 🚫 Verificar suspensión
+      // ─────────────────────────────────────────
+      // 🚫 Suspensión
+      // ─────────────────────────────────────────
       if ((user as any).estado === "suspendido") {
         res.status(403).json({ message: "Cuenta suspendida" });
         return;
       }
 
-      // ─────────────────────────────────────
-      // 🎯 Extraer roles del token
-      // ─────────────────────────────────────
-      const userRoles: Rol[] =
-        decoded.roles
-          ? decoded.roles
-          : decoded.rol
-          ? [decoded.rol]
-          : [];
+      // ─────────────────────────────────────────
+      // 🎯 Normalización FUERTE de roles
+      //  - token.roles (array)
+      //  - token.rol (string)
+      //  - user.rol (fallback BD)
+      //  - lowercase + trim
+      // ─────────────────────────────────────────
+      const tokenRoles: string[] = Array.isArray(decoded.roles)
+        ? decoded.roles
+        : decoded.rol
+        ? [decoded.rol]
+        : [];
 
-      // ─────────────────────────────────────
-      // 🔐 Validar permisos por rol
-      // ─────────────────────────────────────
-      const tienePermiso =
+      const dbRole: string[] = (user as any)?.rol
+        ? [(user as any).rol]
+        : [];
+
+      const userRoles = Array.from(
+        new Set(
+          [...tokenRoles, ...dbRole]
+            .map((r) => String(r).toLowerCase().trim())
+            .filter(Boolean)
+        )
+      ) as Rol[];
+
+      // 🔎 DEBUG (puedes dejarlo temporalmente)
+      console.log("🧭 baseUrl:", req.baseUrl, "| path:", req.path, "| originalUrl:", req.originalUrl);
+      console.log("🧠 rolesRequeridos:", rolesRequeridos);
+      console.log("🧠 userRoles:", userRoles);
+
+      // ─────────────────────────────────────────
+      // 🔐 Validación de permisos
+      // ─────────────────────────────────────────
+      const permitido =
         rolesRequeridos.length === 0 ||
-        userRoles.some((rol) => rolesRequeridos.includes(rol));
+        rolesRequeridos.some((r) =>
+          userRoles.includes(String(r).toLowerCase().trim() as Rol)
+        );
 
-      if (!tienePermiso) {
+      if (!permitido) {
         console.warn(
           `🚫 Acceso denegado. Requerido: [${rolesRequeridos.join(
             ", "
           )}] | Usuario: [${userRoles.join(", ")}]`
         );
-
         res.status(403).json({ message: "Acceso denegado por rol" });
         return;
       }
 
-      // ─────────────────────────────────────
-      // ✅ Guardar usuario en request
-      // ─────────────────────────────────────
+      // ─────────────────────────────────────────
+      // ✅ Inyectar usuario en request
+      // ─────────────────────────────────────────
       req.user = {
         id: userId,
         correo: decoded.correo,
@@ -154,9 +188,7 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
       };
 
       next();
-
     } catch (error: any) {
-
       if (error?.name === "TokenExpiredError") {
         console.warn("⏰ Token expirado");
         res.status(401).json({
@@ -167,12 +199,7 @@ export const verifyToken = (rolesRequeridos: Rol[] = []) => {
       }
 
       console.error("❌ Error al verificar token:", error);
-
-      res.status(401).json({
-        message: "Token inválido",
-      });
-
-      return;
+      res.status(401).json({ message: "Token inválido" });
     }
   };
 };
