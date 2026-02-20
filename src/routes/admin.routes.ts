@@ -121,4 +121,18 @@ router.patch(
   asyncHandler(reactivateSeller)
 );
 
+/* ===============================
+   📦 PRODUCTS (ADMIN)
+=============================== */
+
+router.get(
+  "/products",
+  asyncHandler(AdminController.getAllAdminProducts)
+);
+
+router.get(
+  "/products/:id",
+  asyncHandler(AdminController.getAdminProductDetail)
+);
+
 export default router;

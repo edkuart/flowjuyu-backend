@@ -1933,13 +1933,16 @@ export const getTrendingProducts = async (req: Request, res: Response) => {
           p.nombre,
           p.precio,
           p.created_at,
+          COALESCE(
           (
             SELECT pi.url
             FROM producto_imagenes pi
             WHERE pi.producto_id = p.id
             ORDER BY pi.created_at ASC
             LIMIT 1
-          ) AS imagen_url,
+          ),
+          p.imagen_url
+        ) AS imagen_url,
           COUNT(r.id) AS total_reviews,
           COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0) AS rating_avg,
           (

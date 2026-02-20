@@ -3,6 +3,8 @@ import { VendedorPerfil } from "../models/VendedorPerfil";
 import { User } from "../models/user.model";
 import AdminAuditEvent from "../models/adminAuditEvent.model";
 import { logAdminEvent } from "../utils/logAdminEvent";
+import Product from "../models/product.model";
+import { sequelize } from "../config/db";
 
 /* ======================================================
    🔹 LISTAR TODOS LOS SELLERS
@@ -33,9 +35,38 @@ export const getAllSellers: RequestHandler = async (req, res) => {
       order: [["createdAt", "DESC"]],
     });
 
+    // 🔥 ENRIQUECER CON MÉTRICAS DE PRODUCTOS
+    const enriched = await Promise.all(
+      sellers.map(async (seller) => {
+        const totalProductos = await Product.count({
+          where: { vendedor_id: seller.user_id },
+        });
+
+        const productosPublicados = await Product.count({
+          where: {
+            vendedor_id: seller.user_id,
+            activo: true,
+          },
+        });
+
+        // Producto publicado real depende del seller también
+        const publicadosReales =
+          seller.estado_admin === "activo" &&
+          seller.estado_validacion === "aprobado"
+            ? productosPublicados
+            : 0;
+
+        return {
+          ...seller.toJSON(),
+          total_productos: totalProductos,
+          productos_publicados: publicadosReales,
+        };
+      })
+    );
+
     res.json({
       ok: true,
-      data: sellers,
+      data: enriched,
     });
   } catch (error) {
     console.error("getAllSellers error:", error);
