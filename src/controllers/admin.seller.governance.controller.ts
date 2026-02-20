@@ -1,0 +1,308 @@
+import { RequestHandler } from "express";
+import { VendedorPerfil } from "../models/VendedorPerfil";
+import { User } from "../models/user.model";
+import AdminAuditEvent from "../models/adminAuditEvent.model";
+import { logAdminEvent } from "../utils/logAdminEvent";
+
+/* ======================================================
+   🔹 LISTAR TODOS LOS SELLERS
+====================================================== */
+export const getAllSellers: RequestHandler = async (req, res) => {
+  try {
+    const { estado_validacion, estado_admin } = req.query;
+
+    const where: any = {};
+
+    if (estado_validacion) {
+      where.estado_validacion = estado_validacion;
+    }
+
+    if (estado_admin) {
+      where.estado_admin = estado_admin;
+    }
+
+    const sellers = await VendedorPerfil.findAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "nombre", "correo"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    res.json({
+      ok: true,
+      data: sellers,
+    });
+  } catch (error) {
+    console.error("getAllSellers error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+/* ======================================================
+   🔹 SELLER DETAIL (CON HISTORIAL)
+====================================================== */
+export const getSellerDetail: RequestHandler = async (req, res) => {
+  try {
+    const sellerId = Number(req.params.id);
+
+    const seller = await VendedorPerfil.findByPk(sellerId, {
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "nombre", "correo", "telefono"],
+        },
+      ],
+    });
+
+    if (!seller) {
+      res.status(404).json({ message: "Vendedor no encontrado" });
+      return;
+    }
+
+    const history = await AdminAuditEvent.findAll({
+      where: {
+        entity_type: "seller",
+        entity_id: sellerId,
+      },
+      order: [["created_at", "DESC"]],
+    });
+
+    res.json({
+      ok: true,
+      data: {
+        ...seller.toJSON(),
+        audit_log: history,
+      },
+    });
+  } catch (error) {
+    console.error("getSellerDetail error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+/* ======================================================
+   🔹 APPROVE SELLER
+====================================================== */
+export const approveSeller: RequestHandler = async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const adminId = Number(req.user!.id);
+
+    const seller = await VendedorPerfil.findOne({
+      where: { user_id: userId },
+    });
+
+    if (!seller) {
+      res.status(404).json({ message: "Vendedor no encontrado" });
+      return;
+    }
+
+    if (seller.estado_validacion !== "pendiente") {
+      res.status(409).json({
+        message: "Solo vendedores pendientes pueden aprobarse",
+      });
+      return;
+    }
+
+    const before = {
+      estado_validacion: seller.estado_validacion,
+      estado_admin: seller.estado_admin,
+    };
+
+    seller.estado_validacion = "aprobado";
+    seller.estado_admin = "activo";
+
+    await seller.save();
+
+    await logAdminEvent({
+      entityType: "seller",
+      entityId: seller.user_id,
+      action: "KYC_APPROVED",
+      performedBy: adminId,
+      metadata: {
+        before,
+        after: {
+          estado_validacion: seller.estado_validacion,
+          estado_admin: seller.estado_admin,
+        },
+      },
+    });
+
+    res.json({
+      ok: true,
+      message: "Vendedor aprobado correctamente",
+    });
+
+  } catch (error) {
+    console.error("approveSeller error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+/* ======================================================
+   🔹 REJECT SELLER
+====================================================== */
+export const rejectSeller: RequestHandler = async (req, res) => {
+  try {
+    const sellerId = Number(req.params.id);
+    const adminId = Number(req.user!.id);
+    const { comment } = req.body;
+
+    if (!comment) {
+      res.status(400).json({
+        message: "Comentario obligatorio al rechazar",
+      });
+      return;
+    }
+
+    const seller = await VendedorPerfil.findByPk(sellerId);
+
+    if (!seller) {
+      res.status(404).json({ message: "Vendedor no encontrado" });
+      return;
+    }
+
+    if (seller.estado_validacion !== "pendiente") {
+      res.status(409).json({
+        message: "Solo vendedores pendientes pueden rechazarse",
+      });
+      return;
+    }
+
+    const before = {
+      estado_validacion: seller.estado_validacion,
+      estado_admin: seller.estado_admin,
+    };
+
+    seller.estado_validacion = "rechazado";
+    seller.estado_admin = "inactivo";
+    seller.observaciones = comment;
+
+    await seller.save();
+
+    await logAdminEvent({
+      entityType: "seller",
+      entityId: seller.id,
+      action: "KYC_REJECTED",
+      performedBy: adminId,
+      comment,
+      metadata: {
+        before,
+        after: {
+          estado_validacion: seller.estado_validacion,
+          estado_admin: seller.estado_admin,
+        },
+      },
+    });
+
+    res.json({ ok: true, message: "Vendedor rechazado correctamente" });
+  } catch (error) {
+    console.error("rejectSeller error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+/* ======================================================
+   🔹 SUSPEND SELLER
+====================================================== */
+export const suspendSeller: RequestHandler = async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const adminId = Number(req.user!.id);
+
+    const seller = await VendedorPerfil.findOne({
+      where: { user_id: userId },
+    });
+
+    if (!seller) {
+      res.status(404).json({ message: "Vendedor no encontrado" });
+      return;
+    }
+
+    const comment = req.body?.comment ?? null;
+
+    const before = {
+      estado_admin: seller.estado_admin,
+    };
+
+    seller.estado_admin = "suspendido";
+    await seller.save();
+
+    await logAdminEvent({
+      entityType: "seller",
+      entityId: seller.user_id,
+      action: "SELLER_SUSPENDED",
+      performedBy: adminId,
+      metadata: {
+        before,
+        after: {
+          estado_admin: seller.estado_admin,
+        },
+        comment,
+      },
+    });
+
+    res.json({
+      ok: true,
+      message: "Vendedor suspendido correctamente",
+    });
+
+  } catch (error) {
+    console.error("suspendSeller error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+/* ======================================================
+   🔹 REACTIVATE SELLER
+====================================================== */
+export const reactivateSeller: RequestHandler = async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const adminId = Number(req.user!.id);
+
+    const seller = await VendedorPerfil.findOne({
+      where: { user_id: userId },
+    });
+
+    if (!seller) {
+      res.status(404).json({ message: "Vendedor no encontrado" });
+      return;
+    }
+
+    const before = {
+      estado_admin: seller.estado_admin,
+    };
+
+    seller.estado_admin = "activo";
+    await seller.save();
+
+    await logAdminEvent({
+      entityType: "seller",
+      entityId: seller.user_id,
+      action: "SELLER_REACTIVATED",
+      performedBy: adminId,
+      metadata: {
+        before,
+        after: {
+          estado_admin: seller.estado_admin,
+        },
+      },
+    });
+
+    res.json({
+      ok: true,
+      message: "Vendedor reactivado correctamente",
+    });
+
+  } catch (error) {
+    console.error("reactivateSeller error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};

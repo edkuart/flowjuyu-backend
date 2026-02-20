@@ -219,6 +219,7 @@ export const login = async (
     }
 
     const usuario = await User.findOne({ where: { correo } });
+
     if (!usuario) {
       res.status(401).json({
         message: "Correo o contraseña incorrectos",
@@ -236,6 +237,31 @@ export const login = async (
         message: "Correo o contraseña incorrectos",
       });
       return;
+    }
+
+    // 🔒 BLOQUEO SI ES SELLER SUSPENDIDO
+    if (usuario.rol === "vendedor") {
+      const perfil = await VendedorPerfil.findOne({
+        where: { user_id: usuario.id },
+      });
+
+      if (perfil) {
+        // 🚫 Bloqueo si está suspendido
+        if (perfil.estado_admin === "suspendido") {
+          res.status(403).json({
+            message: "Cuenta suspendida por administración",
+          });
+          return;
+        }
+
+        // 🚫 Bloqueo si fue rechazado en validación
+        if (perfil.estado_validacion === "rechazado") {
+          res.status(403).json({
+            message: "Tu solicitud fue rechazada. Contacta soporte.",
+          });
+          return;
+        }
+      }
     }
 
     const token = generateToken({

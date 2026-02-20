@@ -621,7 +621,7 @@ export const getProductById = async (
       WHERE p.id = :id 
       AND p.activo = true
       AND v.estado_validacion = 'aprobado'
-      AND v.estado = 'activo'
+      AND v.estado_admin = 'activo'
       GROUP BY 
         p.id,
         c.id,
@@ -701,7 +701,7 @@ export const getProductById = async (
       AND p.id != :id
       AND p.activo = true
       AND v.estado_validacion = 'aprobado'
-      AND v.estado = 'activo'
+      AND v.estado_admin = 'activo'
       ORDER BY p.created_at DESC
       LIMIT 12
     `;
@@ -1077,7 +1077,7 @@ export const toggleProductActive = async (
     // =====================================================
     const vendedorEstado: any = await sequelize.query(
       `
-      SELECT estado_validacion, estado
+      SELECT estado_validacion, estado_admin
       FROM vendedor_perfil
       WHERE user_id = :userId
       `,
@@ -1098,7 +1098,7 @@ export const toggleProductActive = async (
     if (activar === true) {
 
       // 🔴 Suspensión administrativa
-      if (perfil.estado === "suspendido") {
+      if (perfil.estado_admin === "suspendido") {
         res.status(403).json({
           message: "Tu comercio está suspendido y no puede activar productos.",
         });
@@ -1223,7 +1223,7 @@ export const getProductsByCategory = async (
       WHERE 
         p.activo = true
         AND v.estado_validacion = 'aprobado'
-        AND v.estado = 'activo'
+        AND v.estado_admin = 'activo'
         AND p.categoria_id IN (:categoriaIds)
       ORDER BY p.created_at DESC
       `,
@@ -1272,7 +1272,7 @@ export const getNewProducts = async (
       JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       WHERE p.activo = true
       AND v.estado_validacion = 'aprobado'
-      AND v.estado = 'activo'
+      AND v.estado_admin = 'activo'
         AND p.imagen_url IS NOT NULL
       ORDER BY p.created_at DESC
       LIMIT 20
@@ -1340,7 +1340,7 @@ export const getFilteredProducts = async (
     const whereConditions: string[] = [
       "p.activo = true",
       "v.estado_validacion = 'aprobado'",
-      "v.estado = 'activo'"
+      "v.estado_admin = 'activo'"
     ];
 
     const replacements: any = {
@@ -1555,7 +1555,7 @@ export const getFilteredProducts = async (
         LEFT JOIN categorias c ON c.id = p.categoria_id
         WHERE p.activo = true
         AND v.estado_validacion = 'aprobado'
-        AND v.estado = 'activo'
+        AND v.estado_admin = 'activo'
         AND (
           p.nombre ILIKE :search
           OR p.descripcion ILIKE :search
@@ -1649,7 +1649,7 @@ export const getProductReviews = async (
         r.producto_id = :id
         AND p.activo = true
         AND v.estado_validacion = 'aprobado'
-        AND v.estado = 'activo'
+        AND v.estado_admin = 'activo'
       ORDER BY r.created_at DESC
       `,
       {
@@ -1733,7 +1733,7 @@ export const createProductReview = async (
         p.id = :id
         AND p.activo = true
         AND v.estado_validacion = 'aprobado'
-        AND v.estado = 'activo'
+        AND v.estado_admin = 'activo'
       `,
       {
         replacements: { id },
@@ -1894,7 +1894,7 @@ export const getTopProductsByCategory = async (
       LEFT JOIN reviews r ON r.producto_id = p.id
       WHERE p.activo = true
       AND v.estado_validacion = 'aprobado'
-      AND v.estado = 'activo'
+      AND v.estado_admin = 'activo'
       GROUP BY p.id
       ORDER BY weighted_score DESC NULLS LAST
       LIMIT 8
@@ -1972,7 +1972,7 @@ export const getTrendingProducts = async (req: Request, res: Response) => {
         LEFT JOIN reviews r ON r.producto_id = p.id
         WHERE p.activo = true
         AND v.estado_validacion = 'aprobado'
-        AND v.estado = 'activo'
+        AND v.estado_admin = 'activo'
         GROUP BY p.id
       ) sub
       ORDER BY

@@ -2,15 +2,24 @@ import { Router } from "express";
 import asyncHandler from "../utils/asyncHandler";
 import { verifyToken, requireRole } from "../middleware/auth";
 
-// controllers
+// Controllers
 import * as AdminController from "../controllers/admin.controller";
 import * as AdminTicketController from "../controllers/admin.ticket.controller";
 import * as AdminTicketStatsController from "../controllers/admin.ticket.stats.controller";
+import {
+  getAllSellers,
+  getSellerDetail,
+  approveSeller,
+  rejectSeller,
+  suspendSeller,
+  reactivateSeller,
+} from "../controllers/admin.seller.governance.controller";
 
 const router = Router();
 
 /* ===============================
    🔐 MIDDLEWARE ADMIN GLOBAL
+   (Se aplica a TODAS las rutas)
 =============================== */
 router.use(
   verifyToken(["admin"]),
@@ -27,7 +36,7 @@ router.get(
 
 /* ===============================
    🎫 TICKETS (ADMIN)
-   ⚠️ ORDEN CRÍTICO
+   ⚠️ ORDEN IMPORTANTE
 =============================== */
 
 // 📊 STATS — SIEMPRE PRIMERO
@@ -42,13 +51,13 @@ router.get(
   asyncHandler(AdminTicketController.getAllTickets)
 );
 
-// detalle (después de stats)
+// detalle
 router.get(
   "/tickets/:id",
   asyncHandler(AdminTicketController.getTicketDetailAdmin)
 );
 
-// asignar ticket
+// asignar
 router.patch(
   "/tickets/:id/assign",
   asyncHandler(AdminTicketController.assignTicket)
@@ -60,16 +69,56 @@ router.patch(
   asyncHandler(AdminTicketController.changeTicketStatus)
 );
 
-// responder ticket
+// responder
 router.post(
   "/tickets/:id/reply",
   asyncHandler(AdminTicketController.replyToTicketAdmin)
 );
 
-// cerrar ticket
+// cerrar
 router.patch(
   "/tickets/:id/close",
   asyncHandler(AdminTicketController.closeTicket)
+);
+
+/* ===============================
+   🏪 SELLER GOVERNANCE
+=============================== */
+
+// listar todos
+router.get(
+  "/sellers",
+  asyncHandler(getAllSellers)
+);
+
+// detalle
+router.get(
+  "/sellers/:id",
+  asyncHandler(getSellerDetail)
+);
+
+// aprobar
+router.patch(
+  "/sellers/:id/approve",
+  asyncHandler(approveSeller)
+);
+
+// rechazar
+router.patch(
+  "/sellers/:id/reject",
+  asyncHandler(rejectSeller)
+);
+
+// suspender
+router.patch(
+  "/sellers/:id/suspend",
+  asyncHandler(suspendSeller)
+);
+
+// reactivar
+router.patch(
+  "/sellers/:id/reactivate",
+  asyncHandler(reactivateSeller)
 );
 
 export default router;

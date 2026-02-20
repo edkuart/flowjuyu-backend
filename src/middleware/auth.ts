@@ -50,7 +50,9 @@ function getUserId(payload: DecodedToken) {
 // ─────────────────────────────────────────────
 // 🔐 verifyToken(rolesRequeridos)
 // ─────────────────────────────────────────────
-export const verifyToken = (rolesRequeridos: Rol[] = []) => {
+export const verifyToken = (
+  rolesRequeridos: Rol[] = []
+): RequestHandler => {
   return async (
     req: Request,
     res: Response,

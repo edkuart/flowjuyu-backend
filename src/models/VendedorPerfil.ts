@@ -1,19 +1,22 @@
-// src/models/VendedorPerfil.ts
 import { DataTypes, Model, Optional } from "sequelize";
 import { sequelize } from "../config/db";
 import { User } from "./user.model";
 
 /* ======================================================
-   🎯 Tipo oficial de estado de validación
+   🎯 Estados Oficiales
 ====================================================== */
 export type EstadoValidacion =
   | "pendiente"
-  | "en_revision"
   | "aprobado"
   | "rechazado";
 
+export type EstadoAdmin =
+  | "activo"
+  | "inactivo"
+  | "suspendido";
+
 /* ======================================================
-   🧱 Interface base
+   🧱 Interface Base
 ====================================================== */
 interface VendedorPerfilAttrs {
   id: number;
@@ -33,10 +36,10 @@ interface VendedorPerfilAttrs {
   foto_dpi_reverso?: string | null;
   selfie_con_dpi?: string | null;
 
-  estado_validacion?: EstadoValidacion | null;
+  estado_validacion: EstadoValidacion;
+  estado_admin: EstadoAdmin;
 
   observaciones?: string | null;
-  estado?: "activo" | "inactivo" | "suspendido" | null;
   actualizado_en?: Date | null;
 
   createdAt?: Date;
@@ -44,14 +47,15 @@ interface VendedorPerfilAttrs {
 }
 
 /* ======================================================
-   🧱 Creation type
+   🧱 Creation Type
 ====================================================== */
 type Creation = Optional<
   VendedorPerfilAttrs,
   | "id"
-  | "telefono_comercio"
+  | "telefono"
   | "direccion"
   | "logo"
+  | "telefono_comercio"
   | "departamento"
   | "municipio"
   | "descripcion"
@@ -59,9 +63,7 @@ type Creation = Optional<
   | "foto_dpi_frente"
   | "foto_dpi_reverso"
   | "selfie_con_dpi"
-  | "estado_validacion"
   | "observaciones"
-  | "estado"
   | "actualizado_en"
   | "createdAt"
   | "updatedAt"
@@ -91,10 +93,10 @@ export class VendedorPerfil
   public foto_dpi_reverso?: string | null;
   public selfie_con_dpi?: string | null;
 
-  public estado_validacion?: EstadoValidacion | null;
+  public estado_validacion!: EstadoValidacion;
+  public estado_admin!: EstadoAdmin;
 
   public observaciones?: string | null;
-  public estado?: "activo" | "inactivo" | null;
   public actualizado_en?: Date | null;
 
   public readonly createdAt?: Date;
@@ -139,18 +141,17 @@ VendedorPerfil.init(
 
     estado_validacion: {
       type: DataTypes.STRING(30),
-      allowNull: true,
+      allowNull: false,
       defaultValue: "pendiente",
     },
 
-    observaciones: { type: DataTypes.TEXT, allowNull: true },
-
-    estado: {
+    estado_admin: {
       type: DataTypes.STRING(30),
-      allowNull: true,
-      defaultValue: "activo",
+      allowNull: false,
+      defaultValue: "inactivo",
     },
 
+    observaciones: { type: DataTypes.TEXT, allowNull: true },
     actualizado_en: { type: DataTypes.DATE, allowNull: true },
 
     createdAt: { type: DataTypes.DATE, allowNull: true },
