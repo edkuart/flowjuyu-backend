@@ -404,14 +404,14 @@ const getSellerProducts = async (req, res) => {
 exports.getSellerProducts = getSellerProducts;
 const getProductById = async (req, res) => {
     try {
-        const { id } = req.params;
-        if (!id || !(0, uuid_1.validate)(id)) {
-            res.status(400).json({
-                message: "ID de producto inválido",
-            });
+        const idParam = req.params.id;
+        const idRaw = Array.isArray(idParam) ? idParam[0] : idParam;
+        if (!idRaw || !(0, uuid_1.validate)(idRaw)) {
+            res.status(400).json({ message: "ID de producto inválido" });
             return;
         }
-        const query = `
+        const productId = idRaw;
+        const productQuery = `
       SELECT 
         p.id,
         p.nombre,
@@ -444,13 +444,14 @@ const getProductById = async (req, res) => {
 
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
-      LEFT JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
+      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       LEFT JOIN producto_imagenes pi ON pi.producto_id = p.id
 
-      WHERE p.id = :id 
+      WHERE p.id = :id
       AND p.activo = true
       AND v.estado_validacion = 'aprobado'
       AND v.estado_admin = 'activo'
+
       GROUP BY 
         p.id,
         c.id,
@@ -458,10 +459,11 @@ const getProductById = async (req, res) => {
         v.user_id,
         v.nombre_comercio,
         v.logo
+
       LIMIT 1
     `;
-        const rows = await db_1.sequelize.query(query, {
-            replacements: { id },
+        const rows = await db_1.sequelize.query(productQuery, {
+            replacements: { id: productId },
             type: sequelize_1.QueryTypes.SELECT,
         });
         if (!rows || rows.length === 0) {
@@ -486,14 +488,14 @@ const getProductById = async (req, res) => {
             console.error("Error registrando vista:", viewError);
         }
         const product = (0, buildPublicProductDTO_1.buildPublicProductDTO)(rawProduct);
-        await (0, eventLogger_1.logEvent)({
-            type: "product_view",
-            user_id: req.user?.id || null,
-            product_id: id,
-        });
         if (Array.isArray(product.imagenes)) {
             product.imagenes = product.imagenes.slice(0, 4);
         }
+        await (0, eventLogger_1.logEvent)({
+            type: "product_view",
+            user_id: req.user?.id ?? null,
+            product_id: productId,
+        });
         const relatedQuery = `
       SELECT 
         p.id,
@@ -518,7 +520,7 @@ const getProductById = async (req, res) => {
       LIMIT 12
     `;
         const relatedRows = await db_1.sequelize.query(relatedQuery, {
-            replacements: { id },
+            replacements: { id: productId },
             type: sequelize_1.QueryTypes.SELECT,
         });
         const related = (relatedRows || []).map((r) => (0, buildPublicProductCardDTO_1.buildPublicProductCardDTO)(r));
@@ -527,8 +529,8 @@ const getProductById = async (req, res) => {
             related,
         });
     }
-    catch (e) {
-        console.error("Error en getProductById:", e);
+    catch (error) {
+        console.error("Error en getProductById:", error);
         res.status(500).json({
             message: "Error al obtener producto",
         });
@@ -1136,20 +1138,33 @@ const getFilteredProducts = async (req, res) => {
 exports.getFilteredProducts = getFilteredProducts;
 const getFilters = async (req, res) => {
     try {
-        const tipo = req.params.tipo;
-        if (!["categories", "fabrics"].includes(tipo)) {
+        const tipoParam = req.params.tipo;
+        const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
+        if (!tipo || !["categories", "fabrics"].includes(tipo)) {
             res.status(400).json({ message: "Tipo de filtro no válido" });
             return;
         }
-        let columna = "categoria_custom";
-        if (tipo === "fabrics")
-            columna = "tela_custom";
-        const [rows] = await db_1.sequelize.query(`SELECT DISTINCT ${columna} AS nombre FROM productos WHERE ${columna} IS NOT NULL ORDER BY nombre ASC`);
-        res.json({ data: rows.map((r) => r.nombre).filter(Boolean) });
+        const columnMap = {
+            categories: "categoria_custom",
+            fabrics: "tela_custom",
+        };
+        const columna = columnMap[tipo];
+        const rows = await db_1.sequelize.query(`
+      SELECT DISTINCT ${columna} AS nombre
+      FROM productos
+      WHERE ${columna} IS NOT NULL
+      ORDER BY nombre ASC
+      `, {
+            type: sequelize_1.QueryTypes.SELECT,
+        });
+        const data = (rows || [])
+            .map((r) => r.nombre)
+            .filter((v) => !!v);
+        res.json({ data });
     }
-    catch (e) {
-        console.error("Error al obtener filtros:", e);
-        res.status(500).json({ message: "Error al obtener filtros" });
+    catch (error) {
+        console.error("Error getFilters:", error);
+        res.status(500).json({ message: "Error interno" });
     }
 };
 exports.getFilters = getFilters;
@@ -1199,22 +1214,28 @@ exports.getProductReviews = getProductReviews;
 const createProductReview = async (req, res) => {
     const t = await db_1.sequelize.transaction();
     try {
-        const user = req.user;
-        const { id } = req.params;
-        const { rating, comentario } = req.body;
-        if (!user?.id) {
+        if (!req.user?.id) {
             await t.rollback();
             res.status(401).json({ message: "No autenticado" });
             return;
         }
-        if (user.rol !== "comprador" && user.rol !== "buyer") {
+        const userId = Number(req.user.id);
+        if (req.user.role !== "buyer") {
             await t.rollback();
             res.status(403).json({
                 message: "Solo compradores pueden dejar reseñas",
             });
             return;
         }
-        const ratingNumber = Number(rating);
+        const idParam = req.params.id;
+        const idRaw = Array.isArray(idParam) ? idParam[0] : idParam;
+        if (!idRaw || !(0, uuid_1.validate)(idRaw)) {
+            await t.rollback();
+            res.status(400).json({ message: "ID de producto inválido" });
+            return;
+        }
+        const productId = idRaw;
+        const ratingNumber = Number(req.body.rating);
         if (!Number.isInteger(ratingNumber) ||
             ratingNumber < 1 ||
             ratingNumber > 5) {
@@ -1224,7 +1245,7 @@ const createProductReview = async (req, res) => {
             });
             return;
         }
-        const producto = await db_1.sequelize.query(`
+        const productCheck = await db_1.sequelize.query(`
       SELECT p.id
       FROM productos p
       JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
@@ -1233,28 +1254,34 @@ const createProductReview = async (req, res) => {
         AND p.activo = true
         AND v.estado_validacion = 'aprobado'
         AND v.estado_admin = 'activo'
+      LIMIT 1
       `, {
-            replacements: { id },
+            replacements: { id: productId },
             type: sequelize_1.QueryTypes.SELECT,
             transaction: t,
         });
-        if (!producto.length) {
+        if (!productCheck.length) {
             await t.rollback();
             res.status(404).json({
                 message: "Producto no disponible para reseñas",
             });
             return;
         }
-        const existing = await db_1.sequelize.query(`
+        const existingReview = await db_1.sequelize.query(`
       SELECT id
       FROM reviews
-      WHERE producto_id = :id AND buyer_id = :buyer_id
+      WHERE producto_id = :producto_id
+      AND buyer_id = :buyer_id
+      LIMIT 1
       `, {
-            replacements: { id, buyer_id: user.id },
+            replacements: {
+                producto_id: productId,
+                buyer_id: userId,
+            },
             type: sequelize_1.QueryTypes.SELECT,
             transaction: t,
         });
-        if (existing.length > 0) {
+        if (existingReview.length > 0) {
             await t.rollback();
             res.status(400).json({
                 message: "Ya has dejado una reseña para este producto",
@@ -1266,10 +1293,10 @@ const createProductReview = async (req, res) => {
       VALUES (:producto_id, :buyer_id, :rating, :comentario)
       `, {
             replacements: {
-                producto_id: id,
-                buyer_id: user.id,
+                producto_id: productId,
+                buyer_id: userId,
                 rating: ratingNumber,
-                comentario: comentario || null,
+                comentario: req.body.comentario ?? null,
             },
             transaction: t,
         });
@@ -1280,12 +1307,12 @@ const createProductReview = async (req, res) => {
       FROM reviews
       WHERE producto_id = :id
       `, {
-            replacements: { id },
+            replacements: { id: productId },
             type: sequelize_1.QueryTypes.SELECT,
             transaction: t,
         });
-        const totalReviews = ratingStats[0].total;
-        const promedio = ratingStats[0].promedio || 0;
+        const totalReviews = ratingStats[0]?.total ?? 0;
+        const promedio = ratingStats[0]?.promedio ?? 0;
         await db_1.sequelize.query(`
       UPDATE productos
       SET 
@@ -1295,7 +1322,7 @@ const createProductReview = async (req, res) => {
       WHERE id = :id
       `, {
             replacements: {
-                id,
+                id: productId,
                 rating_avg: promedio,
                 rating_count: totalReviews,
             },
@@ -1304,8 +1331,8 @@ const createProductReview = async (req, res) => {
         await t.commit();
         await (0, eventLogger_1.logEvent)({
             type: "review_created",
-            user_id: user.id,
-            product_id: id,
+            user_id: userId,
+            product_id: productId,
         });
         res.status(201).json({
             success: true,

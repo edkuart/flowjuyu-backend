@@ -83,9 +83,9 @@ const verifyToken = (rolesRequeridos = []) => {
                 return;
             }
             req.user = {
-                id: userId,
+                id: Number(userId),
                 correo: decoded.correo,
-                rol: userRoles[0],
+                role: userRoles[0],
                 roles: userRoles,
             };
             next();

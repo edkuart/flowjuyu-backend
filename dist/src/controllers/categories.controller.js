@@ -55,16 +55,32 @@ async function createCategory(req, res) {
     res.status(201).json(row);
 }
 async function updateCategory(req, res) {
-    const { id } = req.params;
-    const row = await category_model_1.default.findByPk(id);
+    const idParam = req.params.id;
+    const idRaw = Array.isArray(idParam) ? idParam[0] : idParam;
+    const categoryId = Number(idRaw);
+    if (!categoryId || Number.isNaN(categoryId)) {
+        return res.status(400).json({ error: "ID inválido" });
+    }
+    const row = await category_model_1.default.findByPk(categoryId);
     if (!row)
         return res.status(404).json({ error: "Not found" });
     const { nombre, slug, parentId } = req.body;
-    await row.update({ nombre, slug, parentId: parentId ?? null });
+    await row.update({
+        nombre,
+        slug,
+        parentId: parentId ?? null,
+    });
     res.json(row);
 }
 async function deleteCategory(req, res) {
-    const { id } = req.params;
-    const n = await category_model_1.default.destroy({ where: { id } });
+    const idParam = req.params.id;
+    const idRaw = Array.isArray(idParam) ? idParam[0] : idParam;
+    const categoryId = Number(idRaw);
+    if (!categoryId || Number.isNaN(categoryId)) {
+        return res.status(400).json({ error: "ID inválido" });
+    }
+    const n = await category_model_1.default.destroy({
+        where: { id: categoryId },
+    });
     res.json({ deleted: n > 0 });
 }

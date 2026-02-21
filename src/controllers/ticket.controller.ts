@@ -1,30 +1,81 @@
-import { Request, Response } from "express";
+import { Request, Response, RequestHandler } from "express";
 import { Ticket } from "../models/ticket.model";
 import { User } from "../models/user.model";
+import { logAdminEvent } from "../utils/logAdminEvent";
 
 // Crear ticket (comprador/vendedor)
-export const createTicket = async (req: Request, res: Response) => {
+export const createTicket: RequestHandler = async (req, res) => {
   try {
-    const { asunto, mensaje } = req.body;
-    const user = req.user;
-
-    if (!asunto || !mensaje) {
-      return res.status(400).json({ message: "Faltan campos" });
+    // =====================================================
+    // 🔐 VALIDACIÓN DE AUTENTICACIÓN
+    // =====================================================
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        message: "No autenticado",
+      });
     }
 
+    const userId = Number(req.user.id);
+
+    // =====================================================
+    // 📦 VALIDACIÓN DE INPUT
+    // =====================================================
+    const asunto = req.body.asunto?.toString().trim();
+    const mensaje = req.body.mensaje?.toString().trim();
+
+    if (!asunto || !mensaje) {
+      return res.status(400).json({
+        success: false,
+        message: "Asunto y mensaje son obligatorios",
+      });
+    }
+
+    if (asunto.length > 150) {
+      return res.status(400).json({
+        success: false,
+        message: "El asunto es demasiado largo",
+      });
+    }
+
+    // =====================================================
+    // 🎫 CREACIÓN DE TICKET
+    // =====================================================
     const ticket = await Ticket.create({
-      user_id: user.id,
+      user_id: userId,
       asunto,
       mensaje,
+      estado: "abierto", // preparado para gobernanza futura
     });
 
-    res.status(201).json({
-      message: "Ticket creado correctamente",
-      ticket,
+    // =====================================================
+    // 📊 EVENTO ANALÍTICO (opcional pero recomendado)
+    // =====================================================
+    await logAdminEvent({
+      entityType: "ticket",
+      entityId: ticket.id,
+      action: "ticket_created",
+      performedBy: userId,
+      comment: "Usuario creó un ticket",
+      metadata: null,
     });
+
+    // =====================================================
+    // 📦 RESPUESTA CONSISTENTE
+    // =====================================================
+    res.status(201).json({
+      success: true,
+      message: "Ticket creado correctamente",
+      data: ticket,
+    });
+
   } catch (error) {
-    console.error("Error creando ticket:", error);
-    res.status(500).json({ message: "Error interno" });
+    console.error("❌ createTicket error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Error interno",
+    });
   }
 };
 

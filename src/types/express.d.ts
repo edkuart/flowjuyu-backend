@@ -2,14 +2,10 @@ import type { Rol } from "../middleware/auth";
 
 declare global {
   namespace Express {
-    /**
-     * Payload que se inyecta en req.user
-     * después de pasar por verifyToken()
-     */
     interface UserPayload {
-      id: number | string;
+      id: number;
       correo?: string;
-      rol?: Rol;
+      role: Rol;          // 👈 usamos role como estándar
       roles?: Rol[];
     }
 

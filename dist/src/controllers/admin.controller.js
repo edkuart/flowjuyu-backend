@@ -218,63 +218,96 @@ const getAllTickets = async (req, res) => {
 exports.getAllTickets = getAllTickets;
 const getTicketDetailAdmin = async (req, res) => {
     try {
-        const { id } = req.params;
-        const ticket = await ticket_model_1.Ticket.findByPk(id);
+        const idParam = req.params.id;
+        const id = Array.isArray(idParam) ? idParam[0] : idParam;
+        const ticketId = Number(id);
+        if (Number.isNaN(ticketId)) {
+            return res.status(400).json({ message: "ID inválido" });
+        }
+        const ticket = await ticket_model_1.Ticket.findByPk(ticketId);
         if (!ticket) {
-            res.status(404).json({ message: "Ticket no encontrado" });
-            return;
+            return res.status(404).json({ message: "Ticket no encontrado" });
         }
         const messages = await ticketMessage_model_1.TicketMessage.findAll({
             where: { ticket_id: ticket.id },
             order: [["createdAt", "ASC"]],
         });
-        res.json({ ok: true, data: { ticket, messages } });
+        return res.json({
+            ok: true,
+            data: { ticket, messages },
+        });
     }
     catch (error) {
         console.error("getTicketDetailAdmin error:", error);
-        res.status(500).json({ message: "Error interno" });
+        return res.status(500).json({ message: "Error interno" });
     }
 };
 exports.getTicketDetailAdmin = getTicketDetailAdmin;
 const assignTicket = async (req, res) => {
     try {
-        const { id } = req.params;
-        const adminId = req.user.id;
-        const ticket = await ticket_model_1.Ticket.findByPk(id);
+        const idParam = req.params.id;
+        const id = Array.isArray(idParam) ? idParam[0] : idParam;
+        const ticketId = Number(id);
+        if (Number.isNaN(ticketId)) {
+            return res.status(400).json({ message: "ID inválido" });
+        }
+        if (!req.user) {
+            return res.status(401).json({ message: "No autorizado" });
+        }
+        const adminId = Number(req.user.id);
+        const ticket = await ticket_model_1.Ticket.findByPk(ticketId);
         if (!ticket) {
-            res.status(404).json({ message: "Ticket no encontrado" });
-            return;
+            return res.status(404).json({ message: "Ticket no encontrado" });
         }
         await ticket.update({
-            asignado_a: Number(adminId),
+            asignado_a: adminId,
             estado: "en_proceso",
         });
-        res.json({ ok: true, message: "Ticket asignado" });
+        return res.json({
+            ok: true,
+            message: "Ticket asignado",
+        });
     }
     catch (error) {
         console.error("assignTicket error:", error);
-        res.status(500).json({ message: "Error interno" });
+        return res.status(500).json({ message: "Error interno" });
     }
 };
 exports.assignTicket = assignTicket;
 const changeTicketStatus = async (req, res) => {
     try {
-        const { id } = req.params;
+        const idParam = req.params.id;
+        const idRaw = Array.isArray(idParam) ? idParam[0] : idParam;
+        const ticketId = Number(idRaw);
+        if (!ticketId || Number.isNaN(ticketId)) {
+            return res.status(400).json({ message: "ID inválido" });
+        }
         const { estado } = req.body;
-        const ticket = await ticket_model_1.Ticket.findByPk(id);
+        const allowedStates = [
+            "abierto",
+            "en_proceso",
+            "esperando_usuario",
+            "cerrado",
+        ];
+        if (!estado || !allowedStates.includes(estado)) {
+            return res.status(400).json({ message: "Estado inválido" });
+        }
+        const ticket = await ticket_model_1.Ticket.findByPk(ticketId);
         if (!ticket) {
-            res.status(404).json({ message: "Ticket no encontrado" });
-            return;
+            return res.status(404).json({ message: "Ticket no encontrado" });
         }
         await ticket.update({
             estado,
             closedAt: estado === "cerrado" ? new Date() : null,
         });
-        res.json({ ok: true, message: "Estado actualizado" });
+        return res.json({
+            ok: true,
+            message: "Estado actualizado correctamente",
+        });
     }
     catch (error) {
         console.error("changeTicketStatus error:", error);
-        res.status(500).json({ message: "Error interno" });
+        return res.status(500).json({ message: "Error interno" });
     }
 };
 exports.changeTicketStatus = changeTicketStatus;

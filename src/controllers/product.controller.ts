@@ -569,20 +569,23 @@ export const getProductById = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    // =====================================================
+    // 🔒 VALIDACIÓN ROBUSTA DE ID (merge de ambas versiones)
+    // =====================================================
+    const idParam = req.params.id;
+    const idRaw = Array.isArray(idParam) ? idParam[0] : idParam;
 
-    // 🔒 Validación UUID
-    if (!id || !isUUID(id)) {
-      res.status(400).json({
-        message: "ID de producto inválido",
-      });
+    if (!idRaw || !isUUID(idRaw)) {
+      res.status(400).json({ message: "ID de producto inválido" });
       return;
     }
 
-    // ===========================
-    // 🔎 PRODUCTO DETALLE
-    // ===========================
-    const query = `
+    const productId = idRaw;
+
+    // =====================================================
+    // 🔎 PRODUCTO DETALLE COMPLETO
+    // =====================================================
+    const productQuery = `
       SELECT 
         p.id,
         p.nombre,
@@ -615,13 +618,14 @@ export const getProductById = async (
 
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
-      LEFT JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
+      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       LEFT JOIN producto_imagenes pi ON pi.producto_id = p.id
 
-      WHERE p.id = :id 
+      WHERE p.id = :id
       AND p.activo = true
       AND v.estado_validacion = 'aprobado'
       AND v.estado_admin = 'activo'
+
       GROUP BY 
         p.id,
         c.id,
@@ -629,11 +633,12 @@ export const getProductById = async (
         v.user_id,
         v.nombre_comercio,
         v.logo
+
       LIMIT 1
     `;
 
-    const rows: any = await sequelize.query(query, {
-      replacements: { id },
+    const rows: any = await sequelize.query(productQuery, {
+      replacements: { id: productId },
       type: QueryTypes.SELECT,
     });
 
@@ -644,9 +649,9 @@ export const getProductById = async (
 
     const rawProduct = rows[0];
 
-    // ===========================
-    // 📊 Registrar vista
-    // ===========================
+    // =====================================================
+    // 📊 REGISTRAR VISTA (no bloquea respuesta)
+    // =====================================================
     try {
       await sequelize.query(
         `
@@ -666,22 +671,28 @@ export const getProductById = async (
       console.error("Error registrando vista:", viewError);
     }
 
+    // =====================================================
+    // 🧱 DTO PÚBLICO
+    // =====================================================
     const product = buildPublicProductDTO(rawProduct);
 
-    await logEvent({
-      type: "product_view",
-      user_id: (req as any).user?.id || null,
-      product_id: id,
-    });
-
-    // 🔒 Limitar galería adicional a 4
+    // 🔒 Limitar galería a máximo 4 imágenes adicionales
     if (Array.isArray(product.imagenes)) {
       product.imagenes = product.imagenes.slice(0, 4);
     }
 
-    // ===========================
+    // =====================================================
+    // 📈 EVENTO ANALÍTICO
+    // =====================================================
+    await logEvent({
+      type: "product_view",
+      user_id: (req as any).user?.id ?? null,
+      product_id: productId,
+    });
+
+    // =====================================================
     // 🔎 PRODUCTOS RELACIONADOS (CardDTO)
-    // ===========================
+    // =====================================================
     const relatedQuery = `
       SELECT 
         p.id,
@@ -707,7 +718,7 @@ export const getProductById = async (
     `;
 
     const relatedRows: any = await sequelize.query(relatedQuery, {
-      replacements: { id },
+      replacements: { id: productId },
       type: QueryTypes.SELECT,
     });
 
@@ -715,16 +726,16 @@ export const getProductById = async (
       buildPublicProductCardDTO(r)
     );
 
-    // ===========================
+    // =====================================================
     // 📦 RESPUESTA FINAL
-    // ===========================
+    // =====================================================
     res.json({
       product,
       related,
     });
 
-  } catch (e) {
-    console.error("Error en getProductById:", e);
+  } catch (error) {
+    console.error("Error en getProductById:", error);
     res.status(500).json({
       message: "Error al obtener producto",
     });
@@ -1599,25 +1610,59 @@ export const getFilteredProducts = async (
 // ===========================
 // Filtros únicos (categoría_custom, tela_custom)
 // ===========================
-export const getFilters = async (req: Request, res: Response): Promise<void> => {
+export const getFilters = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const tipo = req.params.tipo;
-    if (!["categories", "fabrics"].includes(tipo)) {
+    // =====================================================
+    // 🔒 VALIDACIÓN ROBUSTA DEL PARAM
+    // =====================================================
+    const tipoParam = req.params.tipo;
+    const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
+
+    if (!tipo || !["categories", "fabrics"].includes(tipo)) {
       res.status(400).json({ message: "Tipo de filtro no válido" });
       return;
     }
 
-    let columna = "categoria_custom";
-    if (tipo === "fabrics") columna = "tela_custom";
+    // =====================================================
+    // 🧱 MAPEO CONTROLADO DE COLUMNAS (ANTI SQL INJECTION)
+    // =====================================================
+    const columnMap: Record<string, string> = {
+      categories: "categoria_custom",
+      fabrics: "tela_custom",
+    };
 
-    const [rows]: any = await sequelize.query(
-      `SELECT DISTINCT ${columna} AS nombre FROM productos WHERE ${columna} IS NOT NULL ORDER BY nombre ASC`
+    const columna = columnMap[tipo];
+
+    // =====================================================
+    // 🔎 QUERY
+    // =====================================================
+    const rows: any = await sequelize.query(
+      `
+      SELECT DISTINCT ${columna} AS nombre
+      FROM productos
+      WHERE ${columna} IS NOT NULL
+      ORDER BY nombre ASC
+      `,
+      {
+        type: QueryTypes.SELECT,
+      }
     );
 
-    res.json({ data: rows.map((r: any) => r.nombre).filter(Boolean) });
-  } catch (e) {
-    console.error("Error al obtener filtros:", e);
-    res.status(500).json({ message: "Error al obtener filtros" });
+    // =====================================================
+    // 📦 RESPUESTA LIMPIA
+    // =====================================================
+    const data = (rows || [])
+      .map((r: any) => r.nombre)
+      .filter((v: string | null) => !!v);
+
+    res.json({ data });
+
+  } catch (error) {
+    console.error("Error getFilters:", error);
+    res.status(500).json({ message: "Error interno" });
   }
 };
 
@@ -1680,23 +1725,19 @@ export const createProductReview = async (
   const t = await sequelize.transaction();
 
   try {
-    const user: any = (req as any).user;
-    const { id } = req.params;
-    const { rating, comentario } = req.body;
-
-    // ===============================
-    // 🔐 Validar autenticación
-    // ===============================
-    if (!user?.id) {
+    // =====================================================
+    // 🔐 VALIDACIÓN DE USUARIO
+    // =====================================================
+    if (!req.user?.id) {
       await t.rollback();
       res.status(401).json({ message: "No autenticado" });
       return;
     }
 
-    // ===============================
-    // 🔐 Validar rol comprador
-    // ===============================
-    if (user.rol !== "comprador" && user.rol !== "buyer") {
+    const userId = Number(req.user.id);
+
+    // 🔐 Validar rol (alineado a tu arquitectura actual)
+    if (req.user.role !== "buyer") {
       await t.rollback();
       res.status(403).json({
         message: "Solo compradores pueden dejar reseñas",
@@ -1704,10 +1745,24 @@ export const createProductReview = async (
       return;
     }
 
-    // ===============================
-    // ⭐ Validar rating
-    // ===============================
-    const ratingNumber = Number(rating);
+    // =====================================================
+    // 🔒 VALIDACIÓN DE ID ROBUSTA
+    // =====================================================
+    const idParam = req.params.id;
+    const idRaw = Array.isArray(idParam) ? idParam[0] : idParam;
+
+    if (!idRaw || !isUUID(idRaw)) {
+      await t.rollback();
+      res.status(400).json({ message: "ID de producto inválido" });
+      return;
+    }
+
+    const productId = idRaw;
+
+    // =====================================================
+    // ⭐ VALIDACIÓN DE RATING
+    // =====================================================
+    const ratingNumber = Number(req.body.rating);
 
     if (
       !Number.isInteger(ratingNumber) ||
@@ -1721,10 +1776,10 @@ export const createProductReview = async (
       return;
     }
 
-    // ===============================
-    // 🔎 Verificar producto + vendedor
-    // ===============================
-    const producto: any = await sequelize.query(
+    // =====================================================
+    // 🔎 VALIDAR PRODUCTO DISPONIBLE
+    // =====================================================
+    const productCheck: any = await sequelize.query(
       `
       SELECT p.id
       FROM productos p
@@ -1734,15 +1789,16 @@ export const createProductReview = async (
         AND p.activo = true
         AND v.estado_validacion = 'aprobado'
         AND v.estado_admin = 'activo'
+      LIMIT 1
       `,
       {
-        replacements: { id },
+        replacements: { id: productId },
         type: QueryTypes.SELECT,
         transaction: t,
       }
     );
 
-    if (!producto.length) {
+    if (!productCheck.length) {
       await t.rollback();
       res.status(404).json({
         message: "Producto no disponible para reseñas",
@@ -1750,23 +1806,28 @@ export const createProductReview = async (
       return;
     }
 
-    // ===============================
-    // 🔒 Evitar reseña duplicada
-    // ===============================
-    const existing: any = await sequelize.query(
+    // =====================================================
+    // 🔒 PREVENIR RESEÑA DUPLICADA
+    // =====================================================
+    const existingReview: any = await sequelize.query(
       `
       SELECT id
       FROM reviews
-      WHERE producto_id = :id AND buyer_id = :buyer_id
+      WHERE producto_id = :producto_id
+      AND buyer_id = :buyer_id
+      LIMIT 1
       `,
       {
-        replacements: { id, buyer_id: user.id },
+        replacements: {
+          producto_id: productId,
+          buyer_id: userId,
+        },
         type: QueryTypes.SELECT,
         transaction: t,
       }
     );
 
-    if (existing.length > 0) {
+    if (existingReview.length > 0) {
       await t.rollback();
       res.status(400).json({
         message: "Ya has dejado una reseña para este producto",
@@ -1774,9 +1835,9 @@ export const createProductReview = async (
       return;
     }
 
-    // ===============================
-    // ✅ Insertar review
-    // ===============================
+    // =====================================================
+    // ✅ INSERTAR RESEÑA
+    // =====================================================
     await sequelize.query(
       `
       INSERT INTO reviews (producto_id, buyer_id, rating, comentario)
@@ -1784,18 +1845,18 @@ export const createProductReview = async (
       `,
       {
         replacements: {
-          producto_id: id,
-          buyer_id: user.id,
+          producto_id: productId,
+          buyer_id: userId,
           rating: ratingNumber,
-          comentario: comentario || null,
+          comentario: req.body.comentario ?? null,
         },
         transaction: t,
       }
     );
 
-    // ===============================
-    // 📊 Recalcular rating del producto
-    // ===============================
+    // =====================================================
+    // 📊 RECALCULAR RATING
+    // =====================================================
     const ratingStats: any = await sequelize.query(
       `
       SELECT 
@@ -1805,18 +1866,18 @@ export const createProductReview = async (
       WHERE producto_id = :id
       `,
       {
-        replacements: { id },
+        replacements: { id: productId },
         type: QueryTypes.SELECT,
         transaction: t,
       }
     );
 
-    const totalReviews = ratingStats[0].total;
-    const promedio = ratingStats[0].promedio || 0;
+    const totalReviews = ratingStats[0]?.total ?? 0;
+    const promedio = ratingStats[0]?.promedio ?? 0;
 
-    // ===============================
-    // 🔄 Actualizar producto
-    // ===============================
+    // =====================================================
+    // 🔄 ACTUALIZAR PRODUCTO
+    // =====================================================
     await sequelize.query(
       `
       UPDATE productos
@@ -1828,7 +1889,7 @@ export const createProductReview = async (
       `,
       {
         replacements: {
-          id,
+          id: productId,
           rating_avg: promedio,
           rating_count: totalReviews,
         },
@@ -1838,15 +1899,18 @@ export const createProductReview = async (
 
     await t.commit();
 
-    // ===============================
-    // 📊 Log evento
-    // ===============================
+    // =====================================================
+    // 📈 EVENTO ANALÍTICO
+    // =====================================================
     await logEvent({
       type: "review_created",
-      user_id: user.id,
-      product_id: id,
+      user_id: userId,
+      product_id: productId,
     });
 
+    // =====================================================
+    // 📦 RESPUESTA
+    // =====================================================
     res.status(201).json({
       success: true,
       message: "Reseña creada correctamente",
@@ -1857,6 +1921,7 @@ export const createProductReview = async (
   } catch (error) {
     await t.rollback();
     console.error("❌ Error createProductReview:", error);
+
     res.status(500).json({
       success: false,
       message: "Error al crear reseña",

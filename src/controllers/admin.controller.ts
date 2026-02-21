@@ -7,6 +7,7 @@ import { VendedorPerfil } from "../models/VendedorPerfil";
 import { Ticket } from "../models/ticket.model";
 import { TicketMessage } from "../models/ticketMessage.model";
 import { logAdminEvent } from "../utils/logAdminEvent";
+import type { TicketEstado } from "../models/ticket.model";
 
 /* =====================================================
    📊 ADMIN DASHBOARD — OBSERVACIÓN (FASE DEMO)
@@ -268,12 +269,19 @@ export const getAllTickets: RequestHandler = async (req, res) => {
 
 export const getTicketDetailAdmin: RequestHandler = async (req, res) => {
   try {
-    const { id } = req.params;
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
 
-    const ticket = await Ticket.findByPk(id);
+    const ticketId = Number(id);
+
+    if (Number.isNaN(ticketId)) {
+      return res.status(400).json({ message: "ID inválido" });
+    }
+
+    const ticket = await Ticket.findByPk(ticketId);
+
     if (!ticket) {
-      res.status(404).json({ message: "Ticket no encontrado" });
-      return;
+      return res.status(404).json({ message: "Ticket no encontrado" });
     }
 
     const messages = await TicketMessage.findAll({
@@ -281,56 +289,107 @@ export const getTicketDetailAdmin: RequestHandler = async (req, res) => {
       order: [["createdAt", "ASC"]],
     });
 
-    res.json({ ok: true, data: { ticket, messages } });
+    return res.json({
+      ok: true,
+      data: { ticket, messages },
+    });
   } catch (error) {
     console.error("getTicketDetailAdmin error:", error);
-    res.status(500).json({ message: "Error interno" });
+    return res.status(500).json({ message: "Error interno" });
   }
 };
 
 export const assignTicket: RequestHandler = async (req, res) => {
   try {
-    const { id } = req.params;
-    const adminId = req.user!.id;
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const ticketId = Number(id);
 
-    const ticket = await Ticket.findByPk(id);
+    if (Number.isNaN(ticketId)) {
+      return res.status(400).json({ message: "ID inválido" });
+    }
+
+    if (!req.user) {
+      return res.status(401).json({ message: "No autorizado" });
+    }
+
+    const adminId = Number(req.user.id);
+
+    const ticket = await Ticket.findByPk(ticketId);
+
     if (!ticket) {
-      res.status(404).json({ message: "Ticket no encontrado" });
-      return;
+      return res.status(404).json({ message: "Ticket no encontrado" });
     }
 
     await ticket.update({
-      asignado_a: Number(adminId),
+      asignado_a: adminId,
       estado: "en_proceso",
     });
 
-    res.json({ ok: true, message: "Ticket asignado" });
+    return res.json({
+      ok: true,
+      message: "Ticket asignado",
+    });
   } catch (error) {
     console.error("assignTicket error:", error);
-    res.status(500).json({ message: "Error interno" });
+    return res.status(500).json({ message: "Error interno" });
   }
 };
 
 export const changeTicketStatus: RequestHandler = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { estado } = req.body;
+    // ==============================
+    // 🆔 Validar ID
+    // ==============================
+    const idParam = req.params.id;
+    const idRaw = Array.isArray(idParam) ? idParam[0] : idParam;
+    const ticketId = Number(idRaw);
 
-    const ticket = await Ticket.findByPk(id);
-    if (!ticket) {
-      res.status(404).json({ message: "Ticket no encontrado" });
-      return;
+    if (!ticketId || Number.isNaN(ticketId)) {
+      return res.status(400).json({ message: "ID inválido" });
     }
 
+    // ==============================
+    // 📌 Validar estado
+    // ==============================
+    const { estado } = req.body as { estado?: TicketEstado };
+
+    const allowedStates: TicketEstado[] = [
+      "abierto",
+      "en_proceso",
+      "esperando_usuario",
+      "cerrado",
+    ];
+
+    if (!estado || !allowedStates.includes(estado)) {
+      return res.status(400).json({ message: "Estado inválido" });
+    }
+
+    // ==============================
+    // 🔎 Buscar ticket
+    // ==============================
+    const ticket = await Ticket.findByPk(ticketId);
+
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket no encontrado" });
+    }
+
+    // ==============================
+    // 🔄 Actualizar estado
+    // ==============================
     await ticket.update({
       estado,
       closedAt: estado === "cerrado" ? new Date() : null,
     });
 
-    res.json({ ok: true, message: "Estado actualizado" });
+    return res.json({
+      ok: true,
+      message: "Estado actualizado correctamente",
+    });
+
   } catch (error) {
     console.error("changeTicketStatus error:", error);
-    res.status(500).json({ message: "Error interno" });
+    return res.status(500).json({ message: "Error interno" });
   }
 };
 
