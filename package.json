@@ -35,7 +35,6 @@
   ],
   "author": "Equipo Cortes Marketplace",
   "license": "MIT",
-  "packageManager": "pnpm@10.12.4",
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
     "bcrypt": "^6.0.0",
