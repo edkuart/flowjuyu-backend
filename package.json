@@ -4,28 +4,19 @@
   "description": "Backend API para Cortes Marketplace. RESTful con Express 5, TypeScript, Sequelize y PostgreSQL.",
   "main": "dist/index.js",
   "scripts": {
-  "dev": "pnpm run dev:supabase",
-  "dev:supabase": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt NODE_ENV=development ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev": "pnpm run dev:supabase",
+    "dev:supabase": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt NODE_ENV=development ts-node-dev --respawn --transpile-only src/index.ts",
 
-  "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json",
 
-  "start": "node dist/index.js",
+    "start": "node dist/index.js",
 
-  "postinstall": "npm run build",
+    "postinstall": "npm run build",
 
-  "lint": "npx eslint ./src --ext .ts",
-  "format": "npx prettier --write ./src",
-  "typecheck": "tsc -p tsconfig.json --noEmit",
-
-  "routes:dump": "curl -s http://localhost:8800/_introspect/routes > routes.json",
-  "routes:md": "node scripts/dev/routes-to-md.js > ROUTES.md",
-  "routes:scan": "node scripts/dev/scan-routes-to-md.js > ROUTES.md",
-  "routes:all": "pnpm run routes:scan && echo '\\n(Generado por escaneo de archivos src/routes)\\n' >> ROUTES.md",
-
-  "db:migrate": "NODE_ENV=development npm run build && npx sequelize-cli db:migrate --config config/config.js --env development --migrations-path ./dist/migrations",
-
-  "db:migrate:prod": "NODE_ENV=production npm run build && npx sequelize-cli db:migrate --config config/config.js --env production --migrations-path ./dist/migrations"
-},
+    "lint": "npx eslint ./src --ext .ts",
+    "format": "npx prettier --write ./src",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
   "keywords": [
     "express",
     "typescript",
@@ -59,7 +50,9 @@
     "resend": "^6.9.2",
     "sequelize": "^6.37.7",
     "uuid": "^13.0.0",
-    "zod": "^4.0.13"
+    "zod": "^4.0.13",
+
+    "typescript": "^5.8.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
@@ -91,7 +84,6 @@
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.8.3",
     "typescript-eslint": "^8.44.1"
   }
 }
