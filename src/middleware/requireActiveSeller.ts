@@ -15,9 +15,9 @@ export const requireActiveSeller: RequestHandler = async (
       return;
     }
 
-    const perfil: any = await sequelize.query(
+    const perfil: any[] = await sequelize.query(
       `
-      SELECT estado_validacion, estado
+      SELECT estado_validacion, estado_admin
       FROM vendedor_perfil
       WHERE user_id = :userId
       `,
@@ -36,7 +36,8 @@ export const requireActiveSeller: RequestHandler = async (
 
     const estado = perfil[0];
 
-    if (estado.estado !== "activo") {
+    // 🔒 Validación administrativa (operativa)
+    if (estado.estado_admin !== "activo") {
       res.status(403).json({
         message: "Tu comercio no está activo",
       });

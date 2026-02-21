@@ -55,13 +55,6 @@ router.get(
   asyncHandler(SellerController.getSellerDashboard)
 );
 
-// Productos del seller
-router.get(
-  "/products",
-  requireActiveSeller,
-  asyncHandler(SellerController.getSellerProducts)
-);
-
 // Órdenes (placeholder futuro)
 router.get(
   "/orders",

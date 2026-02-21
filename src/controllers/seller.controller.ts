@@ -135,23 +135,44 @@ export const getSellerOrders: RequestHandler = async (_req, res) => {
 export const getSellerProducts: RequestHandler = async (req, res) => {
   try {
     const u: any = (req as any).user;
+
     if (!u?.id) {
       res.status(401).json({ message: "No autenticado" });
       return;
     }
 
-    const [rows]: any = await sequelize.query(
-      `SELECT id, nombre, precio, stock, activo, imagen_url
-       FROM productos
-       WHERE vendedor_id = :vid
-       ORDER BY created_at DESC`,
-      { replacements: { vid: u.id } }
+    const perfil = await VendedorPerfil.findOne({
+      where: { user_id: u.id }
+    });
+
+    if (!perfil) {
+      res.status(404).json({
+        message: "Perfil vendedor no encontrado"
+      });
+      return;
+    }
+
+    const rows: any[] = await sequelize.query(
+      `
+      SELECT id, nombre, precio, stock, activo, imagen_url
+      FROM productos
+      WHERE vendedor_id = :vid
+      ORDER BY created_at DESC
+      `,
+      {
+        replacements: { vid: perfil.user_id }, // ⚠️ ajusta si es perfil.id
+        type: QueryTypes.SELECT
+      }
     );
 
     res.json(rows);
-  } catch (e) {
+
+  } catch (e: any) {
     console.error("❌ Error en getSellerProducts:", e);
-    res.status(500).json({ message: "Error al obtener productos", error: String(e) });
+    res.status(500).json({
+      message: "Error al obtener productos",
+      error: e.message
+    });
   }
 };
 
@@ -454,7 +475,7 @@ export const getSellers: RequestHandler = async (_req, res): Promise<void> => {
   try {
     const [rows]: any = await sequelize.query(`
       SELECT 
-        id,
+        user_id AS id,
         COALESCE(nombre_comercio, nombre, 'Tienda sin nombre') AS nombre,
         logo AS logo_url,
         descripcion,
@@ -462,7 +483,8 @@ export const getSellers: RequestHandler = async (_req, res): Promise<void> => {
         municipio,
         "createdAt"
       FROM vendedor_perfil
-      WHERE estado IS NULL OR estado != 'eliminado'
+      WHERE estado_admin = 'activo'
+      AND estado_validacion = 'aprobado'
       ORDER BY "createdAt" DESC
       LIMIT 10
     `);
@@ -499,9 +521,9 @@ export const getTopSellers = async (req: Request, res: Response) => {
     );
 
     const normalized = (sellers as any[]).map((s) => ({
-      vendedor_id: Number(s.vendedor_id),
+      id: Number(s.vendedor_id),  // 🔥 ESTE ES EL FIX
       nombre_comercio: s.nombre_comercio,
-      logo: s.logo,
+      logo_url: s.logo,           // 👈 opcionalmente alinea nombres
       total_reviews: Number(s.total_reviews),
       rating_avg: Number(Number(s.rating_avg).toFixed(2)),
       weighted_score: Number(Number(s.weighted_score).toFixed(3)),
