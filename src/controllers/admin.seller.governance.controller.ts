@@ -118,7 +118,7 @@ export const getSellerDetail: RequestHandler = async (req, res) => {
 };
 
 /* ======================================================
-   🔹 APPROVE SELLER
+   🔹 APPROVE SELLER (CON VALIDACIÓN KYC SCORE)
 ====================================================== */
 export const approveSeller: RequestHandler = async (req, res) => {
   try {
@@ -141,6 +141,14 @@ export const approveSeller: RequestHandler = async (req, res) => {
       return;
     }
 
+    // 🚨 VALIDACIÓN DE RIESGO KYC
+    if (seller.kyc_score < 80) {
+      res.status(400).json({
+        message: "No se puede aprobar. Riesgo demasiado alto.",
+      });
+      return;
+    }
+
     const before = {
       estado_validacion: seller.estado_validacion,
       estado_admin: seller.estado_admin,
@@ -153,7 +161,7 @@ export const approveSeller: RequestHandler = async (req, res) => {
 
     await logAdminEvent({
       entityType: "seller",
-      entityId: seller.user_id,
+      entityId: seller.id, // 👈 importante: entity es el perfil
       action: "KYC_APPROVED",
       performedBy: adminId,
       metadata: {
@@ -162,6 +170,7 @@ export const approveSeller: RequestHandler = async (req, res) => {
           estado_validacion: seller.estado_validacion,
           estado_admin: seller.estado_admin,
         },
+        kyc_score: seller.kyc_score,
       },
     });
 
@@ -244,19 +253,15 @@ export const rejectSeller: RequestHandler = async (req, res) => {
 ====================================================== */
 export const suspendSeller: RequestHandler = async (req, res) => {
   try {
-    const userId = Number(req.params.id);
+    const sellerId = Number(req.params.id);
     const adminId = Number(req.user!.id);
 
-    const seller = await VendedorPerfil.findOne({
-      where: { user_id: userId },
-    });
+    const seller = await VendedorPerfil.findByPk(sellerId);
 
     if (!seller) {
       res.status(404).json({ message: "Vendedor no encontrado" });
       return;
     }
-
-    const comment = req.body?.comment ?? null;
 
     const before = {
       estado_admin: seller.estado_admin,
@@ -267,7 +272,7 @@ export const suspendSeller: RequestHandler = async (req, res) => {
 
     await logAdminEvent({
       entityType: "seller",
-      entityId: seller.user_id,
+      entityId: seller.id,
       action: "SELLER_SUSPENDED",
       performedBy: adminId,
       metadata: {
@@ -275,7 +280,6 @@ export const suspendSeller: RequestHandler = async (req, res) => {
         after: {
           estado_admin: seller.estado_admin,
         },
-        comment,
       },
     });
 
@@ -295,12 +299,10 @@ export const suspendSeller: RequestHandler = async (req, res) => {
 ====================================================== */
 export const reactivateSeller: RequestHandler = async (req, res) => {
   try {
-    const userId = Number(req.params.id);
+    const sellerId = Number(req.params.id);
     const adminId = Number(req.user!.id);
 
-    const seller = await VendedorPerfil.findOne({
-      where: { user_id: userId },
-    });
+    const seller = await VendedorPerfil.findByPk(sellerId);
 
     if (!seller) {
       res.status(404).json({ message: "Vendedor no encontrado" });
@@ -316,7 +318,7 @@ export const reactivateSeller: RequestHandler = async (req, res) => {
 
     await logAdminEvent({
       entityType: "seller",
-      entityId: seller.user_id,
+      entityId: seller.id,
       action: "SELLER_REACTIVATED",
       performedBy: adminId,
       metadata: {

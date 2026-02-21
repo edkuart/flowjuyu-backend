@@ -125,7 +125,7 @@ export const registerVendedor = async (
         nombre,
         correo,
         password: hash,
-        rol: "vendedor",
+        rol: "seller",
         telefono: (telefono ?? "").toString().trim(),
         direccion: (direccion ?? "").toString().trim(),
       },
@@ -240,12 +240,15 @@ export const login = async (
     }
 
     // 🔒 BLOQUEO SI ES SELLER SUSPENDIDO
-    if (usuario.rol === "vendedor") {
+    let sellerStatus: any = null;
+
+    if (usuario.rol === "seller") {
       const perfil = await VendedorPerfil.findOne({
         where: { user_id: usuario.id },
       });
 
       if (perfil) {
+
         // 🚫 Bloqueo si está suspendido
         if (perfil.estado_admin === "suspendido") {
           res.status(403).json({
@@ -254,13 +257,19 @@ export const login = async (
           return;
         }
 
-        // 🚫 Bloqueo si fue rechazado en validación
+        // 🚫 Bloqueo si fue rechazado
         if (perfil.estado_validacion === "rechazado") {
           res.status(403).json({
             message: "Tu solicitud fue rechazada. Contacta soporte.",
           });
           return;
         }
+
+        // 🔥 Guardamos estado para enviarlo al frontend
+        sellerStatus = {
+          estado_validacion: perfil.estado_validacion,
+          estado_admin: perfil.estado_admin,
+        };
       }
     }
 
@@ -282,7 +291,9 @@ export const login = async (
         telefono: usuario.telefono,
         direccion: usuario.direccion,
       },
+      sellerStatus,
     });
+
   } catch (error) {
     console.error("Error en login:", error);
     res.status(500).json({ message: "Error interno del servidor" });

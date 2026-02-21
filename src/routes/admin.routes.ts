@@ -6,6 +6,7 @@ import { verifyToken, requireRole } from "../middleware/auth";
 import * as AdminController from "../controllers/admin.controller";
 import * as AdminTicketController from "../controllers/admin.ticket.controller";
 import * as AdminTicketStatsController from "../controllers/admin.ticket.stats.controller";
+
 import {
   getAllSellers,
   getSellerDetail,
@@ -14,6 +15,8 @@ import {
   suspendSeller,
   reactivateSeller,
 } from "../controllers/admin.seller.governance.controller";
+
+import { reviewSellerKYC } from "../controllers/admin.controller";
 
 const router = Router();
 
@@ -36,7 +39,6 @@ router.get(
 
 /* ===============================
    🎫 TICKETS (ADMIN)
-   ⚠️ ORDEN IMPORTANTE
 =============================== */
 
 // 📊 STATS — SIEMPRE PRIMERO
@@ -119,6 +121,12 @@ router.patch(
 router.patch(
   "/sellers/:id/reactivate",
   asyncHandler(reactivateSeller)
+);
+
+// 🔥 NUEVO — KYC REVIEW
+router.patch(
+  "/sellers/:id/kyc-review",
+  asyncHandler(reviewSellerKYC)
 );
 
 /* ===============================

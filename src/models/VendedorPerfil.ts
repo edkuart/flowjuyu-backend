@@ -15,6 +15,11 @@ export type EstadoAdmin =
   | "inactivo"
   | "suspendido";
 
+export type KycRiesgo =
+  | "bajo"
+  | "medio"
+  | "alto";
+
 /* ======================================================
    🧱 Interface Base
 ====================================================== */
@@ -42,6 +47,17 @@ interface VendedorPerfilAttrs {
   observaciones?: string | null;
   actualizado_en?: Date | null;
 
+  /* ===============================
+     🏛️ KYC PROFESIONAL
+  =============================== */
+
+  kyc_checklist?: any;
+  kyc_score: number;
+  kyc_riesgo: KycRiesgo;
+  kyc_revisado_por?: number | null;
+  kyc_revisado_en?: Date | null;
+  notas_internas?: string | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -65,6 +81,12 @@ type Creation = Optional<
   | "selfie_con_dpi"
   | "observaciones"
   | "actualizado_en"
+  | "kyc_checklist"
+  | "kyc_score"
+  | "kyc_riesgo"
+  | "kyc_revisado_por"
+  | "kyc_revisado_en"
+  | "notas_internas"
   | "createdAt"
   | "updatedAt"
 >;
@@ -99,6 +121,14 @@ export class VendedorPerfil
   public observaciones?: string | null;
   public actualizado_en?: Date | null;
 
+  /* 🏛️ KYC */
+  public kyc_checklist?: any;
+  public kyc_score!: number;
+  public kyc_riesgo!: KycRiesgo;
+  public kyc_revisado_por?: number | null;
+  public kyc_revisado_en?: Date | null;
+  public notas_internas?: string | null;
+
   public readonly createdAt?: Date;
   public readonly updatedAt?: Date;
 }
@@ -111,6 +141,7 @@ VendedorPerfil.init(
       autoIncrement: true,
       allowNull: false,
     },
+
     user_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -118,7 +149,9 @@ VendedorPerfil.init(
       onUpdate: "CASCADE",
       onDelete: "CASCADE",
     },
+
     nombre: { type: DataTypes.STRING(100), allowNull: false },
+
     email: {
       type: DataTypes.STRING(100),
       allowNull: false,
@@ -126,14 +159,25 @@ VendedorPerfil.init(
         this.setDataValue("email", value?.toLowerCase().trim());
       },
     },
+
     telefono: { type: DataTypes.STRING(15), allowNull: true },
     direccion: { type: DataTypes.TEXT, allowNull: true },
     logo: { type: DataTypes.TEXT, allowNull: true },
-    nombre_comercio: { type: DataTypes.STRING(100), allowNull: false },
-    telefono_comercio: { type: DataTypes.STRING(15), allowNull: true },
+
+    nombre_comercio: {
+      type: DataTypes.STRING(100),
+      allowNull: false,
+    },
+
+    telefono_comercio: {
+      type: DataTypes.STRING(15),
+      allowNull: true,
+    },
+
     departamento: { type: DataTypes.STRING(50), allowNull: true },
     municipio: { type: DataTypes.STRING(100), allowNull: true },
     descripcion: { type: DataTypes.TEXT, allowNull: true },
+
     dpi: { type: DataTypes.STRING(13), allowNull: true },
     foto_dpi_frente: { type: DataTypes.TEXT, allowNull: true },
     foto_dpi_reverso: { type: DataTypes.TEXT, allowNull: true },
@@ -151,8 +195,55 @@ VendedorPerfil.init(
       defaultValue: "inactivo",
     },
 
-    observaciones: { type: DataTypes.TEXT, allowNull: true },
-    actualizado_en: { type: DataTypes.DATE, allowNull: true },
+    observaciones: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    actualizado_en: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+
+    /* ===============================
+       🏛️ KYC STRUCTURE
+    =============================== */
+
+    kyc_checklist: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: {},
+    },
+
+    kyc_score: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+
+    kyc_riesgo: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: "medio",
+      validate: {
+        isIn: [["bajo", "medio", "alto"]],
+      },
+    },
+
+    kyc_revisado_por: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+
+    kyc_revisado_en: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+
+    notas_internas: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
 
     createdAt: { type: DataTypes.DATE, allowNull: true },
     updatedAt: { type: DataTypes.DATE, allowNull: true },

@@ -6,6 +6,7 @@ import Product from "../models/product.model";
 import { VendedorPerfil } from "../models/VendedorPerfil";
 import { Ticket } from "../models/ticket.model";
 import { TicketMessage } from "../models/ticketMessage.model";
+import { logAdminEvent } from "../utils/logAdminEvent";
 
 /* =====================================================
    📊 ADMIN DASHBOARD — OBSERVACIÓN (FASE DEMO)
@@ -667,6 +668,92 @@ export const getAdminProductDetail = async (
     res.status(500).json({
       success: false,
       message: "Error obteniendo detalle admin del producto",
+    });
+  }
+};
+
+export const reviewSellerKYC: RequestHandler = async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const adminId = Number((req as any).user.id);
+
+    const {
+      dpi_legible,
+      selfie_coincide,
+      datos_coinciden,
+      comercio_legitimo,
+      ubicacion_coherente,
+      notas_internas,
+    } = req.body;
+
+    const seller = await VendedorPerfil.findOne({
+      where: { user_id: userId },
+    });
+
+    if (!seller) {
+      res.status(404).json({
+        message: "Vendedor no encontrado",
+      });
+      return;
+    }
+
+    const checklist = {
+      dpi_legible: Boolean(dpi_legible),
+      selfie_coincide: Boolean(selfie_coincide),
+      datos_coinciden: Boolean(datos_coinciden),
+      comercio_legitimo: Boolean(comercio_legitimo),
+      ubicacion_coherente: Boolean(ubicacion_coherente),
+    };
+
+    const totalChecks = Object.values(checklist).filter(Boolean).length;
+    const score = Math.round((totalChecks / 5) * 100);
+
+    let riesgo: "bajo" | "medio" | "alto" = "medio";
+
+    if (score >= 80) riesgo = "bajo";
+    else if (score >= 50) riesgo = "medio";
+    else riesgo = "alto";
+
+    const before = {
+      kyc_score: seller.kyc_score,
+      kyc_riesgo: seller.kyc_riesgo,
+    };
+
+    seller.kyc_checklist = checklist;
+    seller.kyc_score = score;
+    seller.kyc_riesgo = riesgo;
+    seller.kyc_revisado_por = adminId;
+    seller.kyc_revisado_en = new Date();
+    seller.notas_internas = notas_internas ?? null;
+
+    await seller.save();
+
+    await logAdminEvent({
+      entityType: "seller",
+      entityId: seller.user_id,
+      action: "KYC_REVIEWED",
+      performedBy: adminId,
+      metadata: {
+        before,
+        after: {
+          kyc_score: score,
+          kyc_riesgo: riesgo,
+        },
+        checklist,
+      },
+    });
+
+    res.json({
+      success: true,
+      message: "Revisión KYC guardada correctamente",
+      score,
+      riesgo,
+    });
+
+  } catch (error) {
+    console.error("reviewSellerKYC error:", error);
+    res.status(500).json({
+      message: "Error al revisar KYC",
     });
   }
 };

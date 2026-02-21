@@ -5,15 +5,47 @@ import { requireAuth, requireRole } from "../middleware/auth";
 
 const router: Router = Router();
 
-// ===========================
-// Auth (comprador)
-// ===========================
+// ======================================================
+// 🔐 AUTH — BUYER
+// ======================================================
+
 router.post("/register", Auth.register);
 router.post("/login", Auth.login);
 
-// ===========================
-// Handlers opcionales dinámicos (compatibilidad)
-// ===========================
+// ======================================================
+// 🔐 AUTH — SELLER (KYC)
+// ======================================================
+
+router.post(
+  "/register/seller",
+  uploadVendedorDocs,
+  Auth.registerVendedor
+);
+
+// ======================================================
+// 🔐 PASSWORD & SECURITY
+// ======================================================
+
+router.patch(
+  "/change-password",
+  requireAuth,
+  requireRole("seller", "buyer", "admin", "support"),
+  Auth.changePassword
+);
+
+router.post(
+  "/logout-all",
+  requireAuth,
+  Auth.logoutAll
+);
+
+router.post("/forgot-password", Auth.forgotPassword);
+router.post("/reset-password", Auth.resetPassword);
+
+// ======================================================
+// 🔐 OPTIONAL HANDLERS (SAFE CHECK)
+// ======================================================
+
 const maybe = (name: string) =>
   (Auth as any)[name] as undefined | ((...a: any[]) => any);
 
@@ -28,32 +60,5 @@ if (maybe("logout")) {
 if (maybe("getSession")) {
   router.get("/session", maybe("getSession")!);
 }
-
-// ===========================
-// Auth (vendedor)
-// ===========================
-router.post(
-  "/register/seller",
-  uploadVendedorDocs,
-  Auth.registerVendedor
-);
-
-// ===========================
-// Seguridad
-// ===========================
-router.patch(
-  "/change-password",
-  requireRole("vendedor", "comprador", "admin", "soporte"),
-  Auth.changePassword
-);
-
-router.post(
-  "/logout-all",
-  requireAuth,
-  Auth.logoutAll
-);
-
-router.post("/forgot-password", Auth.forgotPassword);
-router.post("/reset-password", Auth.resetPassword);
 
 export default router;

@@ -3,6 +3,16 @@
 import { DataTypes, Model, Optional } from "sequelize";
 import { sequelize } from "../config/db";
 
+/* ===============================
+   ROLE TYPE
+=============================== */
+
+export type UserRole = "buyer" | "seller" | "admin" | "support";
+
+/* ===============================
+   ATTRIBUTES
+=============================== */
+
 interface UserAttributes {
   id: number;
   nombre: string;
@@ -10,9 +20,9 @@ interface UserAttributes {
   password: string;
   telefono?: string;
   direccion?: string;
-  rol: "comprador" | "vendedor" | "admin" | "soporte";
+  rol: UserRole;
   token_version: number;
-  
+
   reset_password_token?: string | null;
   reset_password_expires?: Date | null;
 
@@ -23,6 +33,10 @@ interface UserAttributes {
 interface UserCreationAttributes
   extends Optional<UserAttributes, "id" | "token_version"> {}
 
+/* ===============================
+   MODEL
+=============================== */
+
 export class User
   extends Model<UserAttributes, UserCreationAttributes>
   implements UserAttributes
@@ -31,15 +45,21 @@ export class User
   public nombre!: string;
   public correo!: string;
   public password!: string;
-  public rol!: "comprador" | "vendedor" | "admin" | "soporte";
+  public rol!: UserRole;
   public telefono?: string;
   public direccion?: string;
   public token_version!: number;
-  public readonly createdAt?: Date;
-  public readonly updatedAt?: Date;
+
   public reset_password_token?: string | null;
   public reset_password_expires?: Date | null;
+
+  public readonly createdAt?: Date;
+  public readonly updatedAt?: Date;
 }
+
+/* ===============================
+   INIT
+=============================== */
 
 User.init(
   {
@@ -48,15 +68,18 @@ User.init(
       autoIncrement: true,
       primaryKey: true,
     },
+
     token_version: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
     },
+
     nombre: {
       type: DataTypes.STRING,
       allowNull: false,
     },
+
     correo: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -64,11 +87,13 @@ User.init(
         this.setDataValue("correo", value?.toLowerCase().trim());
       },
     },
+
     password: {
       type: DataTypes.STRING,
       allowNull: false,
-      field: "contraseña",
+      field: "contraseña", // mantiene compatibilidad con DB actual
     },
+
     reset_password_token: {
       type: DataTypes.STRING,
       allowNull: true,
@@ -78,28 +103,30 @@ User.init(
       type: DataTypes.DATE,
       allowNull: true,
     },
+
     rol: {
-      type: DataTypes.STRING,
+      type: DataTypes.ENUM("buyer", "seller", "admin", "support"),
       allowNull: false,
-      defaultValue: "comprador",
-      validate: {
-        isIn: [["comprador", "vendedor", "admin", "soporte"]],
-      },
+      defaultValue: "buyer",
     },
+
     telefono: {
       type: DataTypes.STRING,
       allowNull: true,
     },
+
     direccion: {
       type: DataTypes.STRING,
       allowNull: true,
     },
+
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
       field: "createdAt",
       defaultValue: DataTypes.NOW,
     },
+
     updatedAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -115,6 +142,5 @@ User.init(
     createdAt: "createdAt",
     updatedAt: "updatedAt",
     underscored: true,
-  },
+  }
 );
- 
