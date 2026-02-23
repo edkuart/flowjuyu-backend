@@ -65,21 +65,30 @@ app.use(cookieParser());
 const allowlist = (
   process.env.CORS_ORIGIN_ALLOWLIST ||
   process.env.ALLOWED_ORIGINS ||
-  "http://localhost:3000"
+  "http://localhost:3000,https://www.flowjuyu.com,https://flowjuyu.com"
 )
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 
-app.use(
-  cors({
-    origin(origin, cb) {
-      if (!origin || allowlist.includes(origin)) return cb(null, true);
-      return cb(new Error("CORS blocked"));
-    },
-    credentials: true,
-  })
-);
+const corsOptions: cors.CorsOptions = {
+  origin(origin, cb) {
+    // origin undefined = Postman/curl o same-origin no estándar
+    if (!origin) return cb(null, true);
+
+    if (allowlist.includes(origin)) return cb(null, true);
+
+    // 👇 IMPORTANTE: no tires error (eso provoca 500)
+    return cb(null, false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+app.use(cors(corsOptions));
+// 👇 Maneja preflight de una vez
+app.options("*", cors(corsOptions));
 
 // ===========================
 // Parsers
