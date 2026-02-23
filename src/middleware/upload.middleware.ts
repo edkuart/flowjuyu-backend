@@ -1,4 +1,5 @@
 // src/middleware/upload.middleware.ts
+
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -9,7 +10,6 @@ import { randomUUID } from "crypto";
 // ---------------------------
 const uploadsDir = path.join(process.cwd(), "uploads", "vendedores");
 
-// Si no existe la carpeta, la creamos
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -33,7 +33,6 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5 MB
   },
   fileFilter: (_req, file, cb) => {
-    // ⚠️ PowerShell / Postman suelen enviar application/octet-stream
     const allowed = [
       "image/jpeg",
       "image/png",
@@ -52,12 +51,13 @@ const upload = multer({
 
 // ---------------------------
 // 📂 Middleware exportado
+// 🔥 ALINEADO CON FRONTEND
 // ---------------------------
 export const uploadVendedorDocs = upload.fields([
   { name: "logo", maxCount: 1 },
-  { name: "fotoDPIFrente", maxCount: 1 },
-  { name: "fotoDPIReverso", maxCount: 1 },
-  { name: "selfieConDPI", maxCount: 1 },
+  { name: "foto_dpi_frente", maxCount: 1 },
+  { name: "foto_dpi_reverso", maxCount: 1 },
+  { name: "selfie_con_dpi", maxCount: 1 },
 ]);
 
 export default uploadVendedorDocs;

@@ -1,11 +1,12 @@
 // src/middleware/uploadVendedor.ts
+
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { Request, Response, NextFunction } from "express";
 
 // ─────────────────────────────────────────────
-// Directorio base
+// 📁 Directorio base
 // ─────────────────────────────────────────────
 const uploadDir = path.resolve("uploads/vendedores");
 
@@ -14,7 +15,7 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // ─────────────────────────────────────────────
-// Storage
+// 💾 Storage configuration
 // ─────────────────────────────────────────────
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
@@ -32,7 +33,7 @@ const storage = multer.diskStorage({
 });
 
 // ─────────────────────────────────────────────
-// File filter
+// 🛡 File filter
 // ─────────────────────────────────────────────
 const allowedMimeTypes = [
   "image/jpeg",
@@ -56,28 +57,29 @@ function fileFilter(
 }
 
 // ─────────────────────────────────────────────
-// Limits
+// 📏 Límites
 // ─────────────────────────────────────────────
 const limits = {
   fileSize: 3 * 1024 * 1024, // 3MB
 };
 
 // ─────────────────────────────────────────────
-// Multer instance
+// 📤 Multer instance
+// 🔥 ALINEADO CON FRONTEND (snake_case)
 // ─────────────────────────────────────────────
 export const uploadVendedorDocs = multer({
   storage,
   fileFilter,
   limits,
 }).fields([
-  { name: "fotoDPIFrente", maxCount: 1 },
-  { name: "fotoDPIReverso", maxCount: 1 },
-  { name: "selfieConDPI", maxCount: 1 },
+  { name: "foto_dpi_frente", maxCount: 1 },
+  { name: "foto_dpi_reverso", maxCount: 1 },
+  { name: "selfie_con_dpi", maxCount: 1 },
   { name: "logo", maxCount: 1 },
 ]);
 
 // ─────────────────────────────────────────────
-// Validación obligatoria de documentos
+// ✅ Validación obligatoria de documentos
 // ─────────────────────────────────────────────
 export function validateRequiredDocs(
   req: Request,
@@ -89,9 +91,9 @@ export function validateRequiredDocs(
   };
 
   if (
-    !files?.fotoDPIFrente ||
-    !files?.fotoDPIReverso ||
-    !files?.selfieConDPI
+    !files?.foto_dpi_frente ||
+    !files?.foto_dpi_reverso ||
+    !files?.selfie_con_dpi
   ) {
     return res.status(400).json({
       message:
