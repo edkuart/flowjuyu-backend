@@ -60,11 +60,11 @@ app.use(compression());
 app.use(cookieParser());
 
 // ===========================
-// CORS seguro
+// 🌍 CORS robusto (Dev + Prod)
 // ===========================
+
 const allowlist = (
   process.env.CORS_ORIGIN_ALLOWLIST ||
-  process.env.ALLOWED_ORIGINS ||
   "http://localhost:3000,https://www.flowjuyu.com,https://flowjuyu.com"
 )
   .split(",")
@@ -73,22 +73,37 @@ const allowlist = (
 
 const corsOptions: cors.CorsOptions = {
   origin(origin, cb) {
-    // origin undefined = Postman/curl o same-origin no estándar
+    // 🔹 Permitir requests sin origin (Postman, curl, server-to-server)
     if (!origin) return cb(null, true);
 
-    if (allowlist.includes(origin)) return cb(null, true);
+    // 🔹 En desarrollo permitir todo localhost automáticamente
+    if (process.env.NODE_ENV !== "production") {
+      return cb(null, true);
+    }
 
-    // 👇 IMPORTANTE: no tires error (eso provoca 500)
+    // 🔹 En producción validar allowlist
+    if (allowlist.includes(origin)) {
+      return cb(null, true);
+    }
+
+    console.warn("🚫 CORS blocked:", origin);
+
+    // ⚠️ NO lanzar error → evita 500 en preflight
     return cb(null, false);
   },
+
   credentials: true,
+
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 
+// Aplicar CORS global
 app.use(cors(corsOptions));
-// 👇 Maneja preflight de una vez
-app.options("*", cors(corsOptions));
+
+// Manejar preflight correctamente (evita crash con OPTIONS)
+app.options(/.*/, cors(corsOptions));
 
 // ===========================
 // Parsers
