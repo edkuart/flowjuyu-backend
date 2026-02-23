@@ -13,7 +13,7 @@ const uuid_1 = require("uuid");
 const getSellerDashboard = async (req, res) => {
     try {
         const user = req.user;
-        if (!user || (user.rol !== "seller" && user.rol !== "vendedor")) {
+        if (!user || user.role !== "seller") {
             res.status(403).json({ message: "No autorizado" });
             return;
         }

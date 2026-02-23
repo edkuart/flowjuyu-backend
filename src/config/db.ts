@@ -1,41 +1,66 @@
+// src/config/db.ts
 import "dotenv/config";
 import { Sequelize } from "sequelize";
 
-const { NODE_ENV, DATABASE_URL, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD } = process.env;
+const isProd = process.env.NODE_ENV === "production";
 
-const poolConfig = {
-  max: 15,
-  min: 2,
-  idle: 10000,
-  acquire: 30000,
-  evict: 10000,
-};
+/**
+ * Construye la URL:
+ * - Prod: usa DATABASE_URL (Railway/Render)
+ * - Dev: acepta DATABASE_URL o arma una con variables sueltas
+ */
+function resolveDatabaseUrl(): string {
+  // 1) Si ya existe, úsala
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== "") {
+    return process.env.DATABASE_URL.trim();
+  }
 
-const commonConfig = {
+  // 2) En producción es obligatoria
+  if (isProd) {
+    throw new Error("❌ DATABASE_URL is required in production environment");
+  }
+
+  // 3) En desarrollo, arma desde variables sueltas (fallback)
+  const host = process.env.DB_HOST || "localhost";
+  const port = process.env.DB_PORT || "5432";
+  const name = process.env.DB_NAME || "flowjuyu";
+  const user = process.env.DB_USER || "postgres";
+  const pass = process.env.DB_PASSWORD || "postgres";
+
+  return `postgres://${encodeURIComponent(user)}:${encodeURIComponent(
+    pass
+  )}@${host}:${port}/${name}`;
+}
+
+const databaseUrl = resolveDatabaseUrl();
+
+export const sequelize = new Sequelize(databaseUrl, {
+  dialect: "postgres",
+
   logging:
-    NODE_ENV === "development"
+    process.env.NODE_ENV === "development"
       ? (msg: string) => console.debug("🧠 SQL:", msg)
       : false,
-  pool: poolConfig,
-  dialectOptions: {
-    ssl: {
-      require: true,
-      rejectUnauthorized: false,
-    },
-  },
-};
 
-export const sequelize = DATABASE_URL
-  ? new Sequelize(DATABASE_URL, {
-      ...commonConfig,
-      dialect: "postgres",
-    })
-  : new Sequelize(DB_NAME!, DB_USER!, DB_PASSWORD!, {
-      ...commonConfig,
-      host: DB_HOST,
-      port: Number(DB_PORT || 5432),
-      dialect: "postgres",
-    });
+  pool: {
+    max: 15,
+    min: 2,
+    idle: 10000,
+    acquire: 30000,
+    evict: 10000,
+  },
+
+  // En producción normalmente hay SSL (Railway/Render/Supabase)
+  // En local normalmente NO (a menos que uses un proxy/pooler)
+  dialectOptions: isProd
+    ? {
+        ssl: {
+          require: true,
+          rejectUnauthorized: false,
+        },
+      }
+    : {},
+});
 
 export async function assertDbConnection(): Promise<void> {
   try {

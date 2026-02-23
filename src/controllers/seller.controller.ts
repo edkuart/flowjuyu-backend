@@ -16,7 +16,7 @@ export const getSellerDashboard: RequestHandler = async (req, res) => {
     
     const user = (req as any).user;
 
-    if (!user || (user.rol !== "seller" && user.rol !== "vendedor")) {
+    if (!user || user.role !== "seller") {
       res.status(403).json({ message: "No autorizado" });
       return;
     }

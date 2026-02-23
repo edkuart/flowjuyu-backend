@@ -53,23 +53,12 @@ app.use(express_1.default.urlencoded({ extended: true }));
 if (process.env.NODE_ENV !== "production") {
     app.use("/uploads", express_1.default.static(path_1.default.join(process.cwd(), "uploads")));
 }
-const pool = new pg_1.Pool(process.env.DATABASE_URL
-    ? {
-        connectionString: process.env.DATABASE_URL,
-        ssl: process.env.NODE_ENV === "production"
-            ? { rejectUnauthorized: false }
-            : false,
-    }
-    : {
-        user: process.env.DB_USER,
-        host: process.env.DB_HOST,
-        database: process.env.DB_NAME,
-        password: process.env.DB_PASSWORD,
-        port: Number(process.env.DB_PORT || 5432),
-        ssl: process.env.NODE_ENV === "production"
-            ? { rejectUnauthorized: false }
-            : false,
-    });
+const pool = new pg_1.Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+        rejectUnauthorized: false,
+    },
+});
 pool
     .query("SELECT current_database()")
     .then((r) => console.log("📦 SESSION DB:", r.rows[0].current_database))
