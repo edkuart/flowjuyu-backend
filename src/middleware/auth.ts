@@ -5,13 +5,9 @@ import jwt, { VerifyOptions } from "jsonwebtoken";
 import { User } from "../models/user.model";
 
 // ─────────────────────────────────────────────
-// 🎯 Roles oficiales del sistema (INGLÉS ONLY)
+// 🎯 Roles oficiales del sistema
 // ─────────────────────────────────────────────
-export type Rol =
-  | "buyer"
-  | "seller"
-  | "admin"
-  | "support";
+export type Rol = "buyer" | "seller" | "admin" | "support";
 
 // ─────────────────────────────────────────────
 // 📦 Tipo del token decodificado
@@ -32,6 +28,7 @@ interface DecodedToken {
 // ─────────────────────────────────────────────
 function getBearerToken(req: Request): string | null {
   const header = req.headers.authorization || "";
+
   if (header.startsWith("Bearer ")) {
     return header.slice(7).trim();
   }
@@ -41,14 +38,7 @@ function getBearerToken(req: Request): string | null {
 }
 
 // ─────────────────────────────────────────────
-// 🆔 Obtener ID del token
-// ─────────────────────────────────────────────
-function getUserId(payload: DecodedToken) {
-  return payload.sub ?? payload.id;
-}
-
-// ─────────────────────────────────────────────
-// 🔐 verifyToken(rolesRequeridos)
+// 🔐 verifyToken
 // ─────────────────────────────────────────────
 export const verifyToken = (
   rolesRequeridos: Rol[] = []
@@ -58,25 +48,25 @@ export const verifyToken = (
     res: Response,
     next: NextFunction
   ): Promise<void> => {
-    const secret = process.env.JWT_SECRET;
-
-    if (!secret) {
-      console.error("❌ JWT_SECRET no configurado");
-      res.status(500).json({ message: "Error interno: JWT no configurado" });
-      return;
-    }
-
-    const token = getBearerToken(req);
-
-    if (!token) {
-      res.status(401).json({ message: "Token no proporcionado" });
-      return;
-    }
-
     try {
-      // ─────────────────────────────────────────
-      // 🔐 Verificación JWT
-      // ─────────────────────────────────────────
+      const secret = process.env.JWT_SECRET;
+
+      if (!secret) {
+        console.error("❌ JWT_SECRET no configurado");
+        res.status(500).json({
+          message: "Configuración interna inválida",
+        });
+        return;
+      }
+
+      const token = getBearerToken(req);
+
+      if (!token) {
+        res.status(401).json({ message: "Token no proporcionado" });
+        return;
+      }
+
+      // 🔐 Verificar JWT
       const verifyOpts: VerifyOptions = {};
       const algs = (process.env.JWT_ALGS || "HS256")
         .split(",")
@@ -89,19 +79,14 @@ export const verifyToken = (
 
       const decoded = jwt.verify(token, secret, verifyOpts) as DecodedToken;
 
-      // ─────────────────────────────────────────
-      // 🆔 Resolver userId (sub o id)
-      // ─────────────────────────────────────────
       const userId = decoded.sub ?? decoded.id;
 
       if (!userId) {
-        res.status(401).json({ message: "Token inválido: sin ID" });
+        res.status(401).json({ message: "Token inválido" });
         return;
       }
 
-      // ─────────────────────────────────────────
-      // 🔎 Usuario en BD
-      // ─────────────────────────────────────────
+      // 🔎 Buscar usuario en BD
       const user = await User.findByPk(userId);
 
       if (!user) {
@@ -109,9 +94,7 @@ export const verifyToken = (
         return;
       }
 
-      // ─────────────────────────────────────────
       // 🔒 token_version (logout global)
-      // ─────────────────────────────────────────
       if (
         typeof decoded.token_version === "number" &&
         decoded.token_version !== user.token_version
@@ -122,21 +105,13 @@ export const verifyToken = (
         return;
       }
 
-      // ─────────────────────────────────────────
       // 🚫 Suspensión
-      // ─────────────────────────────────────────
       if ((user as any).estado === "suspendido") {
         res.status(403).json({ message: "Cuenta suspendida" });
         return;
       }
 
-      // ─────────────────────────────────────────
-      // 🎯 Normalización FUERTE de roles
-      //  - token.roles (array)
-      //  - token.rol (string)
-      //  - user.rol (fallback BD)
-      //  - lowercase + trim
-      // ─────────────────────────────────────────
+      // 🎯 Normalización de roles
       const tokenRoles: string[] = Array.isArray(decoded.roles)
         ? decoded.roles
         : decoded.rol
@@ -155,34 +130,22 @@ export const verifyToken = (
         )
       ) as Rol[];
 
-      // 🔎 DEBUG (puedes dejarlo temporalmente)
-      console.log("🧭 baseUrl:", req.baseUrl, "| path:", req.path, "| originalUrl:", req.originalUrl);
-      console.log("🧠 rolesRequeridos:", rolesRequeridos);
-      console.log("🧠 userRoles:", userRoles);
-
-      // ─────────────────────────────────────────
       // 🔐 Validación de permisos
-      // ─────────────────────────────────────────
       const permitido =
         rolesRequeridos.length === 0 ||
         rolesRequeridos.some((r) =>
-          userRoles.includes(String(r).toLowerCase().trim() as Rol)
+          userRoles.includes(r)
         );
 
       if (!permitido) {
-        console.warn(
-          `🚫 Acceso denegado. Requerido: [${rolesRequeridos.join(
-            ", "
-          )}] | Usuario: [${userRoles.join(", ")}]`
-        );
-        res.status(403).json({ message: "Acceso denegado por rol" });
+        res.status(403).json({
+          message: "Acceso denegado por rol",
+        });
         return;
       }
 
-      // ─────────────────────────────────────────
       // ✅ Inyectar usuario en request
-      // ─────────────────────────────────────────
-      req.user = {
+      (req as any).user = {
         id: Number(userId),
         correo: decoded.correo,
         role: userRoles[0],
@@ -192,7 +155,6 @@ export const verifyToken = (
       next();
     } catch (error: any) {
       if (error?.name === "TokenExpiredError") {
-        console.warn("⏰ Token expirado");
         res.status(401).json({
           message: "Token expirado",
           code: "TOKEN_EXPIRED",
@@ -200,20 +162,17 @@ export const verifyToken = (
         return;
       }
 
-      console.error("❌ Error al verificar token:", error);
+      console.error("❌ Error JWT:", error?.message || error);
       res.status(401).json({ message: "Token inválido" });
     }
   };
 };
 
 // ─────────────────────────────────────────────
-// 🧱 Middlewares listos para usar
+// 🧱 Helpers
 // ─────────────────────────────────────────────
 
-// Solo autenticación
 export const requireAuth: RequestHandler = verifyToken();
 
-// Autenticación + rol específico
-export const requireRole = (...allowed: Rol[]): RequestHandler => {
-  return verifyToken(allowed);
-};
+export const requireRole = (...allowed: Rol[]): RequestHandler =>
+  verifyToken(allowed);
