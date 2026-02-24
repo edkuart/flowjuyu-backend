@@ -131,6 +131,8 @@ const pool = new Pool({
   ssl: {
     rejectUnauthorized: false,
   },
+  // 👇 ESTA LÍNEA ES CLAVE CON SUPABASE POOLER
+  keepAlive: true,
 });
 
 // Confirmar DB de sesiones
