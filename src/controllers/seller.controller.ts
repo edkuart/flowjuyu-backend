@@ -378,11 +378,31 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
 // Validación de comercio
 // ==============================
 export const validateSellerBusiness: RequestHandler = async (req, res) => {
+  const requestId =
+    (req.headers["x-request-id"] as string | undefined) ?? uuidv4();
+
+  const logError = (
+    stage: string,
+    error: any,
+    context: Record<string, unknown> = {}
+  ) => {
+    console.error("[validateSellerBusiness]", {
+      requestId,
+      stage,
+      userId: (req as any)?.user?.id,
+      message: error?.message,
+      name: error?.name,
+      statusCode: error?.statusCode,
+      error,
+      ...context,
+    });
+  };
+
   try {
     const user = (req as any).user;
 
     if (!user?.id) {
-      res.status(401).json({ message: "No autenticado" });
+      res.status(401).json({ message: "No autenticado", requestId });
       return;
     }
 
@@ -391,59 +411,95 @@ export const validateSellerBusiness: RequestHandler = async (req, res) => {
     });
 
     if (!perfil) {
-      res.status(404).json({ message: "Perfil no encontrado" });
+      res.status(404).json({ message: "Perfil no encontrado", requestId });
       return;
     }
 
-    const files = req.files as {
-      [fieldname: string]: Express.Multer.File[];
-    };
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
 
     if (!files || Object.keys(files).length === 0) {
-      res.status(400).json({ message: "Debes subir al menos un documento" });
+      res
+        .status(400)
+        .json({ message: "Debes subir al menos un documento", requestId });
       return;
     }
 
     const updateFields: any = {};
 
     const uploadToSupabase = async (file: Express.Multer.File, folder: string) => {
-      const ext = file.originalname.split(".").pop();
+      if (!file?.buffer?.length) {
+        throw new Error("Archivo inválido: buffer vacío");
+      }
+
+      const extFromMime = file.mimetype
+        ?.split("/")?.[1]
+        ?.replace("jpeg", "jpg");
+      const extFromOriginalName = file.originalname?.split(".").pop();
+      const ext = extFromOriginalName || extFromMime || "jpg";
+
       const fileName = `${folder}/${uuidv4()}.${ext}`;
 
       const { error } = await supabase.storage
         .from("vendedores_dpi")
         .upload(fileName, file.buffer, {
           contentType: file.mimetype,
+          cacheControl: "3600",
+          upsert: false,
         });
 
-      if (error) throw error;
+      if (error) {
+        logError("supabase_upload", error, {
+          folder,
+          fileName,
+          mimetype: file.mimetype,
+          size: file.size,
+        });
+        throw new Error(
+          `Supabase upload failed for ${folder}: ${error.message}`
+        );
+      }
 
       const { data } = supabase.storage
         .from("vendedores_dpi")
         .getPublicUrl(fileName);
 
+      if (!data?.publicUrl) {
+        throw new Error(`No se pudo generar publicUrl para ${fileName}`);
+      }
+
       return data.publicUrl;
     };
 
-    if (files.foto_dpi_frente) {
+    if (files.foto_dpi_frente?.[0]) {
       updateFields.foto_dpi_frente = await uploadToSupabase(
         files.foto_dpi_frente[0],
         "dpi_frente"
       );
     }
 
-    if (files.foto_dpi_reverso) {
+    if (files.foto_dpi_reverso?.[0]) {
       updateFields.foto_dpi_reverso = await uploadToSupabase(
         files.foto_dpi_reverso[0],
         "dpi_reverso"
       );
     }
 
-    if (files.selfie_con_dpi) {
+    if (files.selfie_con_dpi?.[0]) {
       updateFields.selfie_con_dpi = await uploadToSupabase(
         files.selfie_con_dpi[0],
         "selfie"
       );
+    }
+
+    // ✅ Guard: evita “success” si no llegó ningún doc válido
+    const hasDocs = Object.keys(updateFields).some(
+      (k) => k.startsWith("foto_") || k.startsWith("selfie")
+    );
+    if (!hasDocs) {
+      res
+        .status(400)
+        .json({ message: "No se recibieron documentos válidos", requestId });
+      return;
     }
 
     updateFields.estado_validacion = "en_revision";
@@ -457,12 +513,23 @@ export const validateSellerBusiness: RequestHandler = async (req, res) => {
     res.json({
       ok: true,
       message: "Documentos enviados correctamente. Están en revisión.",
+      requestId,
     });
-
   } catch (error: any) {
-    console.error("Error en validateSellerBusiness:", error);
-    res.status(500).json({
-      message: "Error al enviar documentos",
+    logError("controller", error);
+
+    const status =
+      typeof error?.message === "string" &&
+      error.message.includes("Supabase upload failed")
+        ? 502
+        : 500;
+
+    res.status(status).json({
+      message:
+        status === 502
+          ? "Error al subir documentos al storage"
+          : "Error al enviar documentos",
+      requestId,
       error: error.message,
     });
   }
