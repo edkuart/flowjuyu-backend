@@ -21,6 +21,13 @@ export type KycRiesgo =
   | "alto";
 
 /* ======================================================
+   💰 PLAN COMERCIAL
+====================================================== */
+export type PlanTipo =
+  | "free"
+  | "founder";
+
+/* ======================================================
    🧱 Interface Base
 ====================================================== */
 interface VendedorPerfilAttrs {
@@ -58,6 +65,15 @@ interface VendedorPerfilAttrs {
   kyc_revisado_en?: Date | null;
   notas_internas?: string | null;
 
+  /* ===============================
+     💰 PLAN COMERCIAL
+  =============================== */
+
+  plan: PlanTipo;
+  plan_activo: boolean;
+  plan_expires_at?: Date | null;
+  whatsapp_numero?: string | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -87,6 +103,10 @@ type Creation = Optional<
   | "kyc_revisado_por"
   | "kyc_revisado_en"
   | "notas_internas"
+  | "plan"
+  | "plan_activo"
+  | "plan_expires_at"
+  | "whatsapp_numero"
   | "createdAt"
   | "updatedAt"
 >;
@@ -128,6 +148,12 @@ export class VendedorPerfil
   public kyc_revisado_por?: number | null;
   public kyc_revisado_en?: Date | null;
   public notas_internas?: string | null;
+
+  /* 💰 PLAN */
+  public plan!: PlanTipo;
+  public plan_activo!: boolean;
+  public plan_expires_at?: Date | null;
+  public whatsapp_numero?: string | null;
 
   public readonly createdAt?: Date;
   public readonly updatedAt?: Date;
@@ -242,6 +268,35 @@ VendedorPerfil.init(
 
     notas_internas: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    /* ===============================
+       💰 PLAN COMERCIAL
+    =============================== */
+
+    plan: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: "free",
+      validate: {
+        isIn: [["free", "founder"]],
+      },
+    },
+
+    plan_activo: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+
+    plan_expires_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+
+    whatsapp_numero: {
+      type: DataTypes.STRING(15),
       allowNull: true,
     },
 

@@ -90,9 +90,11 @@ export const getAdminDashboard: RequestHandler = async (req, res) => {
 
     // ===============================
     // 🏪 ÚLTIMOS SELLERS APROBADOS
+    // 🔥 AGREGAMOS s.id (perfilId)
     // ===============================
     const [ultimosSellers]: any = await sequelize.query(`
       SELECT 
+        s.id,                -- 🔥 PERFIL ID
         s.user_id,
         s.nombre_comercio,
         s.estado_validacion,
@@ -121,7 +123,7 @@ export const getAdminDashboard: RequestHandler = async (req, res) => {
           cerrados: ticketsCerrados.cerrados,
         },
         ultimosProductos,
-        ultimosSellers,
+        ultimosSellers, // 🔥 ahora incluye id correcto
       },
     });
 

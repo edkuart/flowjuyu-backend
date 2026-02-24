@@ -411,7 +411,7 @@ export const validateSellerBusiness: RequestHandler = async (req, res) => {
       const fileName = `${folder}/${uuidv4()}.${ext}`;
 
       const { error } = await supabase.storage
-        .from("documentos_vendedores")
+        .from("vendedores_dpi")
         .upload(fileName, file.buffer, {
           contentType: file.mimetype,
         });
@@ -419,7 +419,7 @@ export const validateSellerBusiness: RequestHandler = async (req, res) => {
       if (error) throw error;
 
       const { data } = supabase.storage
-        .from("documentos_vendedores")
+        .from("vendedores_dpi")
         .getPublicUrl(fileName);
 
       return data.publicUrl;
