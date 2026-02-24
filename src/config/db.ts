@@ -36,30 +36,19 @@ const databaseUrl = resolveDatabaseUrl();
 
 export const sequelize = new Sequelize(databaseUrl, {
   dialect: "postgres",
-
-  logging:
-    process.env.NODE_ENV === "development"
-      ? (msg: string) => console.debug("🧠 SQL:", msg)
-      : false,
-
+  logging: false,
+  dialectOptions: {
+    ssl: {
+      require: true,
+      rejectUnauthorized: false,
+    },
+  },
   pool: {
-    max: 15,
-    min: 2,
+    max: 5,
+    min: 0,
     idle: 10000,
     acquire: 30000,
-    evict: 10000,
   },
-
-  // En producción normalmente hay SSL (Railway/Render/Supabase)
-  // En local normalmente NO (a menos que uses un proxy/pooler)
-  dialectOptions: isProd
-    ? {
-        ssl: {
-          require: true,
-          rejectUnauthorized: false,
-        },
-      }
-    : {},
 });
 
 export async function assertDbConnection(): Promise<void> {
