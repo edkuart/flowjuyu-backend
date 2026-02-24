@@ -648,6 +648,7 @@ export const getSellerAccountStatus: RequestHandler = async (req, res) => {
       `
       SELECT
         estado_validacion,
+        estado_admin,
         observaciones,
         actualizado_en,
         foto_dpi_frente,
@@ -669,14 +670,14 @@ export const getSellerAccountStatus: RequestHandler = async (req, res) => {
     const perfil = rows[0]
 
     const puedeOperar =
-      perfil.estado === "activo" &&
+      perfil.estado_admin === "activo" &&
       perfil.estado_validacion === "aprobado";
 
     res.json({
       ok: true,
       data: {
         estado_validacion: perfil.estado_validacion,
-        estado_admin: perfil.estado, 
+        estado_admin: perfil.estado_admin,
         ultima_revision: perfil.actualizado_en,
         observaciones_generales: perfil.observaciones,
 
