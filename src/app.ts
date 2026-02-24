@@ -73,29 +73,34 @@ const allowlist = (
 
 const corsOptions: cors.CorsOptions = {
   origin(origin, cb) {
-    // 🔹 Permitir requests sin origin (Postman, curl, server-to-server)
     if (!origin) return cb(null, true);
 
-    // 🔹 En desarrollo permitir todo localhost automáticamente
+    // 🔹 Dev: permitir todo
     if (process.env.NODE_ENV !== "production") {
       return cb(null, true);
     }
 
-    // 🔹 En producción validar allowlist
+    // 🔹 Allowlist explícita
     if (allowlist.includes(origin)) {
       return cb(null, true);
     }
 
-    console.warn("🚫 CORS blocked:", origin);
+    // 🔹 Permitir subdominios de flowjuyu.com
+    if (origin.endsWith(".flowjuyu.com")) {
+      return cb(null, true);
+    }
 
-    // ⚠️ NO lanzar error → evita 500 en preflight
+    // 🔹 Permitir cualquier subdominio de vercel
+    if (origin.endsWith(".vercel.app")) {
+      return cb(null, true);
+    }
+
+    console.warn("🚫 CORS blocked:", origin);
     return cb(null, false);
   },
 
   credentials: true,
-
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 
