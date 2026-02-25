@@ -8,6 +8,8 @@ import { sequelize } from "../config/db";
 import { User } from "../models/user.model";
 import { VendedorPerfil } from "../models/VendedorPerfil";
 import { sendResetPasswordEmail } from "../services/email.service";
+import supabase from "../lib/supabase";
+import { v4 as uuidv4 } from "uuid";
 
 // ────────────────────────────────────────────────────────────
 // Utilidad JWT
@@ -118,8 +120,10 @@ export const registerVendedor = async (
       return;
     }
 
+    // 🔐 Hash password
     const hash = await bcrypt.hash(String(password), 10);
 
+    // 👤 Crear usuario
     const nuevoUsuario = await User.create(
       {
         nombre,
@@ -132,18 +136,83 @@ export const registerVendedor = async (
       { transaction: t }
     );
 
+    console.log("🔥 FILES RECIBIDOS EN REGISTER:", req.files);
+
+    // 📁 Obtener archivos
     const files = (req.files as MulterFilesMap | undefined) || {};
 
+    // 🔥 Helper para subir a Supabase
+    async function uploadToSupabase(
+      file: Express.Multer.File,
+      folder: string
+    ) {
+      const ext = file.originalname.split(".").pop();
+      const fileName = `${folder}/${uuidv4()}.${ext}`;
+
+      const { error } = await supabase.storage
+        .from("vendedores_dpi")
+        .upload(fileName, file.buffer, {
+          contentType: file.mimetype,
+          upsert: false,
+        });
+
+      if (error) {
+        throw new Error(`Error subiendo a Supabase: ${error.message}`);
+      }
+
+      return fileName; // guardamos path interno
+    }
+
+    // 📤 Subir documentos si existen
+    let fotoFrente: string | null = null;
+    let fotoReverso: string | null = null;
+    let selfie: string | null = null;
+    let logo: string | null = null;
+
+    if (files["foto_dpi_frente"]?.[0]) {
+      fotoFrente = await uploadToSupabase(
+        files["foto_dpi_frente"][0],
+        "dpi_frente"
+      );
+    }
+
+    if (files["foto_dpi_reverso"]?.[0]) {
+      fotoReverso = await uploadToSupabase(
+        files["foto_dpi_reverso"][0],
+        "dpi_reverso"
+      );
+    }
+
+    if (files["selfie_con_dpi"]?.[0]) {
+      selfie = await uploadToSupabase(
+        files["selfie_con_dpi"][0],
+        "selfie"
+      );
+    }
+
+    if (files["logo"]?.[0]) {
+      logo = await uploadToSupabase(
+        files["logo"][0],
+        "logos"
+      );
+    }
+
+    const hasDocs = fotoFrente || fotoReverso || selfie;
+    const estadoInicial = hasDocs ? "en_revision" : "pendiente";
+
+    // 🏪 Crear perfil vendedor
     await VendedorPerfil.create(
       {
         user_id: nuevoUsuario.id,
+
+        // Datos personales
         nombre: nombre.trim(),
         email: correo.toLowerCase().trim(),
         telefono: telefono ? telefono.trim() : null,
         direccion: direccion ? direccion.trim() : null,
-        logo: files["logo"]
-          ? `/uploads/vendedores/${files["logo"]![0].filename}`
-          : null,
+
+        // Comercio
+        logo: logo,
         nombre_comercio: nombreComercio.trim(),
         telefono_comercio: telefonoComercio
           ? telefonoComercio.trim()
@@ -151,26 +220,29 @@ export const registerVendedor = async (
         departamento: departamento ?? null,
         municipio: municipio ?? null,
         descripcion: descripcion ?? null,
+
+        // KYC
         dpi: dpi.trim(),
-        foto_dpi_frente: files["fotoDPIFrente"]
-          ? `/uploads/vendedores/${files["fotoDPIFrente"]![0].filename}`
-          : null,
-        foto_dpi_reverso: files["fotoDPIReverso"]
-          ? `/uploads/vendedores/${files["fotoDPIReverso"]![0].filename}`
-          : null,
-        selfie_con_dpi: files["selfieConDPI"]
-          ? `/uploads/vendedores/${files["selfieConDPI"]![0].filename}`
-          : null,
-        estado_validacion: "pendiente",
-        estado: "activo",
+        foto_dpi_frente: fotoFrente,
+        foto_dpi_reverso: fotoReverso,
+        selfie_con_dpi: selfie,
+
+        // Estados
+        estado_validacion: estadoInicial,
+        estado_admin: "inactivo",
         observaciones: null,
         actualizado_en: new Date(),
+
+        // Inicialización KYC
+        kyc_score: 0,
+        kyc_riesgo: "alto",
       } as any,
       { transaction: t }
     );
 
     await t.commit();
 
+    // 🔑 Token
     const token = generateToken({
       id: nuevoUsuario.id,
       correo: nuevoUsuario.correo,
@@ -190,6 +262,7 @@ export const registerVendedor = async (
         direccion: nuevoUsuario.direccion,
       },
     });
+
   } catch (error) {
     await t.rollback();
     console.error("Error en registerVendedor:", error);

@@ -17,15 +17,7 @@ if (!fs.existsSync(uploadsDir)) {
 // ---------------------------
 // 🎞️ Configuración de Multer
 // ---------------------------
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (_req, file, cb) => {
-    const uniqueName = `${randomUUID()}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
-  },
-});
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
