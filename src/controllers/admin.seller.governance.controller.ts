@@ -7,7 +7,7 @@ import Product from "../models/product.model";
 import { sequelize } from "../config/db";
 import { Ticket } from "../models/ticket.model";
 import { TicketMessage } from "../models/ticketMessage.model";
-
+import supabase from "../lib/supabase";
 
 /* ======================================================
    🔹 LISTAR TODOS LOS SELLERS
@@ -88,12 +88,15 @@ export const getAllSellers: RequestHandler = async (req, res) => {
 
 
 /* ======================================================
-   🔹 SELLER DETAIL (CON HISTORIAL)
+   🔹 SELLER DETAIL (CON HISTORIAL + KYC PRIVADO)
 ====================================================== */
 export const getSellerDetail: RequestHandler = async (req, res) => {
   try {
     const userId = Number(req.params.id);
 
+    if (!Number.isFinite(userId)) {
+      return res.status(400).json({ message: "ID inválido" });
+    }
 
     const seller = await VendedorPerfil.findOne({
       where: { user_id: userId },
@@ -106,12 +109,9 @@ export const getSellerDetail: RequestHandler = async (req, res) => {
       ],
     });
 
-
     if (!seller) {
-      res.status(404).json({ message: "Vendedor no encontrado" });
-      return;
+      return res.status(404).json({ message: "Vendedor no encontrado" });
     }
-
 
     const history = await AdminAuditEvent.findAll({
       where: {
@@ -121,20 +121,83 @@ export const getSellerDetail: RequestHandler = async (req, res) => {
       order: [["created_at", "DESC"]],
     });
 
+    const sellerData = seller.toJSON();
+
+    // =====================================================
+    // 🔐 GENERAR SIGNED URLS PARA DOCUMENTOS KYC
+    // =====================================================
+
+    const generateSignedUrl = async (
+      fullUrl: string | null | undefined
+    ) => {
+      if (!fullUrl) return null;
+
+      let cleanPath = fullUrl;
+
+      // 🔥 Si viene como URL completa, extraemos solo el path interno
+      if (fullUrl.startsWith("http")) {
+        const parts = fullUrl.split("/vendedores_dpi/");
+        if (parts.length === 2) {
+          cleanPath = parts[1];
+        }
+      }
+
+      console.log("CLEAN PATH:", cleanPath);
+
+      const { data, error } = await supabase.storage
+        .from("vendedores_dpi")
+        .createSignedUrl(cleanPath, 60);
+
+      if (error) {
+        console.error("Signed URL error:", error.message);
+        return null;
+      }
+
+      return data?.signedUrl ?? null;
+    };
+
+    console.log("RAW PATHS FROM DB:", {
+  frente: sellerData.foto_dpi_frente,
+  reverso: sellerData.foto_dpi_reverso,
+  selfie: sellerData.selfie_con_dpi,
+});
+
+    sellerData.foto_dpi_frente = await generateSignedUrl(
+      sellerData.foto_dpi_frente
+    );
+
+    sellerData.foto_dpi_reverso = await generateSignedUrl(
+      sellerData.foto_dpi_reverso
+    );
+
+    sellerData.selfie_con_dpi = await generateSignedUrl(
+      sellerData.selfie_con_dpi
+    );
+
+    // 🔥 DEBUG AQUÍ
+console.log("SIGNED URL RESULT:", {
+  frente: sellerData.foto_dpi_frente,
+  reverso: sellerData.foto_dpi_reverso,
+  selfie: sellerData.selfie_con_dpi,
+});
+
+    // =====================================================
+    // RESPONSE FINAL
+    // =====================================================
 
     res.json({
       ok: true,
       data: {
-        ...seller.toJSON(),
+        ...sellerData,
         audit_log: history,
       },
     });
+
   } catch (error) {
     console.error("getSellerDetail error:", error);
     res.status(500).json({ message: "Error interno" });
   }
 };
-
 
 /* ======================================================
    🔹 APPROVE SELLER (CON VALIDACIÓN KYC SCORE)
@@ -475,6 +538,134 @@ export const requestKycDocuments: RequestHandler = async (req, res) => {
 
   } catch (error) {
     console.error("requestKycDocuments error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+/* ======================================================
+   🔹 SAVE KYC REVIEW
+====================================================== */
+export const saveKycReview: RequestHandler = async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const adminId = Number(req.user!.id);
+
+    const seller = await VendedorPerfil.findOne({
+      where: { user_id: userId },
+    });
+
+    if (!seller) {
+      return res.status(404).json({ message: "Vendedor no encontrado" });
+    }
+
+    const checklist = req.body;
+
+    const totalChecks = Object.values(checklist).filter(Boolean).length;
+    const score = Math.round((totalChecks / 5) * 100);
+
+    let riesgo: "bajo" | "medio" | "alto" = "alto";
+    if (score >= 80) riesgo = "bajo";
+    else if (score >= 50) riesgo = "medio";
+
+    const before = {
+      kyc_score: seller.kyc_score,
+      kyc_riesgo: seller.kyc_riesgo,
+    };
+
+    seller.kyc_checklist = checklist;
+    seller.kyc_score = score;
+    seller.kyc_riesgo = riesgo;
+    seller.kyc_revisado_por = adminId;
+    seller.kyc_revisado_en = new Date();
+
+    await seller.save();
+
+    // 🔥 AUDIT LOG
+    await logAdminEvent({
+      entityType: "seller",
+      entityId: seller.id,
+      action: "KYC_REVIEW_UPDATED",
+      performedBy: adminId,
+      metadata: {
+        before,
+        after: {
+          kyc_score: score,
+          kyc_riesgo: riesgo,
+        },
+      },
+    });
+
+    res.json({
+      ok: true,
+      message: "Revisión KYC guardada correctamente",
+    });
+
+  } catch (error) {
+    console.error("saveKycReview error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+console.log("REVIEW KYC VERSION 2026 ACTIVE");
+export const reviewSellerKYC: RequestHandler = async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const adminId = Number(req.user!.id);
+
+    const seller = await VendedorPerfil.findOne({
+      where: { user_id: userId },
+    });
+
+    if (!seller) {
+      return res.status(404).json({ message: "Vendedor no encontrado" });
+    }
+
+    const checklist = req.body;
+
+    const totalChecks = Object.values(checklist).filter(Boolean).length;
+    const score = Math.round((totalChecks / 5) * 100);
+
+    let riesgo: "bajo" | "medio" | "alto" = "alto";
+    if (score >= 80) riesgo = "bajo";
+    else if (score >= 50) riesgo = "medio";
+
+    const before = {
+      kyc_score: seller.kyc_score,
+      kyc_riesgo: seller.kyc_riesgo,
+    };
+
+    seller.kyc_checklist = checklist;
+    seller.kyc_score = score;
+    seller.kyc_riesgo = riesgo;
+    seller.kyc_revisado_por = adminId;
+    seller.kyc_revisado_en = new Date();
+
+    await seller.save();
+
+    console.log("CREANDO AUDIT CON ID:", seller.id);
+
+    // 🔥 AUDIT LOG
+    await logAdminEvent({
+      entityType: "seller",
+      entityId: seller.id,
+      action: "KYC_REVIEW_UPDATED",
+      performedBy: adminId,
+      metadata: {
+        before,
+        after: {
+          kyc_score: score,
+          kyc_riesgo: riesgo,
+        },
+      },
+    });
+
+    res.json({
+      ok: true,
+      message: "REVISION 2026 NUEVA VERSION ACTIVA",
+    });
+
+  } catch (error) {
+    console.error("reviewSellerKYC error:", error);
     res.status(500).json({ message: "Error interno" });
   }
 };

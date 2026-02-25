@@ -16,7 +16,7 @@ import {
   reactivateSeller,
 } from "../controllers/admin.seller.governance.controller";
 
-import { reviewSellerKYC } from "../controllers/admin.controller";
+import { reviewSellerKYC } from "../controllers/admin.seller.governance.controller";
 
 const router = Router();
 

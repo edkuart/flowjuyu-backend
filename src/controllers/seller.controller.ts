@@ -467,7 +467,7 @@ export const validateSellerBusiness: RequestHandler = async (req, res) => {
         throw new Error(`No se pudo generar publicUrl para ${fileName}`);
       }
 
-      return data.publicUrl;
+      return fileName;
     };
 
     if (files.foto_dpi_frente?.[0]) {
