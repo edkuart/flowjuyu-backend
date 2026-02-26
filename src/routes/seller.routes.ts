@@ -8,8 +8,6 @@ import { requireActiveSeller } from "../middleware/requireActiveSeller";
 import * as SellerController from "../controllers/seller.controller";
 import * as SellerTicketController from "../controllers/sellerTicket.controller";
 
-console.log("updateSellerCustomization:", SellerController.updateSellerCustomization);
-
 const router = Router();
 
 /* ==================================================
@@ -161,6 +159,17 @@ router.get(
 router.post(
   "/tickets/:id/reply",
   asyncHandler(SellerTicketController.replyToTicketSeller)
+);
+
+router.put(
+  "/banner",
+  upload.single("banner"),
+  asyncHandler(SellerController.updateSellerBanner)
+);
+
+router.delete(
+  "/banner",
+  asyncHandler(SellerController.deleteSellerBanner)
 );
 
 /* ==================================================

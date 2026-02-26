@@ -153,6 +153,7 @@ export class VendedorPerfil
   public banner_url?: string | null;
   public identidad_tags?: string[] | null;
   public productos_destacados?: string[] | null;
+  public mensaje_destacado?: string | null;
 
   /* 🏛️ KYC */
   public kyc_checklist?: any;

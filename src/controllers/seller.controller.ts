@@ -948,10 +948,57 @@ export const getSellerAnalyticsDaily: RequestHandler = async (req, res) => {
 
 export const updateSellerCustomization: RequestHandler = async (req, res) => {
   try {
-    const user: any = (req as any).user;
-
+    const user: any = (req as any).user
     if (!user?.id) {
-      res.status(401).json({ message: "No autorizado" });
+      res.status(401).json({ message: "No autorizado" })
+      return
+    }
+
+    const perfil = await VendedorPerfil.findOne({ where: { user_id: user.id } })
+    if (!perfil) {
+      res.status(404).json({ message: "Perfil no encontrado" })
+      return
+    }
+
+    const { identidad_tags, productos_destacados, banner_url, mensaje_destacado } = req.body
+
+    // ✅ Validaciones ANTES de guardar
+    if (identidad_tags && identidad_tags.length > 4) {
+      res.status(400).json({ message: "Máximo 4 etiquetas permitidas" })
+      return
+    }
+
+    if (productos_destacados && productos_destacados.length > 3) {
+      res.status(400).json({ message: "Máximo 3 productos destacados" })
+      return
+    }
+
+    // ✅ Un solo update (incluye mensaje_destacado)
+    await perfil.update({
+      identidad_tags: identidad_tags ?? perfil.identidad_tags,
+      productos_destacados: productos_destacados ?? perfil.productos_destacados,
+      banner_url: banner_url ?? perfil.banner_url,
+      mensaje_destacado: mensaje_destacado ?? perfil.mensaje_destacado,
+      actualizado_en: new Date(),
+    })
+
+    res.json({ ok: true, message: "Personalización actualizada" })
+  } catch (error: any) {
+    console.error("Error updateSellerCustomization:", error)
+    res.status(500).json({ message: "Error interno", error: error.message })
+  }
+}
+
+export const updateSellerBanner: RequestHandler = async (req, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ message: "No se envió archivo" });
+      return;
+    }
+
+    const user = (req as any).user;
+    if (!user?.id) {
+      res.status(401).json({ message: "No autenticado" });
       return;
     }
 
@@ -964,55 +1011,94 @@ export const updateSellerCustomization: RequestHandler = async (req, res) => {
       return;
     }
 
-    const {
-      identidad_tags,
-      productos_destacados,
-      banner_url,
-      mensaje_destacado,
-    } = req.body
+    // 🔥 1. Eliminar banner anterior si existe
+    if (perfil.banner_url) {
+      const prevFile = perfil.banner_url.split("/").pop();
+      if (prevFile) {
+        await supabase.storage
+          .from("banners_comercios")
+          .remove([`vendedores/${prevFile}`]);
+      }
+    }
+
+    // 🔥 2. Subir nuevo banner
+    const ext = req.file.originalname.split(".").pop();
+    const fileName = `vendedores/${uuidv4()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("banners_comercios")
+      .upload(fileName, req.file.buffer, {
+        contentType: req.file.mimetype,
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data } = supabase.storage
+      .from("banners_comercios")
+      .getPublicUrl(fileName);
+
+    const publicUrl = data.publicUrl;
 
     await perfil.update({
-      identidad_tags,
-      productos_destacados,
-      banner_url,
-      mensaje_destacado,
-    })
-
-    // Validaciones
-    if (identidad_tags && identidad_tags.length > 4) {
-      res.status(400).json({
-        message: "Máximo 4 etiquetas permitidas",
-      });
-      return;
-    }
-
-    if (productos_destacados && productos_destacados.length > 3) {
-      res.status(400).json({
-        message: "Máximo 3 productos destacados",
-      });
-      return;
-    }
-
-    await VendedorPerfil.update(
-      {
-        identidad_tags: identidad_tags ?? perfil.identidad_tags,
-        productos_destacados:
-          productos_destacados ?? perfil.productos_destacados,
-        banner_url: banner_url ?? perfil.banner_url,
-        actualizado_en: new Date(),
-      },
-      { where: { user_id: user.id } }
-    );
+      banner_url: publicUrl,
+      actualizado_en: new Date(),
+    });
 
     res.json({
       ok: true,
-      message: "Personalización actualizada",
+      banner_url: publicUrl,
     });
 
   } catch (error: any) {
-    console.error("Error updateSellerCustomization:", error);
+    console.error("Error updateSellerBanner:", error);
     res.status(500).json({
-      message: "Error interno",
+      message: "Error subiendo banner",
+      error: error.message,
+    });
+  }
+};
+
+export const deleteSellerBanner: RequestHandler = async (req, res) => {
+  try {
+    const user = (req as any).user;
+
+    if (!user?.id) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const perfil = await VendedorPerfil.findOne({
+      where: { user_id: user.id },
+    });
+
+    if (!perfil) {
+      res.status(404).json({ message: "Perfil no encontrado" });
+      return;
+    }
+
+    if (perfil.banner_url) {
+      const prevFile = perfil.banner_url.split("/").pop();
+
+      if (prevFile) {
+        await supabase.storage
+          .from("banners_comercios")
+          .remove([`vendedores/${prevFile}`]);
+      }
+    }
+
+    await perfil.update({
+      banner_url: null,
+      actualizado_en: new Date(),
+    });
+
+    res.json({ ok: true });
+
+  } catch (error: any) {
+    console.error("Error deleteSellerBanner:", error);
+    res.status(500).json({
+      message: "Error eliminando banner",
       error: error.message,
     });
   }
