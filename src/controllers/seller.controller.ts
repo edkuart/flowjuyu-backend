@@ -619,8 +619,7 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
       return;
     }
 
-    // 1️⃣ Obtener info del vendedor
-    const seller: any = await sequelize.query(
+    const seller: any[] = await sequelize.query(
       `
       SELECT 
         vp.user_id AS id,
@@ -628,7 +627,14 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         vp.descripcion,
         vp.logo,
         vp.departamento,
-        vp.municipio
+        vp.municipio,
+        vp.plan,
+        vp.plan_activo,
+        vp.whatsapp_numero,
+        vp.banner_url,
+        vp.identidad_tags,
+        vp.productos_destacados,
+        vp."createdAt"
       FROM vendedor_perfil vp
       WHERE vp.user_id = :id
       `,
@@ -638,23 +644,21 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
       }
     );
 
-    if (!seller || seller.length === 0) {
+    if (!seller.length) {
       res.status(404).json({ message: "Vendedor no encontrado" });
       return;
     }
 
     const sellerData = seller[0];
 
-    // 2️⃣ Productos activos del vendedor
-    const products: any = await sequelize.query(
+    const products: any[] = await sequelize.query(
       `
       SELECT 
         p.id,
         p.nombre,
         p.precio,
         p.imagen_url,
-        p.departamento,
-        p.municipio
+        p.created_at
       FROM productos p
       WHERE p.vendedor_id = :id
       AND p.activo = true
@@ -666,36 +670,25 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
       }
     );
 
-    // 3️⃣ Rating agregado de la tienda
-    const rating: any = await sequelize.query(
-      `
-      SELECT 
-        COUNT(r.id) AS rating_count,
-        COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0) AS rating_avg
-      FROM productos p
-      LEFT JOIN reviews r ON r.producto_id = p.id
-      WHERE p.vendedor_id = :id
-      `,
-      {
-        replacements: { id },
-        type: QueryTypes.SELECT,
-      }
-    );
-
-    const ratingData = rating[0];
-
     res.json({
       seller: {
-        ...sellerData,
-        rating_avg: Number(ratingData.rating_avg),
-        rating_count: Number(ratingData.rating_count),
+        id: sellerData.id,
+        nombre_comercio: sellerData.nombre_comercio,
+        descripcion: sellerData.descripcion,
+        logo: sellerData.logo,
+        departamento: sellerData.departamento,
+        municipio: sellerData.municipio,
+        plan: sellerData.plan,
+        plan_activo: sellerData.plan_activo,
+        whatsapp: sellerData.whatsapp_numero,
+        banner_url: sellerData.banner_url,
+        identidad_tags: sellerData.identidad_tags ?? [],
+        productos_destacados: sellerData.productos_destacados ?? [],
+        created_at: sellerData.createdAt,
       },
       products: products ?? [],
-      stats: {
-        total_products: products.length,
-        total_reviews: Number(ratingData.rating_count),
-      },
     });
+
   } catch (error) {
     console.error("Error en getPublicSellerStore:", error);
     res.status(500).json({ message: "Error interno" });
@@ -950,5 +943,77 @@ export const getSellerAnalyticsDaily: RequestHandler = async (req, res) => {
   } catch (error) {
     console.error("Error getSellerAnalyticsDaily:", error);
     res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
+export const updateSellerCustomization: RequestHandler = async (req, res) => {
+  try {
+    const user: any = (req as any).user;
+
+    if (!user?.id) {
+      res.status(401).json({ message: "No autorizado" });
+      return;
+    }
+
+    const perfil = await VendedorPerfil.findOne({
+      where: { user_id: user.id },
+    });
+
+    if (!perfil) {
+      res.status(404).json({ message: "Perfil no encontrado" });
+      return;
+    }
+
+    const {
+      identidad_tags,
+      productos_destacados,
+      banner_url,
+      mensaje_destacado,
+    } = req.body
+
+    await perfil.update({
+      identidad_tags,
+      productos_destacados,
+      banner_url,
+      mensaje_destacado,
+    })
+
+    // Validaciones
+    if (identidad_tags && identidad_tags.length > 4) {
+      res.status(400).json({
+        message: "Máximo 4 etiquetas permitidas",
+      });
+      return;
+    }
+
+    if (productos_destacados && productos_destacados.length > 3) {
+      res.status(400).json({
+        message: "Máximo 3 productos destacados",
+      });
+      return;
+    }
+
+    await VendedorPerfil.update(
+      {
+        identidad_tags: identidad_tags ?? perfil.identidad_tags,
+        productos_destacados:
+          productos_destacados ?? perfil.productos_destacados,
+        banner_url: banner_url ?? perfil.banner_url,
+        actualizado_en: new Date(),
+      },
+      { where: { user_id: user.id } }
+    );
+
+    res.json({
+      ok: true,
+      message: "Personalización actualizada",
+    });
+
+  } catch (error: any) {
+    console.error("Error updateSellerCustomization:", error);
+    res.status(500).json({
+      message: "Error interno",
+      error: error.message,
+    });
   }
 };

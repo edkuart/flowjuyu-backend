@@ -54,6 +54,11 @@ interface VendedorPerfilAttrs {
   observaciones?: string | null;
   actualizado_en?: Date | null;
 
+  banner_url?: string | null;
+  identidad_tags?: string[] | null;
+  productos_destacados?: string[] | null;
+  mensaje_destacado?: string | null;
+
   /* ===============================
      🏛️ KYC PROFESIONAL
   =============================== */
@@ -109,6 +114,9 @@ type Creation = Optional<
   | "whatsapp_numero"
   | "createdAt"
   | "updatedAt"
+  | "banner_url"
+  | "identidad_tags"
+  | "productos_destacados"
 >;
 
 /* ======================================================
@@ -140,6 +148,11 @@ export class VendedorPerfil
 
   public observaciones?: string | null;
   public actualizado_en?: Date | null;
+
+  /* 🎨 PERSONALIZACIÓN TIENDA */
+  public banner_url?: string | null;
+  public identidad_tags?: string[] | null;
+  public productos_destacados?: string[] | null;
 
   /* 🏛️ KYC */
   public kyc_checklist?: any;
@@ -297,6 +310,32 @@ VendedorPerfil.init(
 
     whatsapp_numero: {
       type: DataTypes.STRING(15),
+      allowNull: true,
+    },
+
+    /* ===============================
+      🎨 PERSONALIZACIÓN TIENDA
+    ================================ */
+
+    banner_url: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    identidad_tags: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: [],
+    },
+
+    productos_destacados: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: [],
+    },
+
+    mensaje_destacado: {
+      type: DataTypes.TEXT,
       allowNull: true,
     },
 

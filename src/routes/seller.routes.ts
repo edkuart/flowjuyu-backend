@@ -8,6 +8,8 @@ import { requireActiveSeller } from "../middleware/requireActiveSeller";
 import * as SellerController from "../controllers/seller.controller";
 import * as SellerTicketController from "../controllers/sellerTicket.controller";
 
+console.log("updateSellerCustomization:", SellerController.updateSellerCustomization);
+
 const router = Router();
 
 /* ==================================================
@@ -21,7 +23,9 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!/^image\/(png|jpe?g|webp|avif)$/.test(file.mimetype)) {
-      return cb(new Error("Solo se permiten imágenes (png, jpg, webp, avif)"));
+      return cb(
+        new Error("Solo se permiten imágenes (png, jpg, webp, avif)")
+      );
     }
     cb(null, true);
   },
@@ -32,8 +36,15 @@ const upload = multer({
    (SIEMPRE PRIMERO)
 ================================================== */
 
-router.get("/sellers/top", asyncHandler(SellerController.getTopSellers));
-router.get("/tiendas", asyncHandler(SellerController.getSellers));
+router.get(
+  "/sellers/top",
+  asyncHandler(SellerController.getTopSellers)
+);
+
+router.get(
+  "/tiendas",
+  asyncHandler(SellerController.getSellers)
+);
 
 /* ==================================================
    🔐 MIDDLEWARE GLOBAL SELLER
@@ -48,21 +59,27 @@ router.use(
    🔒 RUTAS PRIVADAS (Seller autenticado)
 ================================================== */
 
-// Dashboard (requiere vendedor activo)
+// ==============================
+// 📊 Dashboard
+// ==============================
 router.get(
   "/dashboard",
   requireActiveSeller,
   asyncHandler(SellerController.getSellerDashboard)
 );
 
-// Órdenes (placeholder futuro)
+// ==============================
+// 🧾 Órdenes
+// ==============================
 router.get(
   "/orders",
   requireActiveSeller,
   asyncHandler(SellerController.getSellerOrders)
 );
 
-// Perfil
+// ==============================
+// 👤 Perfil
+// ==============================
 router.get(
   "/profile",
   asyncHandler(SellerController.getSellerProfile)
@@ -74,7 +91,17 @@ router.patch(
   asyncHandler(SellerController.updateSellerProfile)
 );
 
-// Validación legal (NO requiere active seller aún)
+// ==============================
+// 🎨 Personalización Tienda
+// ==============================
+router.put(
+  "/customization",
+  asyncHandler(SellerController.updateSellerCustomization)
+);
+
+// ==============================
+// 🏛 Validación legal (KYC)
+// ==============================
 router.post(
   "/validar",
   upload.fields([
@@ -85,7 +112,9 @@ router.post(
   asyncHandler(SellerController.validateSellerBusiness)
 );
 
-// Analytics
+// ==============================
+// 📈 Analytics
+// ==============================
 router.get(
   "/analytics",
   requireActiveSeller,
@@ -98,7 +127,9 @@ router.get(
   asyncHandler(SellerController.getSellerAnalyticsDaily)
 );
 
-// Estado de cuenta (NO requiere activo)
+// ==============================
+// 🧾 Estado de cuenta
+// ==============================
 router.get(
   "/account-status",
   asyncHandler(SellerController.getSellerAccountStatus)
@@ -120,7 +151,7 @@ router.get(
   asyncHandler(SellerTicketController.getMyTickets)
 );
 
-// Detalle de un ticket
+// Detalle ticket
 router.get(
   "/tickets/:id",
   asyncHandler(SellerTicketController.getMyTicketDetail)
@@ -133,9 +164,12 @@ router.post(
 );
 
 /* ==================================================
-   ⚠️ ESTA SIEMPRE AL FINAL
+   ⚠️ RUTA DINÁMICA (SIEMPRE AL FINAL)
 ================================================== */
 
-router.get("/:id", asyncHandler(SellerController.getSellerProfile));
+router.get(
+  "/:id",
+  asyncHandler(SellerController.getSellerProfile)
+);
 
 export default router;
