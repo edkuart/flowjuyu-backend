@@ -22,6 +22,7 @@ import publicRoutes from "./routes/public.routes";
 import analyticsRoutes from "./routes/analytics.routes";
 import adminRoutes from "./routes/admin.routes";
 import adminTicketRoutes from "./routes/admin.ticket.routes";
+import intentionRoutes from "./routes/intention.routes";
 
 // Middleware global
 import { errorHandler } from "./middleware/errorHandler";
@@ -203,6 +204,7 @@ app.get("/healthz", healthz);
 app.use("/api", publicRoutes);
 app.use("/api", authRoutes);
 app.use("/api", productRoutes);
+app.use("/api", intentionRoutes);
 
 // ===========================
 // 🏛️ ADMIN — SIEMPRE PRIMERO

@@ -6,6 +6,7 @@ import { User } from "../models/user.model";
 import { sequelize } from "../config/db";
 import supabase from "../lib/supabase";
 import Product from "../models/product.model";
+import { getSellerAnalyticsData } from "../services/analytics.service";
 import { v4 as uuidv4 } from "uuid";
 
 // ==============================
@@ -764,84 +765,43 @@ export const getSellerAnalytics: RequestHandler = async (req, res) => {
     const user: any = (req as any).user;
 
     if (!user?.id) {
-      res.status(401).json({ message: "No autenticado" });
-      return;
+      return res.status(401).json({ message: "No autenticado" });
     }
 
     const sellerId = user.id;
 
-    // =============================
-    // Total vistas de productos
-    // =============================
-    const productViews: any[] = await sequelize.query(
-      `
-      SELECT COUNT(*)::int AS total
-      FROM product_views
-      WHERE seller_id = :sellerId
-      `,
-      {
-        replacements: { sellerId },
-        type: QueryTypes.SELECT,
-      }
-    );
+    const data = await getSellerAnalyticsData(Number(sellerId));
 
-    // =============================
-    // Total vistas de perfil
-    // (Si no existe seller_views aún, lo dejamos en 0)
-    // =============================
-    let totalProfileViews = 0;
+    const conversionRatio =
+      data.totalProductViews > 0
+        ? Number(
+            (data.totalIntentions / data.totalProductViews).toFixed(4)
+          )
+        : 0;
 
-    try {
-      const profileViews: any[] = await sequelize.query(
-        `
-        SELECT COUNT(*)::int AS total
-        FROM seller_views
-        WHERE seller_id = :sellerId
-        `,
-        {
-          replacements: { sellerId },
-          type: QueryTypes.SELECT,
-        }
-      );
-
-      totalProfileViews = profileViews[0]?.total ?? 0;
-    } catch (e) {
-      // Si la tabla no existe aún, no rompemos el endpoint
-      totalProfileViews = 0;
-    }
-
-    // =============================
-    // Top productos
-    // =============================
-    const topProducts: any[] = await sequelize.query(
-      `
-      SELECT 
-        p.id,
-        p.nombre,
-        COUNT(pv.id)::int AS total_views
-      FROM productos p
-      LEFT JOIN product_views pv ON pv.product_id = p.id
-      WHERE p.vendedor_id = :sellerId
-      GROUP BY p.id
-      ORDER BY total_views DESC
-      LIMIT 5
-      `,
-      {
-        replacements: { sellerId },
-        type: QueryTypes.SELECT,
-      }
-    );
+        console.log("🚨 LOCAL ANALYTICS CONTROLLER EJECUTÁNDOSE");
+        console.log("🚨 LAST30 LOCAL:", data.last30Days);
 
     res.json({
       success: true,
-      totalProductViews: productViews[0]?.total ?? 0,
-      totalProfileViews,
-      topProducts,
+
+      totalProductViews: data.totalProductViews,
+      totalProfileViews: data.totalProfileViews,
+
+      totalIntentions: data.totalIntentions,
+      conversionRatio,
+
+      topProducts: data.topProducts,
+      topIntentedProducts: data.topIntentionProducts,
+
+      last30Days: data.last30Days,
     });
 
   } catch (error) {
     console.error("Error getSellerAnalytics:", error);
-    res.status(500).json({ message: "Error interno del servidor" });
+    res.status(500).json({
+      message: "Error interno del servidor",
+    });
   }
 };
 

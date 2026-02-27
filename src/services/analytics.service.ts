@@ -17,11 +17,28 @@ export interface TopProduct {
   total_views: number
 }
 
+export interface TopIntentionProduct {
+  id: string
+  nombre: string
+  total_intentions: number
+}
+
+export interface IntentionBySource {
+  source: string
+  total: number
+}
+
 export interface SellerAnalyticsData {
   totalProductViews: number
   totalProfileViews: number
   topProducts: TopProduct[]
   last30Days: Last30DaysPoint[]
+
+  // 🔥 NUEVO — INTENCIÓN COMERCIAL
+  totalIntentions: number
+  last30Intentions: number
+  topIntentionProducts: TopIntentionProduct[]
+  intentionsBySource: IntentionBySource[]
 }
 
 /* =====================================================
@@ -64,7 +81,7 @@ export async function getSellerAnalyticsData(
   )
 
   /* ==============================
-     TOP PRODUCTS
+     TOP PRODUCTS (VIEWS)
   ============================== */
   const topProducts = await sequelize.query<TopProduct>(
     `
@@ -86,43 +103,126 @@ export async function getSellerAnalyticsData(
   )
 
   /* ==============================
-     LAST 30 DAYS TREND
+     LAST 30 DAYS TREND (VIEWS)
   ============================== */
   const rawLast30 = await sequelize.query<Last30DaysPoint>(
     `
     SELECT 
-      date_series::date as date,
-      COALESCE(pv.count, 0) as product_views,
-      COALESCE(sv.count, 0) as profile_views
-    FROM generate_series(
-      CURRENT_DATE - INTERVAL '29 days',
-      CURRENT_DATE,
-      '1 day'
-    ) AS date_series
+      gs.date,
+      COALESCE(pv.count, 0) AS product_views,
+      COALESCE(sv.count, 0) AS profile_views
+    FROM (
+      SELECT generate_series(
+        CURRENT_DATE - INTERVAL '29 days',
+        CURRENT_DATE,
+        INTERVAL '1 day'
+      )::date AS date
+    ) gs
     LEFT JOIN (
       SELECT 
-        DATE(viewed_at) as date,
-        COUNT(*)::int as count
+        DATE(viewed_at) AS date,
+        COUNT(*)::int AS count
       FROM product_views pv
       JOIN productos p ON p.id = pv.product_id
       WHERE p.vendedor_id = :sellerId
+        AND viewed_at >= CURRENT_DATE - INTERVAL '29 days'
       GROUP BY DATE(viewed_at)
-    ) pv ON pv.date = date_series
+    ) pv ON pv.date = gs.date
     LEFT JOIN (
       SELECT 
-        DATE(viewed_at) as date,
-        COUNT(*)::int as count
+        DATE(viewed_at) AS date,
+        COUNT(*)::int AS count
       FROM seller_views
       WHERE seller_id = :sellerId
+        AND viewed_at >= CURRENT_DATE - INTERVAL '29 days'
       GROUP BY DATE(viewed_at)
-    ) sv ON sv.date = date_series
-    ORDER BY date_series ASC
+    ) sv ON sv.date = gs.date
+    ORDER BY gs.date ASC
+    `,
+    {
+      replacements: { sellerId },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  /* =====================================================
+     🔥 INTENCIÓN COMERCIAL
+  ===================================================== */
+
+  /* ==============================
+     TOTAL INTENTIONS
+  ============================== */
+  const [totalIntentionsResult] = await sequelize.query<{ total: number }>(
+    `
+    SELECT COUNT(*)::int as total
+    FROM purchase_intentions
+    WHERE seller_id = :sellerId
     `,
     {
       replacements: { sellerId },
       type: QueryTypes.SELECT,
     }
   )
+
+  /* ==============================
+     LAST 30 DAYS INTENTIONS
+  ============================== */
+  const [last30IntentionsResult] = await sequelize.query<{ total: number }>(
+    `
+    SELECT COUNT(*)::int as total
+    FROM purchase_intentions
+    WHERE seller_id = :sellerId
+      AND created_at >= NOW() - INTERVAL '30 days'
+    `,
+    {
+      replacements: { sellerId },
+      type: QueryTypes.SELECT,
+    }
+  )
+
+  /* ==============================
+     TOP PRODUCTS BY INTENTIONS
+  ============================== */
+  const topIntentionProducts = await sequelize.query<TopIntentionProduct>(
+    `
+    SELECT 
+      p.id,
+      p.nombre,
+      COUNT(pi.id)::int as total_intentions
+    FROM purchase_intentions pi
+    JOIN productos p ON p.id = pi.product_id
+    WHERE pi.seller_id = :sellerId
+    GROUP BY p.id, p.nombre
+    ORDER BY total_intentions DESC
+    LIMIT 5
+    `,
+    {
+      replacements: { sellerId },
+      type: QueryTypes.SELECT,
+    }
+  )
+
+  /* ==============================
+     INTENTIONS BY SOURCE
+  ============================== */
+  const intentionsBySource = await sequelize.query<IntentionBySource>(
+    `
+    SELECT 
+      source,
+      COUNT(*)::int as total
+    FROM purchase_intentions
+    WHERE seller_id = :sellerId
+    GROUP BY source
+    `,
+    {
+      replacements: { sellerId },
+      type: QueryTypes.SELECT,
+    }
+  )
+
+  /* =====================================================
+     RETURN FINAL
+  ===================================================== */
 
   return {
     totalProductViews: productViews?.total ?? 0,
@@ -133,5 +233,11 @@ export async function getSellerAnalyticsData(
       product_views: Number(row.product_views),
       profile_views: Number(row.profile_views),
     })),
+
+    // 🔥 NUEVO
+    totalIntentions: totalIntentionsResult?.total ?? 0,
+    last30Intentions: last30IntentionsResult?.total ?? 0,
+    topIntentionProducts,
+    intentionsBySource,
   }
 }

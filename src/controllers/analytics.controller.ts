@@ -73,7 +73,13 @@ export const trackProductView: RequestHandler = async (req, res) => {
       return;
     }
 
-    const sellerId = product[0].vendedor_id;
+    const sellerId = product[0]?.vendedor_id;
+
+    if (!sellerId) {
+      return res.status(500).json({
+        message: "Producto sin vendedor válido",
+      });
+    }
 
     const result = await sequelize.query(
       `
@@ -309,6 +315,8 @@ export const getSellerAnalyticsOverview: RequestHandler = async (req, res) => {
     }
 
     const data = await getSellerAnalyticsData(Number(sellerId));
+
+    console.log("LAST30 BACKEND:", data.last30Days)
 
     res.json({
       success: true,
