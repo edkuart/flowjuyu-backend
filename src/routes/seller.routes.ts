@@ -2,7 +2,7 @@
 
 import { Router } from "express";
 import multer from "multer";
-import asyncHandler from "../utils/asyncHandler";
+import asyncHandler from "../middleware/asyncHandler";
 import { verifyToken, requireRole } from "../middleware/auth";
 import { requireActiveSeller } from "../middleware/requireActiveSeller";
 import * as SellerController from "../controllers/seller.controller";

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import asyncHandler from "../utils/asyncHandler";
+import asyncHandler from "../middleware/asyncHandler";
 import { verifyToken, requireRole } from "../middleware/auth";
 import * as AdminTicketController from "../controllers/admin.ticket.controller";
 
