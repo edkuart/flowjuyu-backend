@@ -2,31 +2,51 @@ param(
     [string]$Command
 )
 
+function Analyze-Backend {
+
+    Write-Host ""
+    Write-Host "FLOWJUYU BACKEND ANALYSIS"
+    Write-Host "-------------------------"
+
+    Write-Host ""
+    Write-Host "Controllers:"
+    Get-ChildItem src/controllers -Filter *.ts -ErrorAction SilentlyContinue |
+        Select-Object Name
+
+    Write-Host ""
+    Write-Host "Routes:"
+    Get-ChildItem src/routes -Filter *.ts -ErrorAction SilentlyContinue |
+        Select-Object Name
+
+    Write-Host ""
+    Write-Host "Services:"
+    Get-ChildItem src/services -Filter *.ts -ErrorAction SilentlyContinue |
+        Select-Object Name
+
+    Write-Host ""
+    Write-Host "Models:"
+    Get-ChildItem src/models -Filter *.ts -ErrorAction SilentlyContinue |
+        Select-Object Name
+
+    Write-Host ""
+    Write-Host "Middleware:"
+    Get-ChildItem src/middleware -Filter *.ts -ErrorAction SilentlyContinue |
+        Select-Object Name
+
+    Write-Host ""
+    Write-Host "Utils:"
+    Get-ChildItem src/utils -Filter *.ts -ErrorAction SilentlyContinue |
+        Select-Object Name
+}
+
 switch ($Command) {
 
     "context" {
-        Write-Host ""
-        Write-Host "Generating context pack..."
         .\scripts\context-pack.ps1
     }
 
     "analyze" {
-        Write-Host ""
-        Write-Host "Flowjuyu AI analysis checklist"
-        Write-Host "--------------------------------"
-        Write-Host "1. Check unused dependencies"
-        Write-Host "2. Check dead files"
-        Write-Host "3. Check route coverage"
-        Write-Host "4. Check controller usage"
-        Write-Host ""
-        Write-Host "Next step: send CONTEXT_PACK.md to AI agent"
-    }
-
-    "spec" {
-        Write-Host ""
-        Write-Host "Create a new spec:"
-        Write-Host "Example:"
-        Write-Host "New-Item specs\my-feature.md"
+        Analyze-Backend
     }
 
     default {
@@ -35,6 +55,5 @@ switch ($Command) {
         Write-Host "Commands:"
         Write-Host "flow context"
         Write-Host "flow analyze"
-        Write-Host "flow spec"
     }
 }
