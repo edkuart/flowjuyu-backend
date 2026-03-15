@@ -1,33 +1,54 @@
-import { Router } from "express";
-import Categoria from "../models/category.model"; // ✔ nombre correcto
-import Producto from "../models/product.model";   // ✔ existe
-import { VendedorPerfil } from "../models/VendedorPerfil"; // ✔ exportación correcta
-import { getPublicSellerStore } from "../controllers/seller.controller";
+import { Router, Request, Response } from "express"
 
-const router = Router();
+import Categoria from "../models/category.model"
+import { VendedorPerfil } from "../models/VendedorPerfil"
 
-/* ============================
-   CATEGORÍAS (PÚBLICO)
-=============================== */
-router.get("/categorias", async (req, res) => {
+import { getPublicSellerStore } from "../controllers/seller.controller"
+import { createContactTicket } from "../controllers/contact.controller"
+
+const router = Router()
+
+/* ======================================================
+   📩 CONTACTO (PÚBLICO)
+====================================================== */
+
+router.post("/contact", createContactTicket)
+
+/* ======================================================
+   🧵 CATEGORÍAS (PÚBLICO)
+====================================================== */
+
+router.get("/categorias", async (req: Request, res: Response) => {
   try {
+
     const categorias = await Categoria.findAll({
       attributes: ["id", "nombre", "imagen_url"],
       order: [["nombre", "ASC"]],
-    });
+    })
 
-    res.json(categorias);
+    return res.json({
+      success: true,
+      data: categorias,
+    })
+
   } catch (error) {
-    console.error("Error obteniendo categorías:", error);
-    res.status(500).json({ error: "Error al obtener categorías" });
-  }
-});
 
-/* ============================
-   TIENDAS DESTACADAS (PÚBLICO)
-=============================== */
-router.get("/vendedores/destacados", async (req, res) => {
+    console.error("Error obteniendo categorías:", error)
+
+    return res.status(500).json({
+      success: false,
+      message: "Error al obtener categorías",
+    })
+  }
+})
+
+/* ======================================================
+   🏪 TIENDAS DESTACADAS
+====================================================== */
+
+router.get("/vendedores/destacados", async (req: Request, res: Response) => {
   try {
+
     const vendedores = await VendedorPerfil.findAll({
       attributes: [
         "id",
@@ -39,15 +60,28 @@ router.get("/vendedores/destacados", async (req, res) => {
       ],
       limit: 15,
       order: [["id", "DESC"]],
-    });
+    })
 
-    res.json(vendedores);
+    return res.json({
+      success: true,
+      data: vendedores,
+    })
+
   } catch (error) {
-    console.error("Error obteniendo vendedores:", error);
-    res.status(500).json({ error: "Error al obtener vendedores" });
+
+    console.error("Error obteniendo vendedores:", error)
+
+    return res.status(500).json({
+      success: false,
+      message: "Error al obtener vendedores",
+    })
   }
-});
+})
 
-router.get("/public/seller/:id", getPublicSellerStore);
+/* ======================================================
+   🏪 TIENDA PÚBLICA
+====================================================== */
 
-export default router;
+router.get("/seller/:id", getPublicSellerStore)
+
+export default router

@@ -14,9 +14,10 @@ import {
   rejectSeller,
   suspendSeller,
   reactivateSeller,
+  reviewSellerKYC,
 } from "../controllers/admin.seller.governance.controller";
 
-import { reviewSellerKYC } from "../controllers/admin.seller.governance.controller";
+import { getSellerLeads } from "../controllers/admin.leads.controller";
 
 const router = Router();
 
@@ -35,6 +36,15 @@ router.use(
 router.get(
   "/dashboard",
   asyncHandler(AdminController.getAdminDashboard)
+);
+
+/* ===============================
+   ⭐ LEADS (CRM VENDEDORES)
+=============================== */
+
+router.get(
+  "/leads",
+  asyncHandler(getSellerLeads)
 );
 
 /* ===============================
@@ -123,7 +133,7 @@ router.patch(
   asyncHandler(reactivateSeller)
 );
 
-// 🔥 NUEVO — KYC REVIEW
+// 🔥 KYC REVIEW
 router.patch(
   "/sellers/:id/kyc-review",
   asyncHandler(reviewSellerKYC)
