@@ -219,9 +219,9 @@ export const approveSeller: RequestHandler = async (req, res) => {
     }
 
 
-    if (seller.estado_validacion !== "pendiente") {
+    if (!["pendiente", "en_revision"].includes(seller.estado_validacion)) {
       res.status(409).json({
-        message: "Solo vendedores pendientes pueden aprobarse",
+        message: "El vendedor no está en estado válido para aprobación",
       });
       return;
     }
