@@ -1,0 +1,21 @@
+{
+  "forbiddenPaths": [
+    ".env",
+    ".env.local",
+    "node_modules",
+    "dist"
+  ],
+  "restrictedActions": [
+    "push",
+    "deploy",
+    "deleteCriticalFiles"
+  ],
+  "reviewRequiredPaths": [
+    "src/"
+  ],
+  "safePaths": [
+    "flow-ai/reports/",
+    "flow-ai/memory/",
+    "flow-ai/tasks/"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schedule": [
+    {
+      "time": "09:00",
+      "task": "analytics-cycle"
+    },
+    {
+      "time": "18:00",
+      "task": "daily-report"
+    }
+  ]
+}

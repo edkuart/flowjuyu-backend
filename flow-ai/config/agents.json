@@ -1,0 +1,32 @@
+{
+  "agents": [
+    {
+      "name": "supervisor",
+      "enabled": true,
+      "role": "coordination",
+      "canRunCLI": true,
+      "canEditCode": false
+    },
+    {
+      "name": "analytics-agent",
+      "enabled": true,
+      "role": "marketplace-analysis",
+      "canRunCLI": true,
+      "canEditCode": false
+    },
+    {
+      "name": "dev-agent",
+      "enabled": false,
+      "role": "code-analysis",
+      "canRunCLI": true,
+      "canEditCode": true
+    },
+    {
+      "name": "growth-agent",
+      "enabled": false,
+      "role": "marketing-strategy",
+      "canRunCLI": false,
+      "canEditCode": false
+    }
+  ]
+}
