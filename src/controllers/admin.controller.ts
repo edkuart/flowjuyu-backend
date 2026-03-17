@@ -71,11 +71,12 @@ export const getAdminDashboard: RequestHandler = async (req, res) => {
     // 📦 ÚLTIMOS PRODUCTOS VISIBLES
     // ===============================
     const [ultimosProductos]: any = await sequelize.query(`
-      SELECT 
+      SELECT
         p.id,
         p.nombre,
         p.precio,
         p.activo,
+        p.created_at AS "createdAt",
         s.nombre_comercio AS vendedor_nombre
       FROM productos p
       JOIN vendedor_perfil s 
@@ -93,15 +94,32 @@ export const getAdminDashboard: RequestHandler = async (req, res) => {
     // 🔥 AGREGAMOS s.id (perfilId)
     // ===============================
     const [ultimosSellers]: any = await sequelize.query(`
-      SELECT 
+      SELECT
         s.id,                -- 🔥 PERFIL ID
         s.user_id,
         s.nombre_comercio,
         s.estado_validacion,
-        s.estado_admin
+        s.estado_admin,
+        s."createdAt"
       FROM vendedor_perfil s
       WHERE s.estado_validacion = 'aprobado'
       ORDER BY s."createdAt" DESC
+      LIMIT 5
+    `);
+
+    // ===============================
+    // 🎫 ÚLTIMOS TICKETS
+    // ===============================
+    const [ultimosTickets]: any = await sequelize.query(`
+      SELECT
+        id,
+        asunto,
+        estado,
+        prioridad,
+        tipo,
+        "createdAt"
+      FROM tickets
+      ORDER BY "createdAt" DESC
       LIMIT 5
     `);
 
@@ -124,6 +142,7 @@ export const getAdminDashboard: RequestHandler = async (req, res) => {
         },
         ultimosProductos,
         ultimosSellers, // 🔥 ahora incluye id correcto
+        ultimosTickets,
       },
     });
 

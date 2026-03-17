@@ -24,23 +24,24 @@ function moveTask(file, from, to) {
 
 function processTask(file) {
   const filePath = path.join(inboxDir, file);
-  const task = JSON.parse(fs.readFileSync(filePath));
+  const task = JSON.parse(fs.readFileSync(filePath, "utf8"));
 
   console.log(`\nProcessing task: ${task.title}\n`);
 
   moveTask(file, inboxDir, progressDir);
 
+  const title = task.title.toLowerCase();
   let result = "";
 
-  if (task.title.includes("products without views")) {
+  if (title.includes("products without views")) {
     result = run("powershell -ExecutionPolicy Bypass -File scripts/flow.ps1 dead-products");
   }
 
-  if (task.title.includes("inactive sellers")) {
+  if (title.includes("inactive sellers")) {
     result = run("powershell -ExecutionPolicy Bypass -File scripts/flow.ps1 sellers");
   }
 
-  if (task.title.includes("missing images")) {
+  if (title.includes("missing images")) {
     result = run("powershell -ExecutionPolicy Bypass -File scripts/flow.ps1 insights");
   }
 

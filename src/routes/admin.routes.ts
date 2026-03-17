@@ -1,10 +1,18 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import asyncHandler from "../middleware/asyncHandler";
 import { verifyToken, requireRole } from "../middleware/auth";
+import { exec } from "child_process";
+import fs from "fs";
+import path from "path";
 
 // Controllers
 import * as AdminController from "../controllers/admin.controller";
 import * as AdminTicketController from "../controllers/admin.ticket.controller";
+import {
+  markInProgress,
+  markWaitingUser,
+  generateReplySuggestion,
+} from "../controllers/admin.ticket.controller";
 import * as AdminTicketStatsController from "../controllers/admin.ticket.stats.controller";
 
 import {
@@ -15,6 +23,9 @@ import {
   suspendSeller,
   reactivateSeller,
   reviewSellerKYC,
+  requestKycDocuments,
+  flagSellerManually,
+  getSellerTickets,
 } from "../controllers/admin.seller.governance.controller";
 
 import { getSellerLeads } from "../controllers/admin.leads.controller";
@@ -23,16 +34,137 @@ const router = Router();
 
 /* ===============================
    🔐 MIDDLEWARE ADMIN GLOBAL
-   (Se aplica a TODAS las rutas)
 =============================== */
+
 router.use(
   verifyToken(["admin"]),
   requireRole("admin")
 );
 
 /* ===============================
+   🤖 AI STATUS
+=============================== */
+
+router.get("/ai/status", (req: Request, res: Response) => {
+  res.json({
+    ai: "running",
+    scheduler: "active",
+    agents: [
+      "analytics",
+      "supervisor",
+      "dev",
+      "growth",
+      "memory",
+      "code-analysis",
+      "claude-bridge",
+    ],
+    timestamp: new Date(),
+  });
+});
+
+/* ===============================
+   🤖 RUN AI AGENT
+=============================== */
+
+router.post(
+  "/ai/run",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { agent } = req.body;
+
+    if (!agent) {
+      return res.status(400).json({
+        message: "Agent name required",
+      });
+    }
+
+    const allowedAgents: Record<string, string> = {
+      analytics: "run-analytics-agent.js",
+      supervisor: "run-supervisor.js",
+      dev: "run-dev-agent.js",
+      growth: "run-growth-agent.js",
+      memory: "run-memory-agent.js",
+      code: "run-code-analysis-agent.js",
+      claude: "run-claude-bridge.js",
+      cycle: "run-daily-cycle.js",
+    };
+
+    const file = allowedAgents[agent];
+
+    if (!file) {
+      return res.status(400).json({
+        message: "Unknown agent",
+      });
+    }
+
+    const command = `node flow-ai/runners/${file}`;
+
+    exec(command, (err, stdout, stderr) => {
+      if (err) {
+        return res.status(500).json({
+          message: "Agent execution failed",
+          error: stderr,
+        });
+      }
+
+      res.json({
+        message: "Agent executed successfully",
+        agent,
+        output: stdout,
+      });
+    });
+  })
+);
+
+/* ===============================
+   🤖 AI REPORTS
+=============================== */
+
+router.get(
+  "/ai/reports",
+  asyncHandler(async (req: Request, res: Response) => {
+    const reportsDir = path.join(process.cwd(), "flow-ai/reports/daily");
+
+    if (!fs.existsSync(reportsDir)) {
+      return res.json({
+        reports: [],
+      });
+    }
+
+    const files = fs.readdirSync(reportsDir);
+
+    res.json({
+      reports: files,
+    });
+  })
+);
+
+/* ===============================
+   🤖 AI TASKS
+=============================== */
+
+router.get(
+  "/ai/tasks",
+  asyncHandler(async (req: Request, res: Response) => {
+    const inbox = path.join(process.cwd(), "flow-ai/tasks/inbox");
+
+    if (!fs.existsSync(inbox)) {
+      return res.json({
+        tasks: [],
+      });
+    }
+
+    const files = fs.readdirSync(inbox);
+
+    res.json({
+      tasks: files,
+    });
+  })
+);
+
+/* ===============================
    📊 DASHBOARD
 =============================== */
+
 router.get(
   "/dashboard",
   asyncHandler(AdminController.getAdminDashboard)
@@ -51,7 +183,7 @@ router.get(
    🎫 TICKETS (ADMIN)
 =============================== */
 
-// 📊 STATS — SIEMPRE PRIMERO
+// stats primero
 router.get(
   "/tickets/stats",
   asyncHandler(AdminTicketStatsController.getTicketStats)
@@ -91,6 +223,24 @@ router.post(
 router.patch(
   "/tickets/:id/close",
   asyncHandler(AdminTicketController.closeTicket)
+);
+
+// marcar en proceso
+router.patch(
+  "/tickets/:id/in-progress",
+  asyncHandler(markInProgress)
+);
+
+// marcar esperando usuario
+router.patch(
+  "/tickets/:id/waiting",
+  asyncHandler(markWaitingUser)
+);
+
+// sugerencia de respuesta IA
+router.post(
+  "/tickets/:id/suggest-reply",
+  asyncHandler(generateReplySuggestion)
 );
 
 /* ===============================
@@ -137,6 +287,24 @@ router.patch(
 router.patch(
   "/sellers/:id/kyc-review",
   asyncHandler(reviewSellerKYC)
+);
+
+// 📄 REQUEST MORE DOCUMENTS
+router.patch(
+  "/sellers/:id/request-documents",
+  asyncHandler(requestKycDocuments)
+);
+
+// 🚩 FLAG SELLER MANUALLY
+router.patch(
+  "/sellers/:id/flag",
+  asyncHandler(flagSellerManually)
+);
+
+// 🎫 SELLER TICKETS
+router.get(
+  "/sellers/:id/tickets",
+  asyncHandler(getSellerTickets)
 );
 
 /* ===============================

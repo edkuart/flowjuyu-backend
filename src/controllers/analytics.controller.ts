@@ -305,6 +305,45 @@ export const endProductSession: RequestHandler = async (req, res) => {
   }
 };
 
+/* ============================================
+   📲 TRACK WHATSAPP CLICK
+   POST /api/analytics/whatsapp-click
+   Body: { seller_id, product_id? }
+============================================ */
+export const trackWhatsappClick: RequestHandler = async (req, res) => {
+  try {
+    const { seller_id, product_id } = req.body;
+
+    if (!seller_id) {
+      res.status(400).json({ message: "seller_id requerido" });
+      return;
+    }
+
+    const sessionId = req.sessionID || null;
+    const ip = req.ip || null;
+
+    await sequelize.query(
+      `
+      INSERT INTO whatsapp_clicks (seller_id, product_id, session_id, ip_address)
+      VALUES (:seller_id, :product_id, :session_id, :ip_address)
+      `,
+      {
+        replacements: {
+          seller_id: Number(seller_id),
+          product_id: product_id || null,
+          session_id: sessionId,
+          ip_address: ip,
+        },
+      }
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error trackWhatsappClick:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
 export const getSellerAnalyticsOverview: RequestHandler = async (req, res) => {
   try {
     const sellerId = req.user?.id;
@@ -320,10 +359,17 @@ export const getSellerAnalyticsOverview: RequestHandler = async (req, res) => {
 
     res.json({
       success: true,
-      totalProductViews: data.totalProductViews,
-      totalProfileViews: data.totalProfileViews,
-      topProducts: data.topProducts,
-      last30Days: data.last30Days, // 🔥 ESTA ES LA CLAVE
+      totalProductViews:    data.totalProductViews,
+      totalProfileViews:    data.totalProfileViews,
+      topProducts:          data.topProducts,
+      last30Days:           data.last30Days,
+      totalIntentions:      data.totalIntentions,
+      last30Intentions:     data.last30Intentions,
+      // Phase 2
+      totalWhatsappClicks:  data.totalWhatsappClicks,
+      last30WhatsappClicks: data.last30WhatsappClicks,
+      totalReviews:         data.totalReviews,
+      avgRating:            data.avgRating,
     });
   } catch (error) {
     console.error("Error getSellerAnalyticsOverview:", error);

@@ -346,14 +346,15 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
     }
 
     const fieldsToUpdate = {
-      nombre_comercio: req.body.nombre_comercio ?? perfil.nombre_comercio,
-      descripcion: req.body.descripcion ?? perfil.descripcion,
-      telefono_comercio: req.body.telefono_comercio ?? perfil.telefono_comercio,
-      direccion: req.body.direccion ?? perfil.direccion,
-      departamento: req.body.departamento ?? perfil.departamento,
-      municipio: req.body.municipio ?? perfil.municipio,
-      logo: logoUrl,
-      updatedAt: new Date(),
+      nombre_comercio:  req.body.nombre_comercio  ?? perfil.nombre_comercio,
+      descripcion:      req.body.descripcion      ?? perfil.descripcion,
+      telefono_comercio:req.body.telefono_comercio?? perfil.telefono_comercio,
+      direccion:        req.body.direccion        ?? perfil.direccion,
+      departamento:     req.body.departamento     ?? perfil.departamento,
+      municipio:        req.body.municipio        ?? perfil.municipio,
+      whatsapp_numero:  req.body.whatsapp_numero  ?? perfil.whatsapp_numero,
+      logo:             logoUrl,
+      updatedAt:        new Date(),
     };
 
     await VendedorPerfil.update(fieldsToUpdate, { where: { user_id: user.id } });
@@ -613,17 +614,17 @@ export const getTopSellers = async (req: Request, res: Response) => {
 // ==============================
 export const getPublicSellerStore: RequestHandler = async (req, res) => {
   try {
-    const { id } = req.params;
+    const sellerId = Number(req.params.id);
 
-    if (!id || isNaN(Number(id))) {
-      res.status(400).json({ message: "ID inválido" });
+    if (!Number.isInteger(sellerId) || sellerId <= 0) {
+      res.status(400).json({ message: "Invalid seller ID" });
       return;
     }
 
     const seller: any[] = await sequelize.query(
       `
-      SELECT 
-        vp.user_id AS id,
+      SELECT
+        vp.user_id             AS id,
         vp.nombre_comercio,
         vp.descripcion,
         vp.logo,
@@ -632,18 +633,22 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         vp.plan,
         vp.plan_activo,
         vp.whatsapp_numero,
+        vp.telefono_comercio,
         vp.banner_url,
         vp.identidad_tags,
         vp.productos_destacados,
+        vp.mensaje_destacado,
+        vp.estado_validacion,
         vp."createdAt"
       FROM vendedor_perfil vp
       WHERE vp.user_id = :id
       `,
       {
-        replacements: { id },
+        replacements: { id: sellerId },
         type: QueryTypes.SELECT,
       }
     );
+
 
     if (!seller.length) {
       res.status(404).json({ message: "Vendedor no encontrado" });
@@ -654,7 +659,7 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
 
     const products: any[] = await sequelize.query(
       `
-      SELECT 
+      SELECT
         p.id,
         p.nombre,
         p.precio,
@@ -662,36 +667,40 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         p.created_at
       FROM productos p
       WHERE p.vendedor_id = :id
-      AND p.activo = true
+        AND p.activo = true
       ORDER BY p.created_at DESC
       `,
       {
-        replacements: { id },
+        replacements: { id: sellerId },
         type: QueryTypes.SELECT,
       }
     );
 
+
     res.json({
       seller: {
-        id: sellerData.id,
-        nombre_comercio: sellerData.nombre_comercio,
-        descripcion: sellerData.descripcion,
-        logo: sellerData.logo,
-        departamento: sellerData.departamento,
-        municipio: sellerData.municipio,
-        plan: sellerData.plan,
-        plan_activo: sellerData.plan_activo,
-        whatsapp: sellerData.whatsapp_numero,
-        banner_url: sellerData.banner_url,
-        identidad_tags: sellerData.identidad_tags ?? [],
+        id:                   sellerData.id,
+        nombre_comercio:      sellerData.nombre_comercio,
+        descripcion:          sellerData.descripcion,
+        logo:                 sellerData.logo,
+        departamento:         sellerData.departamento,
+        municipio:            sellerData.municipio,
+        plan:                 sellerData.plan,
+        plan_activo:          sellerData.plan_activo,
+        whatsapp:             sellerData.whatsapp_numero || sellerData.telefono_comercio || null,
+        banner_url:           sellerData.banner_url,
+        identidad_tags:       sellerData.identidad_tags       ?? [],
         productos_destacados: sellerData.productos_destacados ?? [],
-        created_at: sellerData.createdAt,
+        mensaje_destacado:    sellerData.mensaje_destacado    ?? null,
+        estado_validacion:    sellerData.estado_validacion    ?? null,
+        // Handle both Sequelize camelCase and raw snake_case column names
+        created_at:           sellerData.createdAt            ?? sellerData.created_at ?? null,
       },
       products: products ?? [],
     });
 
   } catch (error) {
-    console.error("Error en getPublicSellerStore:", error);
+    console.error("[getPublicSellerStore] Error:", error);
     res.status(500).json({ message: "Error interno" });
   }
 };
@@ -795,6 +804,12 @@ export const getSellerAnalytics: RequestHandler = async (req, res) => {
       topIntentedProducts: data.topIntentionProducts,
 
       last30Days: data.last30Days,
+
+      // Phase 2
+      totalWhatsappClicks:  data.totalWhatsappClicks,
+      last30WhatsappClicks: data.last30WhatsappClicks,
+      totalReviews:         data.totalReviews,
+      avgRating:            data.avgRating,
     });
 
   } catch (error) {

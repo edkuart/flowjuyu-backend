@@ -22,8 +22,14 @@ import publicRoutes from "./routes/public.routes";
 import analyticsRoutes from "./routes/analytics.routes";
 import adminRoutes from "./routes/admin.routes";
 import adminTicketRoutes from "./routes/admin.ticket.routes";
+import adminAiRoutes from "./routes/admin.ai.routes"; // 🔥 NUEVO
 import intentionRoutes from "./routes/intention.routes";
 import categoriesRoutes from "./routes/categories.routes";
+import reviewRoutes from "./routes/review.routes";
+import favoritesRoutes from "./routes/favorites.routes";
+
+// Phase 2 table setup
+import { setupPhase2Tables } from "./utils/setupTables";
 
 // Middleware global
 import { errorHandler } from "./middleware/errorHandler";
@@ -34,6 +40,9 @@ import { httpLogger } from "./middleware/httpLogger";
 // App base
 // ===========================
 const app: Express = express();
+
+// Initialize Phase 2 DB tables (non-blocking)
+setupPhase2Tables().catch(() => {});
 const PgSession = pgSession(session);
 
 // ===========================
@@ -62,7 +71,7 @@ app.use(compression());
 app.use(cookieParser());
 
 // ===========================
-// 🌍 CORS robusto (Dev + Prod)
+// 🌍 CORS robusto
 // ===========================
 
 const allowlist = (
@@ -77,22 +86,18 @@ const corsOptions: cors.CorsOptions = {
   origin(origin, cb) {
     if (!origin) return cb(null, true);
 
-    // 🔹 Dev: permitir todo
     if (process.env.NODE_ENV !== "production") {
       return cb(null, true);
     }
 
-    // 🔹 Allowlist explícita
     if (allowlist.includes(origin)) {
       return cb(null, true);
     }
 
-    // 🔹 Permitir subdominios de flowjuyu.com
     if (origin.endsWith(".flowjuyu.com")) {
       return cb(null, true);
     }
 
-    // 🔹 Permitir cualquier subdominio de vercel
     if (origin.endsWith(".vercel.app")) {
       return cb(null, true);
     }
@@ -106,10 +111,7 @@ const corsOptions: cors.CorsOptions = {
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 
-// Aplicar CORS global
 app.use(cors(corsOptions));
-
-// Manejar preflight correctamente (evita crash con OPTIONS)
 app.options(/.*/, cors(corsOptions));
 
 // ===========================
@@ -133,11 +135,9 @@ const pool = new Pool({
   ssl: {
     rejectUnauthorized: false,
   },
-  // 👇 ESTA LÍNEA ES CLAVE CON SUPABASE POOLER
   keepAlive: true,
 });
 
-// Confirmar DB de sesiones
 pool
   .query("SELECT current_database()")
   .then((r) => console.log("📦 SESSION DB:", r.rows[0].current_database))
@@ -196,7 +196,7 @@ const healthz: RequestHandler = (_req, res): void => {
 app.get("/healthz", healthz);
 
 // ======================================================
-// 🔥 RUTAS (ORDEN IMPORTANTE)
+// 🔥 RUTAS
 // ======================================================
 
 // ===========================
@@ -209,19 +209,22 @@ app.use("/api", intentionRoutes);
 app.use("/api/categories", categoriesRoutes);
 
 // ===========================
-// 🏛️ ADMIN — SIEMPRE PRIMERO
+// 🏛️ ADMIN
 // ===========================
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminTicketRoutes);
+app.use("/api/admin/ai", adminAiRoutes); // 🔥 AI OS endpoint
 
 // ===========================
 // Dominio
 // ===========================
 app.use("/api/buyer", buyerRoutes);
 app.use("/api/seller", sellerRoutes);
+app.use("/api/reviews", reviewRoutes);
+app.use("/api/favorites", favoritesRoutes);
 
 // ===========================
-// Analytics (aislado)
+// Analytics
 // ===========================
 app.use("/api/analytics", analyticsRoutes);
 

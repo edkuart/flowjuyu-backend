@@ -1,7 +1,7 @@
 
 # Flowjuyu Analytics Report
 
-Generated: 2026-03-16T16:44:13.680Z
+Generated: 2026-03-16T19:55:02.361Z
 
 ---
 
@@ -11,7 +11,7 @@ Generated: 2026-03-16T16:44:13.680Z
 FLOWJUYU MARKETPLACE INSIGHTS
 =============================
 
-[dotenv@17.3.1] injecting env (13) from .env -- tip: ⚡️ secrets for agents: https://dotenvx.com/as2
+[dotenv@17.3.1] injecting env (13) from .env -- tip: ⚙️  override existing env vars with { override: true }
 Products total                 16
 Products without images        2
 Products without views         12
@@ -30,8 +30,8 @@ Reviews                        2
 FLOWJUYU HEALTH REPORT
 ======================
 
-Routes:       11
-Controllers:  16
+Routes:       12
+Controllers:  17
 Services:     4
 Models:       12
 
@@ -42,7 +42,7 @@ System health: GOOD
 FLOWJUYU MARKETPLACE HEALTH
 ===========================
 
-[dotenv@17.3.1] injecting env (13) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.3.1] injecting env (13) from .env -- tip: ⚡️ secrets for agents: https://dotenvx.com/as2
 Seller activation              50%
 Catalog density                1.60
 Marketplace liquidity          25%
@@ -59,12 +59,12 @@ Stage                          Pre-market
 FLOWJUYU TRENDING PRODUCTS
 ==========================
 
-[dotenv@17.3.1] injecting env (13) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.3.1] injecting env (13) from .env -- tip: ⚡️ secrets for agents: https://dotenvx.com/as2
 
 Trending products
 -----------------
-Traje completo                           292
-Corte Multicolor                         32
+Traje completo                           291
+Corte Multicolor                         30
 
 ```
 
@@ -96,7 +96,7 @@ Comercio Demo KYC                   0
 FLOWJUYU DEAD PRODUCTS
 ======================
 
-[dotenv@17.3.1] injecting env (13) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[dotenv@17.3.1] injecting env (13) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
 Products with zero views
 ------------------------
 PruebaK

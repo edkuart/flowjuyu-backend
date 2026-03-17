@@ -20,7 +20,9 @@
     "ai:memory": "node flow-ai/runners/run-memory-agent.js",
     "ai:claude": "node flow-ai/runners/run-claude-bridge.js",
     "ai:cycle": "node flow-ai/runners/run-daily-cycle.js",
-    "ai:scheduler": "node flow-ai/runners/scheduler.js"
+    "ai:scheduler": "node flow-ai/runners/scheduler.js",
+    "ai:task": "node flow-ai/runners/run-claude-task-exporter.js",
+    "ai:growth": "node flow-ai/runners/run-growth-agent.js"
   },
   "keywords": [
     "express",

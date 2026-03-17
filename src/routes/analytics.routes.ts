@@ -5,6 +5,7 @@ import {
   getTopViewedProducts,
   trackProductView,
   trackSellerView,
+  trackWhatsappClick,
   getSellerAnalyticsOverview,
 } from "../controllers/analytics.controller";
 
@@ -43,6 +44,13 @@ router.post(
   "/track/seller/:sellerId",
   trackingLimiter,
   trackSellerView
+);
+
+// WhatsApp click tracking (rate-limited, public)
+router.post(
+  "/whatsapp-click",
+  trackingLimiter,
+  trackWhatsappClick
 );
 
 /* =====================================================

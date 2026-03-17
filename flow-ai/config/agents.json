@@ -27,6 +27,13 @@
       "role": "marketing-strategy",
       "canRunCLI": false,
       "canEditCode": false
+    },
+    {
+      "name": "brain-cycle",
+      "enabled": true,
+      "role": "marketplace-brain",
+      "canRunCLI": false,
+      "canEditCode": false
     }
   ]
 }

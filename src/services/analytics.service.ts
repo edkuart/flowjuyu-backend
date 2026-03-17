@@ -34,11 +34,17 @@ export interface SellerAnalyticsData {
   topProducts: TopProduct[]
   last30Days: Last30DaysPoint[]
 
-  // 🔥 NUEVO — INTENCIÓN COMERCIAL
+  // INTENCIÓN COMERCIAL
   totalIntentions: number
   last30Intentions: number
   topIntentionProducts: TopIntentionProduct[]
   intentionsBySource: IntentionBySource[]
+
+  // PHASE 2
+  totalWhatsappClicks: number
+  last30WhatsappClicks: number
+  totalReviews: number
+  avgRating: number | null
 }
 
 /* =====================================================
@@ -220,6 +226,38 @@ export async function getSellerAnalyticsData(
     }
   )
 
+  /* ==============================
+     WHATSAPP CLICKS
+  ============================== */
+  const [totalWaClicks] = await sequelize.query<{ total: number }>(
+    `SELECT COUNT(*)::int AS total FROM whatsapp_clicks WHERE seller_id = :sellerId`,
+    { replacements: { sellerId }, type: QueryTypes.SELECT }
+  )
+
+  const [last30WaClicks] = await sequelize.query<{ total: number }>(
+    `
+    SELECT COUNT(*)::int AS total
+    FROM whatsapp_clicks
+    WHERE seller_id = :sellerId
+      AND created_at >= NOW() - INTERVAL '30 days'
+    `,
+    { replacements: { sellerId }, type: QueryTypes.SELECT }
+  )
+
+  /* ==============================
+     REVIEWS
+  ============================== */
+  const [reviewStats] = await sequelize.query<{ total: number; avg_rating: string | null }>(
+    `
+    SELECT
+      COUNT(*)::int                         AS total,
+      ROUND(AVG(rating)::numeric, 1)::text  AS avg_rating
+    FROM reviews
+    WHERE seller_id = :sellerId
+    `,
+    { replacements: { sellerId }, type: QueryTypes.SELECT }
+  )
+
   /* =====================================================
      RETURN FINAL
   ===================================================== */
@@ -234,10 +272,15 @@ export async function getSellerAnalyticsData(
       profile_views: Number(row.profile_views),
     })),
 
-    // 🔥 NUEVO
     totalIntentions: totalIntentionsResult?.total ?? 0,
     last30Intentions: last30IntentionsResult?.total ?? 0,
     topIntentionProducts,
     intentionsBySource,
+
+    // Phase 2
+    totalWhatsappClicks: totalWaClicks?.total ?? 0,
+    last30WhatsappClicks: last30WaClicks?.total ?? 0,
+    totalReviews: reviewStats?.total ?? 0,
+    avgRating: reviewStats?.avg_rating ? Number(reviewStats.avg_rating) : null,
   }
 }

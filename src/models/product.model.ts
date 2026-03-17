@@ -12,7 +12,6 @@ interface ProductAttributes {
   categoria_id?: number | null;
   clase_id: number;
   tela_id?: number | null;
-  region_id?: number | null;
   accesorio_id?: number | null;
   imagen_url?: string | null;
   activo: boolean;
@@ -33,7 +32,6 @@ type ProductCreation = Optional<
   | "descripcion"
   | "categoria_id"
   | "tela_id"
-  | "region_id"
   | "accesorio_id"
   | "imagen_url"
   | "categoria_custom"
@@ -57,7 +55,6 @@ class Product
   public categoria_id?: number | null;
   public clase_id!: number;
   public tela_id?: number | null;
-  public region_id?: number | null;
   public accesorio_id?: number | null;
   public imagen_url?: string | null;
   public activo!: boolean;
@@ -105,10 +102,6 @@ Product.init(
       allowNull: false,
     },
     tela_id: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-    },
-    region_id: {
       type: DataTypes.INTEGER,
       allowNull: true,
     },

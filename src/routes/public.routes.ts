@@ -82,6 +82,11 @@ router.get("/vendedores/destacados", async (req: Request, res: Response) => {
    🏪 TIENDA PÚBLICA
 ====================================================== */
 
-router.get("/seller/:id", getPublicSellerStore)
+// /api/public/seller/:id  ← canonical URL (used by all frontend calls)
+// IMPORTANT: do NOT add a /seller/:id alias here — it would shadow
+// the authenticated seller routes (/api/seller/profile, /api/seller/products, etc.)
+// which are mounted via app.use("/api/seller", sellerRoutes) and
+// app.use("/api", productRoutes) later in app.ts.
+router.get("/public/seller/:id", getPublicSellerStore)
 
 export default router

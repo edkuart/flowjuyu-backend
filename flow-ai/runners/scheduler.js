@@ -1,18 +1,48 @@
 const cron = require("node-cron");
 const { execSync } = require("child_process");
 
-function runDailyCycle() {
+let running = false;
+
+/* =====================================
+   Run AI Daily Cycle
+===================================== */
+
+function runDailyCycle(trigger = "scheduler") {
+
+  if (running) {
+    console.log("AI cycle already running. Skipping...");
+    return;
+  }
+
+  running = true;
+
+  const now = new Date().toISOString();
+
   console.log("\n====================================");
   console.log("FLOWJUYU AI AUTOMATED DAILY CYCLE");
+  console.log("Trigger:", trigger);
+  console.log("Time:", now);
   console.log("====================================\n");
 
   try {
-    execSync("node flow-ai/runners/run-daily-cycle.js", {
-      stdio: "inherit"
-    });
+
+    execSync(
+      "node flow-ai/runners/run-daily-cycle.js",
+      { stdio: "inherit" }
+    );
+
+    console.log("\nAI cycle finished successfully.\n");
+
   } catch (err) {
-    console.error("Error running AI cycle:", err.message);
+
+    console.error("\nAI cycle failed:", err.message);
+
+  } finally {
+
+    running = false;
+
   }
+
 }
 
 /*
@@ -23,19 +53,37 @@ CRON FORMAT
 │ │ │ ┌───────────── month
 │ │ │ │ ┌───────────── day of week
 │ │ │ │ │
-│ │ │ │ │
 * * * * *
 */
 
-// Ejecutar todos los días a las 9:00 AM
+/* =====================================
+   Scheduled Runs
+===================================== */
+
+// 09:00 AM
 cron.schedule("0 9 * * *", () => {
-  runDailyCycle();
+  runDailyCycle("09:00 schedule");
 });
 
-// También ejecutar a las 3:00 PM
+// 15:00 PM
 cron.schedule("0 15 * * *", () => {
-  runDailyCycle();
+  runDailyCycle("15:00 schedule");
 });
 
-console.log("Flowjuyu AI Scheduler started...");
-console.log("Daily cycles scheduled at 09:00 and 15:00");
+/* =====================================
+   Optional Startup Run
+===================================== */
+
+if (process.argv.includes("--run-now")) {
+  runDailyCycle("manual");
+}
+
+/* =====================================
+   Logs
+===================================== */
+
+console.log("\nFlowjuyu AI Scheduler started");
+console.log("Scheduled runs:");
+console.log(" • 09:00 AM");
+console.log(" • 15:00 PM");
+console.log("\nUse '--run-now' to execute immediately.\n");

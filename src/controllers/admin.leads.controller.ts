@@ -39,6 +39,7 @@ export const getSellerLeads = async (req: Request, res: Response) => {
     const sellers = await VendedorPerfil.findAll({
       attributes: [
         "id",
+        "user_id",
         "nombre_comercio",
         "estado_validacion",
         "estado_admin",

@@ -172,13 +172,4 @@ router.delete(
   asyncHandler(SellerController.deleteSellerBanner)
 );
 
-/* ==================================================
-   ⚠️ RUTA DINÁMICA (SIEMPRE AL FINAL)
-================================================== */
-
-router.get(
-  "/:id",
-  asyncHandler(SellerController.getSellerProfile)
-);
-
 export default router;

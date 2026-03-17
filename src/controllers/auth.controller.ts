@@ -8,6 +8,7 @@ import { sequelize } from "../config/db";
 import { User } from "../models/user.model";
 import { VendedorPerfil } from "../models/VendedorPerfil";
 import { sendResetPasswordEmail } from "../services/email.service";
+import { runKYCAnalysis } from "../services/kyc.service";
 import supabase from "../lib/supabase";
 import { v4 as uuidv4 } from "uuid";
 
@@ -145,7 +146,7 @@ export const registerVendedor = async (
     async function uploadToSupabase(
       file: Express.Multer.File,
       folder: string
-    ) {
+    ): Promise<string> {
       const ext = file.originalname.split(".").pop();
       const fileName = `${folder}/${uuidv4()}.${ext}`;
 
@@ -160,7 +161,11 @@ export const registerVendedor = async (
         throw new Error(`Error subiendo a Supabase: ${error.message}`);
       }
 
-      return fileName; // guardamos path interno
+      const { data: urlData } = supabase.storage
+        .from("vendedores_dpi")
+        .getPublicUrl(fileName);
+
+      return urlData.publicUrl;
     }
 
     // 📤 Subir documentos si existen
@@ -197,8 +202,20 @@ export const registerVendedor = async (
       );
     }
 
-    const hasDocs = fotoFrente || fotoReverso || selfie;
-    const estadoInicial = hasDocs ? "en_revision" : "pendiente";
+    // 🔍 Automated KYC analysis
+    const kyc = runKYCAnalysis({
+      dpi:         dpi.trim(),
+      fotoFrente,
+      fotoReverso,
+      selfie,
+    });
+
+    // Auto-approval: if KYC score >= 80, approve immediately
+    const autoApproved = kyc.score >= 80;
+    const estadoValidacion = autoApproved
+      ? "aprobado"
+      : (fotoFrente || fotoReverso || selfie) ? "en_revision" : "pendiente";
+    const estadoAdmin = autoApproved ? "activo" : "inactivo";
 
     // 🏪 Crear perfil vendedor
     await VendedorPerfil.create(
@@ -228,14 +245,15 @@ export const registerVendedor = async (
         selfie_con_dpi: selfie,
 
         // Estados
-        estado_validacion: estadoInicial,
-        estado_admin: "inactivo",
-        observaciones: null,
-        actualizado_en: new Date(),
+        estado_validacion: estadoValidacion,
+        estado_admin:      estadoAdmin,
+        observaciones:     null,
+        actualizado_en:    new Date(),
 
-        // Inicialización KYC
-        kyc_score: 0,
-        kyc_riesgo: "alto",
+        // Automated KYC scoring
+        kyc_score:     kyc.score,
+        kyc_riesgo:    kyc.riesgo,
+        kyc_checklist: kyc.checklist,
       } as any,
       { transaction: t }
     );
