@@ -1,7 +1,19 @@
-import { DataTypes, Model } from "sequelize";
+import { DataTypes, Model, InferAttributes, InferCreationAttributes, CreationOptional } from "sequelize";
 import { sequelize } from "../config/db";
 
-class AdminAuditEvent extends Model {}
+class AdminAuditEvent extends Model<
+  InferAttributes<AdminAuditEvent>,
+  InferCreationAttributes<AdminAuditEvent>
+> {
+  declare id:           CreationOptional<number>;
+  declare entity_type:  string;
+  declare entity_id:    number;
+  declare action:       string;
+  declare performed_by: number;
+  declare comment:      CreationOptional<string | null>;
+  declare metadata:     CreationOptional<object | null>;
+  declare created_at:   CreationOptional<Date>;
+}
 
 AdminAuditEvent.init(
   {
