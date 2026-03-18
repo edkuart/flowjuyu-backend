@@ -227,36 +227,91 @@ export async function getSellerAnalyticsData(
   )
 
   /* ==============================
-     WHATSAPP CLICKS
+     WHATSAPP CLICKS  (fault-tolerant)
+     Table may not exist in all environments.
+     Uses to_regclass to avoid error-as-control-flow,
+     with a try/catch as a final safety net.
   ============================== */
-  const [totalWaClicks] = await sequelize.query<{ total: number }>(
-    `SELECT COUNT(*)::int AS total FROM whatsapp_clicks WHERE seller_id = :sellerId`,
-    { replacements: { sellerId }, type: QueryTypes.SELECT }
-  )
+  let totalWhatsappClicks   = 0
+  let last30WhatsappClicks  = 0
 
-  const [last30WaClicks] = await sequelize.query<{ total: number }>(
-    `
-    SELECT COUNT(*)::int AS total
-    FROM whatsapp_clicks
-    WHERE seller_id = :sellerId
-      AND created_at >= NOW() - INTERVAL '30 days'
-    `,
-    { replacements: { sellerId }, type: QueryTypes.SELECT }
-  )
+  try {
+    const [waTableCheck] = await sequelize.query<{ exists: string | null }>(
+      `SELECT to_regclass('public.whatsapp_clicks') AS exists`,
+      { type: QueryTypes.SELECT }
+    )
+
+    if (waTableCheck?.exists) {
+      const [totalWaClicks] = await sequelize.query<{ total: number }>(
+        `SELECT COUNT(*)::int AS total FROM whatsapp_clicks WHERE seller_id = :sellerId`,
+        { replacements: { sellerId }, type: QueryTypes.SELECT }
+      )
+      totalWhatsappClicks = totalWaClicks?.total ?? 0
+
+      const [last30WaClicks] = await sequelize.query<{ total: number }>(
+        `
+        SELECT COUNT(*)::int AS total
+        FROM whatsapp_clicks
+        WHERE seller_id = :sellerId
+          AND created_at >= NOW() - INTERVAL '30 days'
+        `,
+        { replacements: { sellerId }, type: QueryTypes.SELECT }
+      )
+      last30WhatsappClicks = last30WaClicks?.total ?? 0
+    } else {
+      console.warn(
+        "[analytics] whatsapp_clicks table not found — " +
+        "returning 0 for WA metrics. Run migration to enable this feature."
+      )
+    }
+  } catch (err) {
+    console.warn(
+      "[analytics] Failed to query whatsapp_clicks — returning 0 for WA metrics.",
+      err instanceof Error ? err.message : err
+    )
+  }
 
   /* ==============================
-     REVIEWS
+     REVIEWS  (fault-tolerant)
+     Same guard: table may not exist yet.
   ============================== */
-  const [reviewStats] = await sequelize.query<{ total: number; avg_rating: string | null }>(
-    `
-    SELECT
-      COUNT(*)::int                         AS total,
-      ROUND(AVG(rating)::numeric, 1)::text  AS avg_rating
-    FROM reviews
-    WHERE seller_id = :sellerId
-    `,
-    { replacements: { sellerId }, type: QueryTypes.SELECT }
-  )
+  let totalReviews = 0
+  let avgRating: number | null = null
+
+  try {
+    const [reviewTableCheck] = await sequelize.query<{ exists: string | null }>(
+      `SELECT to_regclass('public.reviews') AS exists`,
+      { type: QueryTypes.SELECT }
+    )
+
+    if (reviewTableCheck?.exists) {
+      const [reviewStats] = await sequelize.query<{
+        total: number
+        avg_rating: string | null
+      }>(
+        `
+        SELECT
+          COUNT(*)::int                         AS total,
+          ROUND(AVG(rating)::numeric, 1)::text  AS avg_rating
+        FROM reviews
+        WHERE seller_id = :sellerId
+        `,
+        { replacements: { sellerId }, type: QueryTypes.SELECT }
+      )
+      totalReviews = reviewStats?.total ?? 0
+      avgRating    = reviewStats?.avg_rating ? Number(reviewStats.avg_rating) : null
+    } else {
+      console.warn(
+        "[analytics] reviews table not found — " +
+        "returning 0 for review metrics. Run migration to enable this feature."
+      )
+    }
+  } catch (err) {
+    console.warn(
+      "[analytics] Failed to query reviews — returning 0 for review metrics.",
+      err instanceof Error ? err.message : err
+    )
+  }
 
   /* =====================================================
      RETURN FINAL
@@ -277,10 +332,10 @@ export async function getSellerAnalyticsData(
     topIntentionProducts,
     intentionsBySource,
 
-    // Phase 2
-    totalWhatsappClicks: totalWaClicks?.total ?? 0,
-    last30WhatsappClicks: last30WaClicks?.total ?? 0,
-    totalReviews: reviewStats?.total ?? 0,
-    avgRating: reviewStats?.avg_rating ? Number(reviewStats.avg_rating) : null,
+    // Phase 2 — always present, defaults to 0 if tables are missing
+    totalWhatsappClicks,
+    last30WhatsappClicks,
+    totalReviews,
+    avgRating,
   }
 }
