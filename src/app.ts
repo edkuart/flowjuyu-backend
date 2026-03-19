@@ -184,7 +184,8 @@ app.use("/api", apiLimiter);
 app.use("/api/login",        rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
 app.use("/api/login/google", rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
 app.use("/api/auth/social",  rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
-app.use("/api/refresh",      rateLimit({ windowMs: 15 * 60 * 1000, max: 60 }));
+app.use("/api/refresh",         rateLimit({ windowMs: 15 * 60 * 1000, max: 60 }));
+app.use("/api/forgot-password", rateLimit({ windowMs: 60 * 60 * 1000, max: 5,  message: { ok: false, code: "RATE_LIMITED", message: "Demasiados intentos. Espera un momento." } }));
 
 // ===========================
 // Healthcheck

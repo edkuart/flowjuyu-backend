@@ -524,6 +524,7 @@ export const resetPassword: RequestHandler = async (req, res) => {
     if (!token || !passwordNueva) {
       res.status(400).json({
         ok:      false,
+        code:    "VALIDATION_ERROR",
         message: "Token y nueva contraseña requeridos",
       });
       return;
@@ -532,6 +533,7 @@ export const resetPassword: RequestHandler = async (req, res) => {
     if (passwordNueva.length < 8) {
       res.status(400).json({
         ok:      false,
+        code:    "VALIDATION_ERROR",
         message: "La nueva contraseña debe tener mínimo 8 caracteres",
       });
       return;
@@ -543,7 +545,11 @@ export const resetPassword: RequestHandler = async (req, res) => {
     });
 
     if (!user) {
-      res.status(400).json({ ok: false, message: "Token inválido" });
+      res.status(400).json({
+        ok:      false,
+        code:    "TOKEN_INVALID",
+        message: "El enlace no es válido.",
+      });
       return;
     }
 
@@ -551,23 +557,31 @@ export const resetPassword: RequestHandler = async (req, res) => {
       !user.reset_password_expires ||
       user.reset_password_expires < new Date()
     ) {
-      res.status(400).json({ ok: false, message: "Token expirado" });
+      res.status(400).json({
+        ok:      false,
+        code:    "TOKEN_EXPIRED",
+        message: "El enlace ha expirado. Solicita uno nuevo.",
+      });
       return;
     }
 
-    user.password              = await bcrypt.hash(passwordNueva, 12);
-    user.token_version        += 1;
-    user.reset_password_token  = null;
+    user.password               = await bcrypt.hash(passwordNueva, 12);
+    user.token_version         += 1;
+    user.reset_password_token   = null;
     user.reset_password_expires = null;
     await user.save();
 
     res.status(200).json({
       ok:      true,
-      message: "Contraseña restablecida correctamente",
+      message: "Contraseña actualizada correctamente.",
     });
   } catch (error) {
     console.error("Error en resetPassword:", error);
-    res.status(500).json({ ok: false, message: "Error interno del servidor" });
+    res.status(500).json({
+      ok:      false,
+      code:    "INTERNAL_ERROR",
+      message: "Error interno del servidor",
+    });
   }
 };
 
