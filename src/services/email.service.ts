@@ -8,30 +8,62 @@ export async function sendResetPasswordEmail(
   to: string,
   resetLink: string,
   nombre: string
-) {
+): Promise<void> {
+  // ── Development fallback ─────────────────────────────────────────────────
+  // Always print the link in dev so you can test without a real Resend key.
+  if (process.env.NODE_ENV !== "production") {
+    console.log("─────────────────────────────────────────");
+    console.log("🔗 [DEV] Password reset link for:", to);
+    console.log("   ", resetLink);
+    console.log("─────────────────────────────────────────");
+  }
+
   if (!process.env.RESEND_API_KEY) {
-    console.warn("⚠️ RESEND_API_KEY no configurado");
+    console.warn("⚠️  RESEND_API_KEY is not set — email not sent.");
     return;
   }
 
-  await resend.emails.send({
+  // ── Send via Resend ──────────────────────────────────────────────────────
+  console.log(`📧 Sending reset email to: ${to}`);
+
+  const { data, error } = await resend.emails.send({
     from: "Flowjuyu <onboarding@resend.dev>",
     to,
     subject: "Restablecer tu contraseña - Flowjuyu",
     html: `
-      <div style="font-family: Arial; padding: 20px;">
-        <h2>Hola ${nombre},</h2>
-        <p>Haz clic en el botón para restablecer tu contraseña:</p>
+      <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#ffffff;">
+        <h2 style="font-size:22px;color:#111111;margin-bottom:8px;">Hola ${nombre},</h2>
+        <p style="font-size:15px;color:#444444;line-height:1.6;margin-bottom:24px;">
+          Recibimos una solicitud para restablecer la contraseña de tu cuenta en
+          <strong>Flowjuyu</strong>. Haz clic en el botón para continuar:
+        </p>
 
         <a href="${resetLink}"
-           style="background:#111;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;display:inline-block;">
-           Restablecer contraseña
+           style="display:inline-block;background:#0F3D3A;color:#ffffff;padding:12px 24px;
+                  border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;">
+          Restablecer contraseña
         </a>
 
-        <p style="margin-top:20px;font-size:12px;color:#666;">
-          Este enlace expira en 15 minutos.
+        <p style="margin-top:24px;font-size:13px;color:#888888;line-height:1.5;">
+          Si no solicitaste este cambio, puedes ignorar este correo.
+          El enlace expira en <strong>15 minutos</strong>.
+        </p>
+
+        <hr style="border:none;border-top:1px solid #eeeeee;margin:24px 0;" />
+        <p style="font-size:11px;color:#aaaaaa;">
+          Este mensaje fue enviado automáticamente por Flowjuyu.
+          Por favor no respondas a este correo.
         </p>
       </div>
     `,
   });
+
+  if (error) {
+    // Log with full detail so it's visible in server logs without crashing the
+    // request. The caller (forgotPassword) still returns 200 to avoid enumeration.
+    console.error("❌ Resend error sending reset email:", error);
+    throw new Error(`Email delivery failed: ${error.message}`);
+  }
+
+  console.log(`✅ Reset email sent. Resend ID: ${data?.id}`);
 }
