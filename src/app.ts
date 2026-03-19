@@ -181,8 +181,10 @@ const apiLimiter = rateLimit({
 });
 
 app.use("/api", apiLimiter);
-app.use("/api/login", rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
+app.use("/api/login",        rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
 app.use("/api/login/google", rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
+app.use("/api/auth/social",  rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
+app.use("/api/refresh",      rateLimit({ windowMs: 15 * 60 * 1000, max: 60 }));
 
 // ===========================
 // Healthcheck
@@ -231,16 +233,6 @@ app.use("/api/products", recommendationsRoutes);
 // Analytics
 // ===========================
 app.use("/api/analytics", analyticsRoutes);
-
-// ===========================
-// Session debug
-// ===========================
-app.get("/api/session-check", (req, res) => {
-  res.json({
-    sessionID: req.sessionID,
-    session: req.session,
-  });
-});
 
 // ===========================
 // 404

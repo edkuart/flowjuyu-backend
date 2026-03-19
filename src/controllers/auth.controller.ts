@@ -3,88 +3,134 @@
 import { Request, Response, RequestHandler } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
-import jwt from "jsonwebtoken";
 import { sequelize } from "../config/db";
+import { signJwt, signRefreshToken, verifyRefreshToken } from "../lib/jwt";
+import { setRefreshTokenCookie, clearRefreshTokenCookie, REFRESH_TOKEN_COOKIE } from "../lib/cookies";
 import { User } from "../models/user.model";
 import { VendedorPerfil } from "../models/VendedorPerfil";
 import { sendResetPasswordEmail } from "../services/email.service";
 import { runKYCAnalysis } from "../services/kyc.service";
 import supabase from "../lib/supabase";
 import { v4 as uuidv4 } from "uuid";
+import {
+  isSupportedProvider,
+  verifySocialToken,
+  SocialAuthError,
+  type SocialProfile,
+} from "../services/socialAuth.service";
 
 // ────────────────────────────────────────────────────────────
-// Utilidad JWT
+// User DTO — canonical response shape
+// All auth responses use this. Never expose correo/rol/nombre.
 // ────────────────────────────────────────────────────────────
-const generateToken = (payload: object) =>
-  jwt.sign(payload, process.env.JWT_SECRET || "cortes_secret", {
-    expiresIn: "1d",
+
+export function buildUserDTO(user: User) {
+  return {
+    id:    user.id,
+    name:  user.nombre,
+    email: user.correo,
+    role:  user.rol,
+  };
+}
+
+// ────────────────────────────────────────────────────────────
+// Token pair — access token in body + refresh token in cookie
+//
+// All login/register paths call this single helper so the
+// session layer is always consistent.
+// ────────────────────────────────────────────────────────────
+
+function issueTokenPair(res: Response, user: User): string {
+  const accessToken = signJwt({
+    sub:           String(user.id),
+    email:         user.correo,
+    role:          user.rol,
+    token_version: user.token_version,
   });
 
+  const refreshToken = signRefreshToken({
+    sub:           String(user.id),
+    token_version: user.token_version,
+  });
+
+  setRefreshTokenCookie(res, refreshToken);
+
+  return accessToken;
+}
+
 // ────────────────────────────────────────────────────────────
-// Registro general (comprador)
+// Field resolution — backward compat, internal only
+// Accepts canonical (email/password) OR legacy (correo/contraseña).
+// These helpers are NEVER exposed in responses.
 // ────────────────────────────────────────────────────────────
+
+function resolveEmail(body: Record<string, any>): string | undefined {
+  return body.email ?? body.correo;
+}
+
+function resolvePassword(body: Record<string, any>): string | undefined {
+  return body.password ?? body["contraseña"] ?? body["contrasena"];
+}
+
+// ────────────────────────────────────────────────────────────
+// POST /api/register — Buyer registration
+// ────────────────────────────────────────────────────────────
+
 export const register = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { nombre, correo, rol, telefono, direccion } = req.body;
+    const { nombre, telefono, direccion } = req.body;
+    const email = resolveEmail(req.body);
+    const plain  = resolvePassword(req.body);
 
-    const plain =
-      req.body["contraseña"] ??
-      req.body["contrasena"] ??
-      req.body["password"];
-
-    if (!nombre || !correo || !plain || !rol) {
-      res.status(400).json({ message: "Faltan campos obligatorios" });
+    if (!nombre || !email || !plain) {
+      res.status(400).json({
+        ok:      false,
+        message: "Faltan campos obligatorios: nombre, email, password",
+      });
       return;
     }
 
-    const usuarioExistente = await User.findOne({ where: { correo } });
-    if (usuarioExistente) {
-      res.status(409).json({ message: "El correo ya está registrado" });
+    const existing = await User.findOne({ where: { correo: email } });
+
+    if (existing) {
+      res.status(409).json({
+        ok:      false,
+        message: "El correo ya está registrado",
+      });
       return;
     }
 
     const hash = await bcrypt.hash(String(plain), 10);
 
-    const nuevoUsuario = await User.create({
+    const newUser = await User.create({
       nombre,
-      correo,
+      correo:   email,
       password: hash,
-      rol,
+      rol:      "buyer", // 🔒 ALWAYS "buyer" — never trust client input
       telefono: (telefono ?? "").toString().trim(),
       direccion: (direccion ?? "").toString().trim(),
     });
 
-    const token = generateToken({
-      id: nuevoUsuario.id,
-      correo: nuevoUsuario.correo,
-      rol: nuevoUsuario.rol,
-      token_version: nuevoUsuario.token_version,
-    });
+    const token = issueTokenPair(res, newUser);
 
     res.status(201).json({
-      message: "Usuario registrado correctamente",
+      ok:    true,
       token,
-      user: {
-        id: nuevoUsuario.id,
-        nombre: nuevoUsuario.nombre,
-        correo: nuevoUsuario.correo,
-        rol: nuevoUsuario.rol,
-        telefono: nuevoUsuario.telefono,
-        direccion: nuevoUsuario.direccion,
-      },
+      user:  buildUserDTO(newUser),
     });
   } catch (error) {
     console.error("Error en register:", error);
-    res.status(500).json({ message: "Error al registrar" });
+    res.status(500).json({ ok: false, message: "Error al registrar" });
   }
 };
 
 // ────────────────────────────────────────────────────────────
-// Registro exclusivo para vendedores
+// POST /api/register/seller — Seller (KYC) registration
 // ────────────────────────────────────────────────────────────
+
 interface MulterFilesMap {
   [fieldname: string]: Express.Multer.File[] | undefined;
 }
@@ -98,7 +144,6 @@ export const registerVendedor = async (
   try {
     const {
       nombre,
-      correo,
       telefono,
       password,
       nombreComercio,
@@ -110,44 +155,47 @@ export const registerVendedor = async (
       dpi,
     } = req.body;
 
-    if (!nombre || !correo || !password || !dpi || !nombreComercio) {
-      res.status(400).json({ message: "Faltan campos obligatorios" });
+    const email = resolveEmail(req.body);
+
+    if (!nombre || !email || !password || !dpi || !nombreComercio) {
+      res.status(400).json({
+        ok:      false,
+        message: "Faltan campos obligatorios",
+      });
       return;
     }
 
-    const usuarioExistente = await User.findOne({ where: { correo } });
-    if (usuarioExistente) {
-      res.status(409).json({ message: "El correo ya está registrado" });
+    const existing = await User.findOne({ where: { correo: email } });
+
+    if (existing) {
+      res.status(409).json({
+        ok:      false,
+        message: "El correo ya está registrado",
+      });
       return;
     }
 
-    // 🔐 Hash password
-    const hash = await bcrypt.hash(String(password), 10);
-
-    // 👤 Crear usuario
-    const nuevoUsuario = await User.create(
+    const hash    = await bcrypt.hash(String(password), 10);
+    const newUser = await User.create(
       {
         nombre,
-        correo,
-        password: hash,
-        rol: "seller",
-        telefono: (telefono ?? "").toString().trim(),
+        correo:    email,
+        password:  hash,
+        rol:       "seller",
+        telefono:  (telefono ?? "").toString().trim(),
         direccion: (direccion ?? "").toString().trim(),
       },
       { transaction: t }
     );
 
-    console.log("🔥 FILES RECIBIDOS EN REGISTER:", req.files);
-
-    // 📁 Obtener archivos
+    // ── Supabase file upload helper ──
     const files = (req.files as MulterFilesMap | undefined) || {};
 
-    // 🔥 Helper para subir a Supabase
     async function uploadToSupabase(
-      file: Express.Multer.File,
+      file:   Express.Multer.File,
       folder: string
     ): Promise<string> {
-      const ext = file.originalname.split(".").pop();
+      const ext      = file.originalname.split(".").pop();
       const fileName = `${folder}/${uuidv4()}.${ext}`;
 
       const { error } = await supabase.storage
@@ -168,250 +216,191 @@ export const registerVendedor = async (
       return urlData.publicUrl;
     }
 
-    // 📤 Subir documentos si existen
     let fotoFrente: string | null = null;
     let fotoReverso: string | null = null;
     let selfie: string | null = null;
     let logo: string | null = null;
 
     if (files["foto_dpi_frente"]?.[0]) {
-      fotoFrente = await uploadToSupabase(
-        files["foto_dpi_frente"][0],
-        "dpi_frente"
-      );
+      fotoFrente = await uploadToSupabase(files["foto_dpi_frente"][0], "dpi_frente");
     }
-
     if (files["foto_dpi_reverso"]?.[0]) {
-      fotoReverso = await uploadToSupabase(
-        files["foto_dpi_reverso"][0],
-        "dpi_reverso"
-      );
+      fotoReverso = await uploadToSupabase(files["foto_dpi_reverso"][0], "dpi_reverso");
     }
-
     if (files["selfie_con_dpi"]?.[0]) {
-      selfie = await uploadToSupabase(
-        files["selfie_con_dpi"][0],
-        "selfie"
-      );
+      selfie = await uploadToSupabase(files["selfie_con_dpi"][0], "selfie");
     }
-
     if (files["logo"]?.[0]) {
-      logo = await uploadToSupabase(
-        files["logo"][0],
-        "logos"
-      );
+      logo = await uploadToSupabase(files["logo"][0], "logos");
     }
 
-    // 🔍 Automated KYC analysis
+    // ── Automated KYC scoring ──
     const kyc = runKYCAnalysis({
-      dpi:         dpi.trim(),
+      dpi:        dpi.trim(),
       fotoFrente,
       fotoReverso,
       selfie,
     });
 
-    // Auto-approval: if KYC score >= 80, approve immediately
-    const autoApproved = kyc.score >= 80;
-    const estadoValidacion = autoApproved
+    const autoApproved      = kyc.score >= 80;
+    const estadoValidacion  = autoApproved
       ? "aprobado"
       : (fotoFrente || fotoReverso || selfie) ? "en_revision" : "pendiente";
     const estadoAdmin = autoApproved ? "activo" : "inactivo";
 
-    // 🏪 Crear perfil vendedor
     await VendedorPerfil.create(
       {
-        user_id: nuevoUsuario.id,
-
-        // Datos personales
-        nombre: nombre.trim(),
-        email: correo.toLowerCase().trim(),
-        telefono: telefono ? telefono.trim() : null,
-        direccion: direccion ? direccion.trim() : null,
-
-        // Comercio
-        logo: logo,
-        nombre_comercio: nombreComercio.trim(),
-        telefono_comercio: telefonoComercio
-          ? telefonoComercio.trim()
-          : null,
-        departamento: departamento ?? null,
-        municipio: municipio ?? null,
-        descripcion: descripcion ?? null,
-
-        // KYC
-        dpi: dpi.trim(),
-        foto_dpi_frente: fotoFrente,
+        user_id:          newUser.id,
+        nombre:           nombre.trim(),
+        email:            email.toLowerCase().trim(),
+        telefono:         telefono ? telefono.trim() : null,
+        direccion:        direccion ? direccion.trim() : null,
+        logo,
+        nombre_comercio:  nombreComercio.trim(),
+        telefono_comercio: telefonoComercio ? telefonoComercio.trim() : null,
+        departamento:     departamento ?? null,
+        municipio:        municipio ?? null,
+        descripcion:      descripcion ?? null,
+        dpi:              dpi.trim(),
+        foto_dpi_frente:  fotoFrente,
         foto_dpi_reverso: fotoReverso,
-        selfie_con_dpi: selfie,
-
-        // Estados
+        selfie_con_dpi:   selfie,
         estado_validacion: estadoValidacion,
-        estado_admin:      estadoAdmin,
-        observaciones:     null,
-        actualizado_en:    new Date(),
-
-        // Automated KYC scoring
-        kyc_score:     kyc.score,
-        kyc_riesgo:    kyc.riesgo,
-        kyc_checklist: kyc.checklist,
+        estado_admin:     estadoAdmin,
+        observaciones:    null,
+        actualizado_en:   new Date(),
+        kyc_score:        kyc.score,
+        kyc_riesgo:       kyc.riesgo,
+        kyc_checklist:    kyc.checklist,
       } as any,
       { transaction: t }
     );
 
     await t.commit();
 
-    // 🔑 Token
-    const token = generateToken({
-      id: nuevoUsuario.id,
-      correo: nuevoUsuario.correo,
-      rol: nuevoUsuario.rol,
-      token_version: nuevoUsuario.token_version,
-    });
+    const token = issueTokenPair(res, newUser);
 
     res.status(201).json({
-      message: "Vendedor registrado correctamente",
+      ok:    true,
       token,
-      user: {
-        id: nuevoUsuario.id,
-        nombre: nuevoUsuario.nombre,
-        correo: nuevoUsuario.correo,
-        rol: nuevoUsuario.rol,
-        telefono: nuevoUsuario.telefono,
-        direccion: nuevoUsuario.direccion,
-      },
+      user:  buildUserDTO(newUser),
     });
-
   } catch (error) {
     await t.rollback();
     console.error("Error en registerVendedor:", error);
-    res.status(500).json({ message: "Error al registrar vendedor" });
+    res.status(500).json({ ok: false, message: "Error al registrar vendedor" });
   }
 };
 
 // ────────────────────────────────────────────────────────────
-// Login
+// POST /api/login
 // ────────────────────────────────────────────────────────────
+
 export const login = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { correo } = req.body;
-    const plain =
-      req.body["contraseña"] ??
-      req.body["contrasena"] ??
-      req.body["password"];
+    const email = resolveEmail(req.body);
+    const plain  = resolvePassword(req.body);
 
-    if (!correo || !plain) {
+    if (!email || !plain) {
       res.status(400).json({
-        message: "Correo y contraseña son obligatorios",
+        ok:      false,
+        message: "Email y password son obligatorios",
       });
       return;
     }
 
-    const usuario = await User.findOne({ where: { correo } });
+    const user = await User.findOne({ where: { correo: email } });
 
-    if (!usuario) {
-      res.status(401).json({
-        message: "Correo o contraseña incorrectos",
-      });
+    if (!user) {
+      res.status(401).json({ ok: false, message: "Credenciales incorrectas" });
       return;
     }
 
-    const passwordValida = await bcrypt.compare(
-      String(plain),
-      usuario.password
-    );
+    const isValid = await bcrypt.compare(String(plain), user.password);
 
-    if (!passwordValida) {
-      res.status(401).json({
-        message: "Correo o contraseña incorrectos",
-      });
+    if (!isValid) {
+      res.status(401).json({ ok: false, message: "Credenciales incorrectas" });
       return;
     }
 
-    // 🔒 BLOQUEO SI ES SELLER SUSPENDIDO
-    let sellerStatus: any = null;
+    // ── Seller-specific status checks ──
+    let sellerStatus: {
+      estado_validacion: string;
+      estado_admin: string;
+    } | null = null;
 
-    if (usuario.rol === "seller") {
+    if (user.rol === "seller") {
       const perfil = await VendedorPerfil.findOne({
-        where: { user_id: usuario.id },
+        where: { user_id: user.id },
       });
 
       if (perfil) {
-
-        // 🚫 Bloqueo si está suspendido
         if (perfil.estado_admin === "suspendido") {
           res.status(403).json({
+            ok:      false,
             message: "Cuenta suspendida por administración",
           });
           return;
         }
 
-        // 🚫 Bloqueo si fue rechazado
         if (perfil.estado_validacion === "rechazado") {
           res.status(403).json({
+            ok:      false,
             message: "Tu solicitud fue rechazada. Contacta soporte.",
           });
           return;
         }
 
-        // 🔥 Guardamos estado para enviarlo al frontend
         sellerStatus = {
           estado_validacion: perfil.estado_validacion,
-          estado_admin: perfil.estado_admin,
+          estado_admin:      perfil.estado_admin,
         };
       }
     }
 
-    const token = generateToken({
-      id: usuario.id,
-      correo: usuario.correo,
-      rol: usuario.rol,
-      token_version: usuario.token_version,
-    });
+    const token = issueTokenPair(res, user);
 
     res.status(200).json({
-      message: "Inicio de sesión exitoso",
+      ok:    true,
       token,
-      user: {
-        id: usuario.id,
-        nombre: usuario.nombre,
-        correo: usuario.correo,
-        rol: usuario.rol,
-        telefono: usuario.telefono,
-        direccion: usuario.direccion,
-      },
-      sellerStatus,
+      user:  buildUserDTO(user),
+      ...(sellerStatus && { sellerStatus }),
     });
-
   } catch (error) {
     console.error("Error en login:", error);
-    res.status(500).json({ message: "Error interno del servidor" });
+    res.status(500).json({ ok: false, message: "Error interno del servidor" });
   }
 };
 
 // ────────────────────────────────────────────────────────────
-// Cambiar contraseña (tipado correcto)
+// PATCH /api/change-password
 // ────────────────────────────────────────────────────────────
+
 export const changePassword: RequestHandler = async (req, res) => {
   try {
     const userId = req.user?.id;
 
     if (!userId) {
-      res.status(401).json({ message: "Usuario no autenticado" });
+      res.status(401).json({ ok: false, message: "Usuario no autenticado" });
       return;
     }
 
     const { passwordActual, passwordNueva } = req.body;
 
     if (!passwordActual || !passwordNueva) {
-      res.status(400).json({ message: "Debes completar ambos campos" });
+      res.status(400).json({
+        ok:      false,
+        message: "Debes completar ambos campos",
+      });
       return;
     }
 
     if (passwordNueva.length < 8) {
       res.status(400).json({
+        ok:      false,
         message: "La nueva contraseña debe tener mínimo 8 caracteres",
       });
       return;
@@ -420,53 +409,51 @@ export const changePassword: RequestHandler = async (req, res) => {
     const user = await User.findByPk(userId);
 
     if (!user) {
-      res.status(404).json({ message: "Usuario no encontrado" });
+      res.status(404).json({ ok: false, message: "Usuario no encontrado" });
       return;
     }
 
-    const passwordValida = await bcrypt.compare(
-      passwordActual,
-      user.password
-    );
+    const isValid = await bcrypt.compare(passwordActual, user.password);
 
-    if (!passwordValida) {
+    if (!isValid) {
       res.status(400).json({
+        ok:      false,
         message: "La contraseña actual es incorrecta",
       });
       return;
     }
 
-    const nuevaPasswordHash = await bcrypt.hash(passwordNueva, 12);
-
-    user.password = nuevaPasswordHash;
+    user.password       = await bcrypt.hash(passwordNueva, 12);
     user.token_version += 1;
     await user.save();
 
     res.status(200).json({
+      ok:      true,
       message: "Contraseña actualizada correctamente",
     });
   } catch (error) {
-    console.error("❌ Error al cambiar contraseña:", error);
-    res.status(500).json({ message: "Error interno del servidor" });
+    console.error("Error al cambiar contraseña:", error);
+    res.status(500).json({ ok: false, message: "Error interno del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────
-// Logout global (invalidate all tokens)
-// ─────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────
+// POST /api/logout-all — invalidates all tokens via token_version
+// ────────────────────────────────────────────────────────────
+
 export const logoutAll: RequestHandler = async (req, res) => {
   try {
     const userId = req.user?.id;
 
     if (!userId) {
-      res.status(401).json({ message: "Usuario no autenticado" });
+      res.status(401).json({ ok: false, message: "Usuario no autenticado" });
       return;
     }
 
     const user = await User.findByPk(userId);
 
     if (!user) {
-      res.status(404).json({ message: "Usuario no encontrado" });
+      res.status(404).json({ ok: false, message: "Usuario no encontrado" });
       return;
     }
 
@@ -474,121 +461,377 @@ export const logoutAll: RequestHandler = async (req, res) => {
     await user.save();
 
     res.status(200).json({
+      ok:      true,
       message: "Sesión cerrada en todos los dispositivos",
     });
   } catch (error) {
-    console.error("❌ Error en logoutAll:", error);
-    res.status(500).json({ message: "Error interno del servidor" });
+    console.error("Error en logoutAll:", error);
+    res.status(500).json({ ok: false, message: "Error interno del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────
-// Forgot Password
-// ─────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────
+// POST /api/forgot-password
+// ────────────────────────────────────────────────────────────
+
 export const forgotPassword: RequestHandler = async (req, res) => {
   try {
-    const { correo } = req.body;
+    const email = resolveEmail(req.body);
 
-    if (!correo) {
-      res.status(400).json({ message: "Correo es obligatorio" });
+    if (!email) {
+      res.status(400).json({ ok: false, message: "El email es obligatorio" });
       return;
     }
 
-    const user = await User.findOne({ where: { correo } });
+    const user = await User.findOne({ where: { correo: email } });
 
-    // Siempre responder 200 para no revelar existencia
+    // Always 200 — do not reveal whether the email exists
     if (!user) {
       res.status(200).json({
+        ok:      true,
         message: "Si el correo existe, recibirás instrucciones.",
       });
       return;
     }
 
-    const rawToken = crypto.randomBytes(32).toString("hex");
+    const rawToken    = crypto.randomBytes(32).toString("hex");
+    const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-    const hashedToken = crypto
-      .createHash("sha256")
-      .update(rawToken)
-      .digest("hex");
-
-    user.reset_password_token = hashedToken;
-    user.reset_password_expires = new Date(Date.now() + 15 * 60 * 1000);
+    user.reset_password_token   = hashedToken;
+    user.reset_password_expires = new Date(Date.now() + 15 * 60 * 1000); // 15 min
     await user.save();
 
-    // 🔥 Enviar email real
-    await sendResetPasswordEmail(
-      user.correo,
-      rawToken,
-      user.nombre
-    );
+    await sendResetPasswordEmail(user.correo, rawToken, user.nombre);
 
     res.status(200).json({
+      ok:      true,
       message: "Si el correo existe, recibirás instrucciones.",
     });
-
   } catch (error) {
-    console.error("❌ Error en forgotPassword:", error);
-    res.status(500).json({ message: "Error interno del servidor" });
+    console.error("Error en forgotPassword:", error);
+    res.status(500).json({ ok: false, message: "Error interno del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────
-// Reset Password
-// ─────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────
+// POST /api/reset-password
+// ────────────────────────────────────────────────────────────
+
 export const resetPassword: RequestHandler = async (req, res) => {
   try {
     const { token, passwordNueva } = req.body;
 
     if (!token || !passwordNueva) {
-      res.status(400).json({ message: "Token y nueva contraseña requeridos" });
+      res.status(400).json({
+        ok:      false,
+        message: "Token y nueva contraseña requeridos",
+      });
       return;
     }
 
     if (passwordNueva.length < 8) {
       res.status(400).json({
+        ok:      false,
         message: "La nueva contraseña debe tener mínimo 8 caracteres",
       });
       return;
     }
 
-    const hashedToken = crypto
-      .createHash("sha256")
-      .update(token)
-      .digest("hex");
-
-    const user = await User.findOne({
-      where: {
-        reset_password_token: hashedToken,
-      },
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+    const user        = await User.findOne({
+      where: { reset_password_token: hashedToken },
     });
 
     if (!user) {
-      res.status(400).json({ message: "Token inválido" });
+      res.status(400).json({ ok: false, message: "Token inválido" });
       return;
     }
 
-    if (!user.reset_password_expires || user.reset_password_expires < new Date()) {
-      res.status(400).json({ message: "Token expirado" });
+    if (
+      !user.reset_password_expires ||
+      user.reset_password_expires < new Date()
+    ) {
+      res.status(400).json({ ok: false, message: "Token expirado" });
       return;
     }
 
-    const nuevaPasswordHash = await bcrypt.hash(passwordNueva, 12);
-
-    user.password = nuevaPasswordHash;
-    user.token_version += 1;
-
-    // Limpiar campos
-    user.reset_password_token = null;
+    user.password              = await bcrypt.hash(passwordNueva, 12);
+    user.token_version        += 1;
+    user.reset_password_token  = null;
     user.reset_password_expires = null;
-
     await user.save();
 
     res.status(200).json({
+      ok:      true,
       message: "Contraseña restablecida correctamente",
     });
-
   } catch (error) {
-    console.error("❌ Error en resetPassword:", error);
-    res.status(500).json({ message: "Error interno del servidor" });
+    console.error("Error en resetPassword:", error);
+    res.status(500).json({ ok: false, message: "Error interno del servidor" });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// Shared helper — find or create a user from a verified social profile.
+//
+// New social users are always created as "buyer".
+// Password field is NOT NULL, so we store an unusable placeholder:
+//   bcrypt(randomBytes(32)) — cleartext never stored, never matchable.
+// Existing users keep their current role.
+// ────────────────────────────────────────────────────────────
+
+async function findOrCreateSocialUser(
+  profile: SocialProfile,
+): Promise<{ user: User; isNew: boolean }> {
+  const email = profile.email.toLowerCase().trim();
+  let user = await User.findOne({ where: { correo: email } });
+
+  if (!user) {
+    const placeholderHash = await bcrypt.hash(
+      crypto.randomBytes(32).toString("hex"),
+      10,
+    );
+    const displayName = (profile.name ?? email.split("@")[0]).trim();
+    user = await User.create({
+      nombre:    displayName,
+      correo:    email,
+      password:  placeholderHash,
+      rol:       "buyer",
+      telefono:  "",
+      direccion: "",
+    });
+    return { user, isNew: true };
+  }
+
+  return { user, isNew: false };
+}
+
+// ────────────────────────────────────────────────────────────
+// POST /api/auth/social — unified social login endpoint
+//
+// Body: { provider: "google" | "facebook" | "apple", id_token: string }
+//
+// Each provider verifier lives in socialAuth.service.ts and returns
+// a normalised SocialProfile. The controller handles HTTP semantics.
+// Rate limited to 20 req / 15 min (same as /api/login/google).
+// ────────────────────────────────────────────────────────────
+
+export const loginWithSocial: RequestHandler = async (req, res) => {
+  try {
+    const { provider, id_token } = req.body as { provider?: unknown; id_token?: unknown };
+
+    if (!isSupportedProvider(provider)) {
+      res.status(400).json({
+        ok:      false,
+        message: "Proveedor no soportado. Usa: google, facebook o apple.",
+        code:    "UNSUPPORTED_PROVIDER",
+      });
+      return;
+    }
+
+    if (!id_token || typeof id_token !== "string") {
+      res.status(400).json({
+        ok:      false,
+        message: "id_token requerido",
+        code:    "MISSING_TOKEN",
+      });
+      return;
+    }
+
+    let profile: SocialProfile;
+    try {
+      profile = await verifySocialToken(provider, id_token);
+    } catch (err) {
+      if (err instanceof SocialAuthError) {
+        const status =
+          err.code === "GOOGLE_NOT_CONFIGURED"  ? 503 :
+          err.code === "PROVIDER_NOT_IMPLEMENTED" ? 501 :
+          err.code === "EMAIL_NOT_VERIFIED"      ? 403 : 401;
+        res.status(status).json({ ok: false, message: err.message, code: err.code });
+        return;
+      }
+      throw err;
+    }
+
+    if (!profile.email || !profile.emailVerified) {
+      res.status(403).json({
+        ok:      false,
+        message: "El correo de la cuenta social no está verificado.",
+        code:    "EMAIL_NOT_VERIFIED",
+      });
+      return;
+    }
+
+    const { user, isNew } = await findOrCreateSocialUser(profile);
+    const token = issueTokenPair(res, user);
+
+    res.status(200).json({ ok: true, token, user: buildUserDTO(user), is_new_user: isNew });
+  } catch (error) {
+    console.error("Error en loginWithSocial:", error);
+    res.status(500).json({ ok: false, message: "Error interno del servidor" });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// POST /api/login/google — backward-compatible Google login
+//
+// Thin wrapper around loginWithSocial. Kept so existing clients
+// that POST { id_token } to /api/login/google continue to work.
+// New clients should use POST /api/auth/social with provider:"google".
+// ────────────────────────────────────────────────────────────
+
+export const loginWithGoogle: RequestHandler = async (req, res) => {
+  // Inject provider so loginWithSocial can dispatch to verifyGoogleToken
+  req.body = { provider: "google", id_token: req.body?.id_token };
+  return loginWithSocial(req, res, () => {});
+};
+
+// ────────────────────────────────────────────────────────────
+// POST /api/logout — single-device logout
+//
+// Clears the HttpOnly refresh token cookie. The access token
+// remains valid until it expires (JWT_EXPIRES_IN, default 15m).
+// For immediate full invalidation across all devices, use
+// POST /api/logout-all which increments token_version.
+// ────────────────────────────────────────────────────────────
+
+export const logout: RequestHandler = (_req, res) => {
+  clearRefreshTokenCookie(res);
+  res.status(200).json({ ok: true, message: "Sesión cerrada correctamente" });
+};
+
+// ────────────────────────────────────────────────────────────
+// POST /api/refresh — silent access token renewal
+//
+// Reads the refresh token from the HttpOnly cookie, validates it
+// against the DB, and issues a fresh access token + rotated
+// refresh token. The old refresh token is replaced on every call.
+//
+// Returns the same shape as login so the frontend can consume it
+// identically. Clears the cookie and returns 401 on any failure.
+// ────────────────────────────────────────────────────────────
+
+export const refresh: RequestHandler = async (req, res) => {
+  try {
+    const rawToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+
+    if (!rawToken) {
+      res.status(401).json({ ok: false, message: "No hay sesión activa" });
+      return;
+    }
+
+    // Verify signature and expiry against the refresh secret
+    let decoded;
+    try {
+      decoded = verifyRefreshToken(rawToken);
+    } catch {
+      clearRefreshTokenCookie(res);
+      res.status(401).json({ ok: false, message: "Sesión expirada. Inicia sesión nuevamente." });
+      return;
+    }
+
+    // Load user — token_version check happens before issuing anything
+    const user = await User.findByPk(decoded.sub);
+
+    if (!user) {
+      clearRefreshTokenCookie(res);
+      res.status(401).json({ ok: false, message: "Usuario no encontrado" });
+      return;
+    }
+
+    // token_version mismatch means logoutAll was called — reject
+    if (decoded.token_version !== user.token_version) {
+      clearRefreshTokenCookie(res);
+      res.status(401).json({
+        ok:      false,
+        message: "Sesión inválida. Inicia sesión nuevamente.",
+      });
+      return;
+    }
+
+    // Suspended accounts cannot refresh
+    if ((user as any).estado === "suspendido") {
+      clearRefreshTokenCookie(res);
+      res.status(403).json({ ok: false, message: "Cuenta suspendida" });
+      return;
+    }
+
+    // Issue new access token + rotate refresh token (new cookie replaces old)
+    const token = issueTokenPair(res, user);
+
+    res.status(200).json({
+      ok:   true,
+      token,
+      user: buildUserDTO(user),
+    });
+  } catch (error) {
+    console.error("Error en refresh:", error);
+    res.status(500).json({ ok: false, message: "Error interno del servidor" });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// GET /api/session — lightweight session probe
+//
+// Reads the HttpOnly refresh-token cookie (fj_rt), validates it
+// against the DB, and returns the canonical user DTO.
+//
+// Does NOT require the short-lived access token — it is designed
+// for server-to-server calls from Next.js middleware and for the
+// frontend session probe on first load.
+//
+// Does NOT rotate the refresh token — this is a read-only check.
+// Use POST /api/refresh to obtain a new access token.
+// ────────────────────────────────────────────────────────────
+
+export const getSession: RequestHandler = async (req, res) => {
+  try {
+    const rawToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+
+    if (!rawToken) {
+      res.status(401).json({ ok: false, message: "No hay sesión activa" });
+      return;
+    }
+
+    // Verify refresh-token signature and expiry
+    let decoded;
+    try {
+      decoded = verifyRefreshToken(rawToken);
+    } catch {
+      clearRefreshTokenCookie(res);
+      res.status(401).json({ ok: false, message: "Sesión expirada. Inicia sesión nuevamente." });
+      return;
+    }
+
+    // Load user — validates existence
+    const user = await User.findByPk(decoded.sub);
+
+    if (!user) {
+      clearRefreshTokenCookie(res);
+      res.status(401).json({ ok: false, message: "Usuario no encontrado" });
+      return;
+    }
+
+    // token_version mismatch — logoutAll was called since this token was issued
+    if (decoded.token_version !== user.token_version) {
+      clearRefreshTokenCookie(res);
+      res.status(401).json({ ok: false, message: "Sesión inválida. Inicia sesión nuevamente." });
+      return;
+    }
+
+    // Suspended accounts cannot have active sessions
+    if ((user as any).estado === "suspendido") {
+      clearRefreshTokenCookie(res);
+      res.status(403).json({ ok: false, message: "Cuenta suspendida" });
+      return;
+    }
+
+    res.status(200).json({
+      ok:   true,
+      user: buildUserDTO(user),
+    });
+  } catch (error) {
+    console.error("Error en getSession:", error);
+    res.status(500).json({ ok: false, message: "Error interno del servidor" });
   }
 };

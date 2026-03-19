@@ -1,3 +1,5 @@
+// src/routes/auth.routes.ts
+
 import { Router } from "express";
 import * as Auth from "../controllers/auth.controller";
 import { uploadVendedorDocs } from "../middleware/upload.middleware";
@@ -6,21 +8,35 @@ import { requireAuth, requireRole } from "../middleware/auth";
 const router: Router = Router();
 
 // ======================================================
-// 🔐 AUTH — BUYER
+// 🔐 BUYER AUTH
 // ======================================================
 
-router.post("/register", Auth.register);
-router.post("/login", Auth.login);
+router.post("/register",          Auth.register);
+router.post("/login",             Auth.login);
 
 // ======================================================
-// 🔐 AUTH — SELLER (KYC)
+// 🔐 SELLER AUTH (KYC multipart)
 // ======================================================
 
-router.post(
-  "/register/seller",
-  uploadVendedorDocs,
-  Auth.registerVendedor
-);
+router.post("/register/seller",   uploadVendedorDocs, Auth.registerVendedor);
+
+// ======================================================
+// 🔐 SOCIAL LOGIN
+// Explicitly defined — returns 501 until Phase 2 implementation.
+// Replacing the old maybe() pattern that silently dropped routes.
+// ======================================================
+
+router.post("/login/google",      Auth.loginWithGoogle);  // backward-compat
+router.post("/auth/social",       Auth.loginWithSocial);   // unified endpoint
+
+// ======================================================
+// 🔐 SESSION
+// Explicitly defined stubs — returns 501 until Phase 2.
+// ======================================================
+
+router.post("/logout",            Auth.logout);
+router.post("/refresh",           Auth.refresh);
+router.get("/session",            Auth.getSession);
 
 // ======================================================
 // 🔐 PASSWORD & SECURITY
@@ -33,32 +49,8 @@ router.patch(
   Auth.changePassword
 );
 
-router.post(
-  "/logout-all",
-  requireAuth,
-  Auth.logoutAll
-);
-
-router.post("/forgot-password", Auth.forgotPassword);
-router.post("/reset-password", Auth.resetPassword);
-
-// ======================================================
-// 🔐 OPTIONAL HANDLERS (SAFE CHECK)
-// ======================================================
-
-const maybe = (name: string) =>
-  (Auth as any)[name] as undefined | ((...a: any[]) => any);
-
-if (maybe("loginWithGoogle")) {
-  router.post("/login/google", maybe("loginWithGoogle")!);
-}
-
-if (maybe("logout")) {
-  router.post("/logout", maybe("logout")!);
-}
-
-if (maybe("getSession")) {
-  router.get("/session", maybe("getSession")!);
-}
+router.post("/logout-all",        requireAuth, Auth.logoutAll);
+router.post("/forgot-password",   Auth.forgotPassword);
+router.post("/reset-password",    Auth.resetPassword);
 
 export default router;

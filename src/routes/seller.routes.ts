@@ -3,7 +3,7 @@
 import { Router } from "express";
 import multer from "multer";
 import asyncHandler from "../middleware/asyncHandler";
-import { verifyToken, requireRole } from "../middleware/auth";
+import { verifyToken, requireRole, requireAuth } from "../middleware/auth";
 import { requireActiveSeller } from "../middleware/requireActiveSeller";
 import * as SellerController from "../controllers/seller.controller";
 import * as SellerTicketController from "../controllers/sellerTicket.controller";
@@ -42,6 +42,17 @@ router.get(
 router.get(
   "/tiendas",
   asyncHandler(SellerController.getSellers)
+);
+
+/* ==================================================
+   🔐 SELLER ONBOARDING — accessible by any authenticated user
+   Must be defined BEFORE the global seller-only middleware below.
+================================================== */
+
+router.post(
+  "/activate",
+  requireAuth,
+  asyncHandler(SellerController.activateSeller),
 );
 
 /* ==================================================

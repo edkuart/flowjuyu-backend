@@ -1078,3 +1078,89 @@ export const deleteSellerBanner: RequestHandler = async (req, res) => {
     });
   }
 };
+
+// ==============================
+// POST /api/seller/activate
+// Convert a buyer into a seller (1-click, no KYC required at this step).
+// Idempotent: returns current state if the user is already a seller.
+// ==============================
+
+export const activateSeller: RequestHandler = async (req, res) => {
+  try {
+    const reqUser = (req as any).user as { id: number; role: string } | undefined;
+
+    if (!reqUser) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
+
+    const user = await User.findByPk(reqUser.id);
+
+    if (!user) {
+      res.status(404).json({ ok: false, message: "Usuario no encontrado" });
+      return;
+    }
+
+    // ── Already a seller — idempotent path ──────────────────────────────────
+    if (user.rol === "seller") {
+      // Ensure VendedorPerfil exists (defensive — handles edge cases)
+      const existing = await VendedorPerfil.findOne({ where: { user_id: user.id } });
+      if (!existing) {
+        await VendedorPerfil.create({
+          user_id:           user.id,
+          nombre:            user.nombre,
+          email:             user.correo,
+          nombre_comercio:   user.nombre,
+          estado_validacion: "pendiente",
+          estado_admin:      "inactivo",
+          plan:              "free",
+          plan_activo:       false,
+        });
+      }
+      res.status(200).json({
+        ok:             true,
+        already_seller: true,
+        user: {
+          id:    user.id,
+          name:  user.nombre,
+          email: user.correo,
+          role:  user.rol,
+        },
+      });
+      return;
+    }
+
+    // ── Promote buyer → seller ──────────────────────────────────────────────
+    await sequelize.transaction(async (t) => {
+      await user.update({ rol: "seller" }, { transaction: t });
+      await VendedorPerfil.create(
+        {
+          user_id:           user.id,
+          nombre:            user.nombre,
+          email:             user.correo,
+          nombre_comercio:   user.nombre, // placeholder — editable in dashboard
+          estado_validacion: "pendiente",
+          estado_admin:      "inactivo",
+          plan:              "free",
+          plan_activo:       false,
+        },
+        { transaction: t },
+      );
+    });
+
+    await user.reload();
+
+    res.status(200).json({
+      ok:   true,
+      user: {
+        id:    user.id,
+        name:  user.nombre,
+        email: user.correo,
+        role:  user.rol,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error en activateSeller:", error);
+    res.status(500).json({ ok: false, message: "Error interno del servidor" });
+  }
+};

@@ -5,26 +5,28 @@ import jwt, { VerifyOptions } from "jsonwebtoken";
 import { User } from "../models/user.model";
 
 // ─────────────────────────────────────────────
-// 🎯 Roles oficiales del sistema
+// Role type — single source of truth
 // ─────────────────────────────────────────────
 export type Rol = "buyer" | "seller" | "admin" | "support";
 
 // ─────────────────────────────────────────────
-// 📦 Tipo del token decodificado
+// Decoded token shape — canonical only
+//
+// REMOVED: id, correo, rol, roles[]
+// Token identifies the user (sub) and carries token_version.
+// Role is ALWAYS resolved from the DB, never trusted from the token.
 // ─────────────────────────────────────────────
 interface DecodedToken {
-  id?: number | string;
-  correo?: string;
-  rol?: Rol;
-  roles?: Rol[];
-  iat?: number;
-  exp?: number;
-  sub?: string;
-  token_version?: number;
+  sub:           string;
+  email:         string;
+  role:          Rol;
+  token_version: number;
+  iat?:          number;
+  exp?:          number;
 }
 
 // ─────────────────────────────────────────────
-// 🔑 Obtener token del header o cookie
+// Bearer token extraction
 // ─────────────────────────────────────────────
 function getBearerToken(req: Request): string | null {
   const header = req.headers.authorization || "";
@@ -38,7 +40,7 @@ function getBearerToken(req: Request): string | null {
 }
 
 // ─────────────────────────────────────────────
-// 🔐 verifyToken
+// verifyToken middleware
 // ─────────────────────────────────────────────
 export const verifyToken = (
   rolesRequeridos: Rol[] = []
@@ -53,9 +55,7 @@ export const verifyToken = (
 
       if (!secret) {
         console.error("❌ JWT_SECRET no configurado");
-        res.status(500).json({
-          message: "Configuración interna inválida",
-        });
+        res.status(500).json({ message: "Configuración interna inválida" });
         return;
       }
 
@@ -66,7 +66,7 @@ export const verifyToken = (
         return;
       }
 
-      // 🔐 Verificar JWT
+      // ── Verify signature and expiry ──
       const verifyOpts: VerifyOptions = {};
       const algs = (process.env.JWT_ALGS || "HS256")
         .split(",")
@@ -79,77 +79,52 @@ export const verifyToken = (
 
       const decoded = jwt.verify(token, secret, verifyOpts) as DecodedToken;
 
-      const userId = decoded.sub ?? decoded.id;
-
-      if (!userId) {
+      // sub is required — rejects any pre-Phase-2 token missing it
+      if (!decoded.sub) {
         res.status(401).json({ message: "Token inválido" });
         return;
       }
 
-      // 🔎 Buscar usuario en BD
-      const user = await User.findByPk(userId);
+      // ── Load user from DB ──
+      const user = await User.findByPk(decoded.sub);
 
       if (!user) {
         res.status(401).json({ message: "Usuario no existe" });
         return;
       }
 
-      // 🔒 token_version (logout global)
-      if (
-        typeof decoded.token_version === "number" &&
-        decoded.token_version !== user.token_version
-      ) {
+      // ── token_version — logout-all invalidation ──
+      // Rejects tokens issued before the last logoutAll / password change.
+      // Also rejects legacy tokens that omit token_version (undefined !== number).
+      if (decoded.token_version !== user.token_version) {
         res.status(401).json({
           message: "Sesión inválida. Inicia sesión nuevamente.",
         });
         return;
       }
 
-      // 🚫 Suspensión
+      // ── Suspension check ──
       if ((user as any).estado === "suspendido") {
         res.status(403).json({ message: "Cuenta suspendida" });
         return;
       }
 
-      // 🎯 Normalización de roles
-      const tokenRoles: string[] = Array.isArray(decoded.roles)
-        ? decoded.roles
-        : decoded.rol
-        ? [decoded.rol]
-        : [];
+      // ── Role authorization — DB is the authority ──
+      //
+      // The token role is NOT used here. We read rol from the User record
+      // so that role changes take effect immediately without re-login.
+      const dbRole = user.rol as Rol;
 
-      const dbRole: string[] = (user as any)?.rol
-        ? [(user as any).rol]
-        : [];
-
-      const userRoles = Array.from(
-        new Set(
-          [...tokenRoles, ...dbRole]
-            .map((r) => String(r).toLowerCase().trim())
-            .filter(Boolean)
-        )
-      ) as Rol[];
-
-      // 🔐 Validación de permisos
-      const permitido =
-        rolesRequeridos.length === 0 ||
-        rolesRequeridos.some((r) =>
-          userRoles.includes(r)
-        );
-
-      if (!permitido) {
-        res.status(403).json({
-          message: "Acceso denegado por rol",
-        });
+      if (rolesRequeridos.length > 0 && !rolesRequeridos.includes(dbRole)) {
+        res.status(403).json({ message: "Acceso denegado por rol" });
         return;
       }
 
-      // ✅ Inyectar usuario en request
-      (req as any).user = {
-        id: Number(userId),
-        correo: decoded.correo,
-        role: userRoles[0],
-        roles: userRoles,
+      // ── Inject user into request ──
+      req.user = {
+        id:    Number(decoded.sub),
+        email: user.correo,
+        role:  dbRole,
       };
 
       next();
@@ -157,7 +132,7 @@ export const verifyToken = (
       if (error?.name === "TokenExpiredError") {
         res.status(401).json({
           message: "Token expirado",
-          code: "TOKEN_EXPIRED",
+          code:    "TOKEN_EXPIRED",
         });
         return;
       }
@@ -169,7 +144,7 @@ export const verifyToken = (
 };
 
 // ─────────────────────────────────────────────
-// 🧱 Helpers
+// Helpers
 // ─────────────────────────────────────────────
 
 export const requireAuth: RequestHandler = verifyToken();
