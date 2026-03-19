@@ -5,6 +5,8 @@ export interface PublicProductCardDTO {
   nombre: string
   precio: number
   imagen_url: string | null
+  rating_avg: number
+  rating_count: number
   categoria: {
     id: number | null
     nombre: string | null
@@ -43,6 +45,9 @@ export function buildPublicProductCardDTO(row: any): PublicProductCardDTO {
     imagen_url: toSafeUrlOrNull(
       row.imagen_url ?? row.imagen_principal ?? null
     ),
+
+    rating_avg: toSafeNumber(row.rating_avg),
+    rating_count: toSafeNumber(row.rating_count),
 
     categoria: {
       id: categoriaId,

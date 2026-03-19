@@ -3,6 +3,8 @@
 import { RequestHandler } from "express";
 import { sequelize } from "../config/db";
 import { QueryTypes } from "sequelize";
+import { createNotification } from "../utils/notifications";
+import { notifySimilarProducts } from "../services/suggestions.service";
 
 /* ============================================================
    ❤️ GET USER FAVORITES
@@ -124,6 +126,23 @@ export const addFavorite: RequestHandler = async (req, res) => {
         type: QueryTypes.SELECT,
       }
     );
+
+    // Only notify on a genuine new insert — ON CONFLICT DO NOTHING returns
+    // no row when the favorite already existed, so result is undefined then.
+    if (result?.id) {
+      await createNotification(
+        userId,
+        "favorite",
+        "Guardaste una pieza",
+        "La encontrarás en tus favoritos.",
+        "/buyer/favorites"
+      );
+
+      // Fire suggestion in background — non-blocking, never throws
+      if (product_id) {
+        notifySimilarProducts(userId, product_id).catch(() => {});
+      }
+    }
 
     res.status(201).json({ success: true, id: result?.id ?? null });
   } catch (err) {

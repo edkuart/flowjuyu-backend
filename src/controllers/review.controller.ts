@@ -4,6 +4,7 @@ import { RequestHandler } from "express";
 import { sequelize } from "../config/db";
 import { QueryTypes } from "sequelize";
 import rateLimit from "express-rate-limit";
+import { createNotification } from "../utils/notifications";
 
 /* ============================================================
    🌟 GET SELLER RATING SUMMARY
@@ -134,6 +135,17 @@ export const createReview: RequestHandler = async (req, res) => {
         type: QueryTypes.SELECT,
       }
     );
+
+    // Notify the buyer who just submitted the review
+    if (buyer_id) {
+      createNotification(
+        buyer_id,
+        "review",
+        "Dejaste una reseña",
+        "Tu opinión ayuda a otros compradores.",
+        product_id ? `/product/${product_id}` : undefined
+      ).catch(() => {/* non-critical — ignore */});
+    }
 
     res.status(201).json({ success: true, id: result.id });
   } catch (err) {

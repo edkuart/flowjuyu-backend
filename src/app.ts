@@ -27,6 +27,8 @@ import intentionRoutes from "./routes/intention.routes";
 import categoriesRoutes from "./routes/categories.routes";
 import reviewRoutes from "./routes/review.routes";
 import favoritesRoutes from "./routes/favorites.routes";
+import notificationsRoutes from "./routes/notifications.routes";
+import recommendationsRoutes from "./routes/recommendations.routes";
 
 // Phase 2 table setup
 import { setupPhase2Tables } from "./utils/setupTables";
@@ -222,6 +224,8 @@ app.use("/api/buyer", buyerRoutes);
 app.use("/api/seller", sellerRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/favorites", favoritesRoutes);
+app.use("/api/notifications", notificationsRoutes);
+app.use("/api/products", recommendationsRoutes);
 
 // ===========================
 // Analytics

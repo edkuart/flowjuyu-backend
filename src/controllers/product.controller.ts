@@ -12,6 +12,8 @@ import { buildPublicProductCardDTO } from "../utils/buildPublicProductCardDTO"
 import { buildSearchProductDTO } from "../utils/buildSearchProductDTO";
 import { logEvent } from "../utils/eventLogger";
 import { can } from "../services/authorization.service";
+import { createNotification } from "../utils/notifications";
+import { notifyNewProductInCategory } from "../services/suggestions.service";
 
 
 // ===========================
@@ -513,6 +515,13 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
 
     await t.commit();
 
+    // Notify buyers who follow this category — fire-and-forget, never throws
+    const categoryId =
+      b.categoria_id !== undefined && b.categoria_id !== null && b.categoria_id !== ""
+        ? Number(b.categoria_id)
+        : null;
+    notifyNewProductInCategory(inserted[0].id, categoryId, u.id).catch(() => {});
+
     res.status(201).json({
       id: inserted[0].id,
       imagenes: urls,
@@ -694,11 +703,13 @@ export const getProductById = async (
     // 🔎 PRODUCTOS RELACIONADOS (CardDTO)
     // =====================================================
     const relatedQuery = `
-      SELECT 
+      SELECT
         p.id,
         p.nombre,
         p.precio,
         p.imagen_url,
+        p.rating_avg,
+        p.rating_count,
         p.departamento,
         p.municipio,
         c.id AS categoria_id,
@@ -1226,12 +1237,14 @@ export const getProductsByCategory = async (
         p.precio,
         p.descripcion,
         p.imagen_url,
+        p.rating_avg,
+        p.rating_count,
         p.created_at,
         c.nombre AS categoria
       FROM productos p
       JOIN categorias c ON c.id = p.categoria_id
       JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
-      WHERE 
+      WHERE
         p.activo = true
         AND v.estado_validacion = 'aprobado'
         AND v.estado_admin = 'activo'
@@ -1269,11 +1282,13 @@ export const getNewProducts = async (
 ): Promise<void> => {
   try {
     const query = `
-      SELECT 
+      SELECT
         p.id,
         p.nombre,
         p.precio,
         p.imagen_url,
+        p.rating_avg,
+        p.rating_count,
         p.departamento,
         p.municipio,
         c.id AS categoria_id,
@@ -1552,11 +1567,13 @@ export const getFilteredProducts = async (
 
     if (total === 0 && search) {
       const relatedQuery = `
-        SELECT 
+        SELECT
           p.id,
           p.nombre,
           p.precio,
           p.imagen_url,
+          p.rating_avg,
+          p.rating_count,
           p.departamento,
           p.municipio,
           c.id AS categoria_id,
@@ -1703,9 +1720,22 @@ export const getProductReviews = async (
       }
     );
 
+    const rating_count = rows.length;
+    const rating_avg =
+      rating_count > 0
+        ? Number(
+            (
+              rows.reduce((sum: number, r: any) => sum + r.rating, 0) /
+              rating_count
+            ).toFixed(1)
+          )
+        : 0;
+
     res.json({
       success: true,
-      total: rows.length,
+      total: rating_count,
+      rating_count,
+      rating_avg,
       reviews: rows,
     });
 
@@ -1781,7 +1811,7 @@ export const createProductReview = async (
     // =====================================================
     const productCheck: any = await sequelize.query(
       `
-      SELECT p.id
+      SELECT p.id, p.vendedor_id
       FROM productos p
       JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       WHERE 
@@ -1907,6 +1937,20 @@ export const createProductReview = async (
       user_id: userId,
       product_id: productId,
     });
+
+    // =====================================================
+    // 🔔 NOTIFICAR AL VENDEDOR
+    // =====================================================
+    const sellerUserId = productCheck[0]?.vendedor_id;
+    if (sellerUserId) {
+      await createNotification(
+        Number(sellerUserId),
+        "review",
+        "Nueva reseña en tu producto",
+        `Un comprador calificó tu pieza con ${ratingNumber} ${ratingNumber === 1 ? "estrella" : "estrellas"}.`,
+        `/seller/products`
+      );
+    }
 
     // =====================================================
     // 📦 RESPUESTA

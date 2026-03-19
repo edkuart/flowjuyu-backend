@@ -69,12 +69,50 @@ export const sequelize = new Sequelize(databaseUrl, {
 });
 
 /**
- * 🔎 Verifica conexión al iniciar servidor
+ * 🔎 Verifica conexión al iniciar servidor y emite diagnóstico completo.
+ *
+ * Logs emitidos:
+ *  - URL de conexión (contraseña oculta)
+ *  - current_database / current_schema / current_user (desde PostgreSQL)
+ *  - Tablas visibles en el schema público
+ *
+ * Si la URL real en los logs no coincide con la que esperabas, ese es el bug.
  */
 export async function assertDbConnection(): Promise<void> {
+  // ── 1. Mostrar qué URL está usando realmente este proceso ───────────────
+  const maskedUrl = databaseUrl.replace(/:([^:@]+)@/, ":***@");
+  console.log("🔗 DB URL resolvida:", maskedUrl);
+
   try {
     await sequelize.authenticate();
     console.log("✅ Conexión a PostgreSQL establecida correctamente");
+
+    // ── 2. Confirmar base de datos, schema y usuario reales ──────────────
+    const [ctxRows] = await sequelize.query(
+      `SELECT current_database() AS db,
+              current_schema()   AS schema,
+              current_user       AS usr`
+    );
+    const ctx = ctxRows[0] as { db: string; schema: string; usr: string };
+    console.log(`📦 Conectado a → db="${ctx.db}"  schema="${ctx.schema}"  user="${ctx.usr}"`);
+
+    // ── 3. Listar tablas en el schema público ────────────────────────────
+    const [tableRows] = await sequelize.query(
+      `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`
+    );
+    const names = (tableRows as { tablename: string }[]).map((t) => t.tablename).join(", ");
+    console.log("📋 Tablas públicas:", names || "(ninguna)");
+
+    // ── 4. Advertir si favorites no existe ──────────────────────────────
+    const hasFavorites = (tableRows as { tablename: string }[]).some(
+      (t) => t.tablename === "favorites"
+    );
+    if (!hasFavorites) {
+      console.warn(
+        "⚠️  La tabla 'favorites' NO existe en esta base de datos.\n" +
+        "   Ejecuta el SQL de creación contra la misma DB que aparece arriba."
+      );
+    }
   } catch (err) {
     console.error("❌ Error crítico conectando a DB:", err);
     process.exit(1);
