@@ -19,6 +19,10 @@ interface ProductAttributes {
   region_custom?: string | null;
   tela_custom?: string | null;
   accesorio_custom?: string | null;
+  /** Platform-generated unique reference. Format: FJ-REG-CAT-YYMMDD-RAND6 */
+  internal_code: string;
+  /** Optional seller-defined inventory code. Unique per seller (nullable). */
+  seller_sku?: string | null;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -38,6 +42,7 @@ type ProductCreation = Optional<
   | "region_custom"
   | "tela_custom"
   | "accesorio_custom"
+  | "seller_sku"
   | "created_at"
   | "updated_at"
 >;
@@ -62,6 +67,8 @@ class Product
   public region_custom?: string | null;
   public tela_custom?: string | null;
   public accesorio_custom?: string | null;
+  public internal_code!: string;
+  public seller_sku?: string | null;
   public readonly created_at!: Date;
   public readonly updated_at!: Date;
 }
@@ -132,6 +139,28 @@ Product.init(
     accesorio_custom: {
       type: DataTypes.STRING,
       allowNull: true,
+    },
+    internal_code: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+      unique: true,
+    },
+    seller_sku: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      defaultValue: null,
+      validate: {
+        // Validated at model layer; the DB partial unique index enforces
+        // per-seller uniqueness. Format rule: letters, digits, hyphens, underscores.
+        is: {
+          args: /^[A-Za-z0-9\-_]+$/,
+          msg: "seller_sku: only letters, digits, hyphens and underscores allowed",
+        },
+        len: {
+          args: [1, 100],
+          msg: "seller_sku: must be between 1 and 100 characters",
+        },
+      },
     },
     created_at: DataTypes.DATE,
     updated_at: DataTypes.DATE,

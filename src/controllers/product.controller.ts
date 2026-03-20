@@ -14,6 +14,7 @@ import { logEvent } from "../utils/eventLogger";
 import { can } from "../services/authorization.service";
 import { createNotification } from "../utils/notifications";
 import { notifyNewProductInCategory } from "../services/suggestions.service";
+import { generateProductCode } from "../services/productCode.service";
 
 
 // ===========================
@@ -356,6 +357,44 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    // ======================
+    // 🔒 Validación seller_sku (opcional)
+    // ======================
+    const rawSku = b.seller_sku as string | undefined;
+    const sellerSku: string | null = rawSku && rawSku.trim() !== "" ? rawSku.trim() : null;
+
+    if (sellerSku !== null && !/^[A-Za-z0-9\-_]{1,100}$/.test(sellerSku)) {
+      await t.rollback();
+      res.status(400).json({
+        message: "El SKU solo puede contener letras, números, guiones (-) y guiones bajos (_). Máximo 100 caracteres.",
+        field: "seller_sku",
+      });
+      return;
+    }
+
+    // ======================
+    // 🔑 Generar internal_code
+    // Pre-generates before the transaction's INSERT block.
+    // The service already retries internally on pre-flight collisions.
+    // A second retry layer at INSERT time (savepoint-based) handles the
+    // astronomically-rare race where two concurrent requests pass the
+    // pre-flight check with the same code.
+    // ======================
+    let internalCode: string;
+    try {
+      internalCode = await generateProductCode({
+        departamento: b.departamento || null,
+        categoriaId: b.categoria_id ? Number(b.categoria_id) : null,
+        categoriaCustom: b.categoria_custom || null,
+        createdAt: new Date(),
+      });
+    } catch (codeErr) {
+      await t.rollback();
+      console.error("❌ generateProductCode failed:", codeErr);
+      res.status(500).json({ message: "Error generando código de producto" });
+      return;
+    }
+
     // =====================
     // 2️⃣ Subir imágenes (temporal)
     // =====================
@@ -388,113 +427,174 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     const galeria = urls.slice(1, 5);
 
     // =====================
-    // 3️⃣ Insertar producto (ATÓMICO)
+    // 3️⃣ Insertar producto (ATÓMICO) — con retry para internal_code
+    //
+    // Strategy: wrap each INSERT attempt in a named SAVEPOINT.
+    // If the DB unique constraint fires on internal_code (race condition
+    // survivor from the pre-flight check), we ROLLBACK TO SAVEPOINT,
+    // regenerate a fresh code, and retry — without aborting the outer
+    // transaction.  Up to MAX_CODE_RETRIES attempts are made.
+    // A seller_sku violation is NOT retried: it is a user input error
+    // and must bubble up to the outer catch immediately.
     // =====================
-    const [inserted]: any = await sequelize.query(
-      `
-      INSERT INTO productos (
-        vendedor_id, nombre, descripcion, precio, stock,
-        categoria_id, categoria_custom,
-        clase_id, tela_id, tela_custom,
-        departamento, municipio, departamento_custom, municipio_custom,
-        accesorio_id, accesorio_custom,
-        accesorio_tipo_id, accesorio_tipo_custom,
-        accesorio_material_id, accesorio_material_custom,
-        imagen_url, activo, created_at, updated_at
-      ) VALUES (
-        :vendedor_id, :nombre, :descripcion, :precio, :stock,
-        :categoria_id, :categoria_custom,
-        :clase_id, :tela_id, :tela_custom,
-        :departamento, :municipio, :departamento_custom, :municipio_custom,
-        :accesorio_id, :accesorio_custom,
-        :accesorio_tipo_id, :accesorio_tipo_custom,
-        :accesorio_material_id, :accesorio_material_custom,
-        :imagen_url, :activo, now(), now()
-      ) RETURNING id
-      `,
-      {
-        transaction: t,
-        replacements: {
-          vendedor_id: u.id,
-      
-          nombre: b.nombre,
-          descripcion: b.descripcion || null,
-          precio,
-          stock,
-      
-          // ======================
-          // Categoría
-          // ======================
-          categoria_id:
-            b.categoria_id !== undefined && b.categoria_id !== null && b.categoria_id !== ""
-              ? Number(b.categoria_id)
-              : null,
-          categoria_custom: b.categoria_custom || null,
-      
-          // ======================
-          // Textiles
-          // ======================
-          clase_id:
-            b.clase_id !== undefined && b.clase_id !== null && b.clase_id !== ""
-              ? Number(b.clase_id)
-              : null,
-      
-          tela_id:
-            b.tela_id !== undefined && b.tela_id !== null && b.tela_id !== ""
-              ? Number(b.tela_id)
-              : null,
-      
-          tela_custom: b.tela_custom || null,
-      
-          // ======================
-          // Origen
-          // ======================
-          departamento: b.departamento || null,
-          municipio: b.municipio || null,
-          departamento_custom: b.departamento_custom || null,
-          municipio_custom: b.municipio_custom || null,
-      
-          // ======================
-          // Accesorios
-          // ======================
-          accesorio_id:
-            b.accesorio_id !== undefined && b.accesorio_id !== null && b.accesorio_id !== ""
-              ? Number(b.accesorio_id)
-              : null,
-      
-          accesorio_custom: b.accesorio_custom || null,
-      
-          accesorio_tipo_id:
-            b.accesorio_tipo_id !== undefined &&
-            b.accesorio_tipo_id !== null &&
-            b.accesorio_tipo_id !== ""
-              ? Number(b.accesorio_tipo_id)
-              : null,
-      
-          accesorio_tipo_custom: b.accesorio_tipo_custom || null,
-      
-          accesorio_material_id:
-            b.accesorio_material_id !== undefined &&
-            b.accesorio_material_id !== null &&
-            b.accesorio_material_id !== ""
-              ? Number(b.accesorio_material_id)
-              : null,
-      
-          accesorio_material_custom: b.accesorio_material_custom || null,
-      
-          // ======================
-          // Imagen principal
-          // ======================
-          imagen_url: imagenPrincipal,
-      
-          // 🔒 decisión explícita de negocio
-          activo: false,
-        },
-      }
-      
-    );
+    const MAX_CODE_RETRIES = 3;
+    let inserted: any = null;
 
-        // =====================
+    for (let codeAttempt = 0; codeAttempt < MAX_CODE_RETRIES; codeAttempt++) {
+
+      await sequelize.query(
+        `SAVEPOINT sp_product_insert`,
+        { transaction: t }
+      );
+
+      try {
+        const [result]: any = await sequelize.query(
+          `
+          INSERT INTO productos (
+            vendedor_id, nombre, descripcion, precio, stock,
+            categoria_id, categoria_custom,
+            clase_id, tela_id, tela_custom,
+            departamento, municipio, departamento_custom, municipio_custom,
+            accesorio_id, accesorio_custom,
+            accesorio_tipo_id, accesorio_tipo_custom,
+            accesorio_material_id, accesorio_material_custom,
+            imagen_url, activo,
+            internal_code, seller_sku,
+            created_at, updated_at
+          ) VALUES (
+            :vendedor_id, :nombre, :descripcion, :precio, :stock,
+            :categoria_id, :categoria_custom,
+            :clase_id, :tela_id, :tela_custom,
+            :departamento, :municipio, :departamento_custom, :municipio_custom,
+            :accesorio_id, :accesorio_custom,
+            :accesorio_tipo_id, :accesorio_tipo_custom,
+            :accesorio_material_id, :accesorio_material_custom,
+            :imagen_url, :activo,
+            :internal_code, :seller_sku,
+            now(), now()
+          ) RETURNING id, internal_code
+          `,
+          {
+            transaction: t,
+            replacements: {
+              vendedor_id: u.id,
+
+              nombre: b.nombre,
+              descripcion: b.descripcion || null,
+              precio,
+              stock,
+
+              // Categoría
+              categoria_id:
+                b.categoria_id !== undefined && b.categoria_id !== null && b.categoria_id !== ""
+                  ? Number(b.categoria_id)
+                  : null,
+              categoria_custom: b.categoria_custom || null,
+
+              // Textiles
+              clase_id:
+                b.clase_id !== undefined && b.clase_id !== null && b.clase_id !== ""
+                  ? Number(b.clase_id)
+                  : null,
+
+              tela_id:
+                b.tela_id !== undefined && b.tela_id !== null && b.tela_id !== ""
+                  ? Number(b.tela_id)
+                  : null,
+
+              tela_custom: b.tela_custom || null,
+
+              // Origen
+              departamento: b.departamento || null,
+              municipio: b.municipio || null,
+              departamento_custom: b.departamento_custom || null,
+              municipio_custom: b.municipio_custom || null,
+
+              // Accesorios
+              accesorio_id:
+                b.accesorio_id !== undefined && b.accesorio_id !== null && b.accesorio_id !== ""
+                  ? Number(b.accesorio_id)
+                  : null,
+
+              accesorio_custom: b.accesorio_custom || null,
+
+              accesorio_tipo_id:
+                b.accesorio_tipo_id !== undefined &&
+                b.accesorio_tipo_id !== null &&
+                b.accesorio_tipo_id !== ""
+                  ? Number(b.accesorio_tipo_id)
+                  : null,
+
+              accesorio_tipo_custom: b.accesorio_tipo_custom || null,
+
+              accesorio_material_id:
+                b.accesorio_material_id !== undefined &&
+                b.accesorio_material_id !== null &&
+                b.accesorio_material_id !== ""
+                  ? Number(b.accesorio_material_id)
+                  : null,
+
+              accesorio_material_custom: b.accesorio_material_custom || null,
+
+              // Imagen principal
+              imagen_url: imagenPrincipal,
+
+              // 🔒 decisión explícita de negocio
+              activo: false,
+
+              // Identificadores
+              internal_code: internalCode,
+              seller_sku: sellerSku,
+            },
+          }
+        );
+
+        // INSERT succeeded — release the savepoint and exit the retry loop
+        await sequelize.query(`RELEASE SAVEPOINT sp_product_insert`, { transaction: t });
+        inserted = result;
+        break;
+
+      } catch (insertErr: any) {
+        // Always rollback to the savepoint first to restore the transaction
+        // to a usable state before we decide what to do next
+        await sequelize.query(
+          `ROLLBACK TO SAVEPOINT sp_product_insert`,
+          { transaction: t }
+        );
+
+        const isUniqueViolation =
+          insertErr?.parent?.code === "23505" ||
+          insertErr?.name === "SequelizeUniqueConstraintError";
+
+        const constraint: string = insertErr?.parent?.constraint ?? "";
+        const isCodeCollision = isUniqueViolation && !constraint.includes("seller_sku");
+
+        if (isCodeCollision && codeAttempt < MAX_CODE_RETRIES - 1) {
+          // internal_code race condition — regenerate and retry
+          console.warn(
+            `⚠️ internal_code collision on attempt ${codeAttempt + 1} — regenerating`
+          );
+          try {
+            internalCode = await generateProductCode({
+              departamento: b.departamento || null,
+              categoriaId: b.categoria_id ? Number(b.categoria_id) : null,
+              categoriaCustom: b.categoria_custom || null,
+              createdAt: new Date(),
+            });
+          } catch (regenerateErr) {
+            // Code generation failed during retry — escalate
+            throw regenerateErr;
+          }
+          continue;
+        }
+
+        // seller_sku collision, unrelated constraint, or retries exhausted
+        // Bubble up to the outer catch for proper error response
+        throw insertErr;
+      }
+    }
+
+    // =====================
     // 4️⃣ Insertar galería de imágenes (si hay)
     // =====================
     if (galeria.length > 0) {
@@ -524,10 +624,11 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
 
     res.status(201).json({
       id: inserted[0].id,
+      internal_code: inserted[0].internal_code,
       imagenes: urls,
       activo: false,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Error en createProduct (atomic):", error);
 
     await t.rollback();
@@ -539,6 +640,32 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
       await supabase.storage
         .from("productos")
         .remove(uploadedFiles);
+    }
+
+    // ─── Unique constraint errors ───────────────────────────────────────────
+    // Sequelize wraps PG unique_violation (code 23505) as UniqueConstraintError.
+    // Inspect the constraint name to distinguish seller_sku from internal_code.
+    if (
+      error?.name === "SequelizeUniqueConstraintError" ||
+      error?.parent?.code === "23505"
+    ) {
+      const constraint: string = error?.parent?.constraint ?? error?.fields?.join(",") ?? "";
+
+      if (constraint.includes("seller_sku")) {
+        res.status(409).json({
+          message: "Ya tienes un producto con ese código SKU. Usa un código diferente.",
+          field: "seller_sku",
+        });
+        return;
+      }
+
+      // internal_code collision survived the pre-flight — astronomically rare.
+      // Surface a generic error; the caller can retry the full request once.
+      res.status(409).json({
+        message: "Conflicto al generar el código interno. Por favor intenta de nuevo.",
+        code: "INTERNAL_CODE_COLLISION",
+      });
+      return;
     }
 
     res.status(500).json({ message: "Error al crear producto" });
@@ -556,12 +683,13 @@ export const getSellerProducts = async (
     const u: any = (req as any).user;
 
       const [rows]: any = await sequelize.query(
-        `SELECT id, nombre, precio, stock, activo, imagen_url
+        `SELECT id, nombre, precio, stock, activo, imagen_url,
+                internal_code, seller_sku
         FROM productos
         WHERE vendedor_id = :vid
         ORDER BY activo ASC, created_at DESC`,
         { replacements: { vid: u.id } }
-      );    
+      );
 
     res.json(rows);
   } catch (error) {
@@ -595,7 +723,7 @@ export const getProductById = async (
     // 🔎 PRODUCTO DETALLE COMPLETO
     // =====================================================
     const productQuery = `
-      SELECT 
+      SELECT
         p.id,
         p.nombre,
         p.descripcion,
@@ -605,6 +733,7 @@ export const getProductById = async (
         p.municipio,
         p.rating_avg,
         p.rating_count,
+        p.internal_code,
 
         -- Categoria estructurada
         c.id AS categoria_id,
@@ -635,8 +764,9 @@ export const getProductById = async (
       AND v.estado_validacion = 'aprobado'
       AND v.estado_admin = 'activo'
 
-      GROUP BY 
+      GROUP BY
         p.id,
+        p.internal_code,
         c.id,
         c.nombre,
         v.user_id,
@@ -741,7 +871,12 @@ export const getProductById = async (
     // 📦 RESPUESTA FINAL
     // =====================================================
     res.json({
-      product,
+      product: {
+        ...product,
+        // internal_code is appended outside the DTO to keep the DTO
+        // contract stable. Buyers see it as a trust/reference signal.
+        internal_code: rawProduct.internal_code ?? null,
+      },
       related,
     });
 
@@ -750,6 +885,166 @@ export const getProductById = async (
     res.status(500).json({
       message: "Error al obtener producto",
     });
+  }
+};
+
+// ===========================
+// Obtener producto por internal_code (PÚBLICO — QR / share link)
+// ===========================
+export const getProductByCode = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const codeParam = req.params.internal_code;
+    const code = Array.isArray(codeParam) ? codeParam[0] : codeParam;
+
+    // Basic sanity check — internal_code is alphanumeric + hyphens, 10–30 chars
+    if (!code || !/^[A-Z0-9\-]{8,32}$/i.test(code)) {
+      res.status(400).json({ message: "Código de producto inválido" });
+      return;
+    }
+
+    const productQuery = `
+      SELECT
+        p.id,
+        p.nombre,
+        p.descripcion,
+        p.precio,
+        p.imagen_url AS imagen_principal,
+        p.departamento,
+        p.municipio,
+        p.rating_avg,
+        p.rating_count,
+        p.internal_code,
+
+        c.id AS categoria_id,
+        c.nombre AS categoria_nombre,
+
+        v.user_id AS vendedor_id,
+        v.nombre_comercio,
+        v.logo,
+
+        COALESCE(
+          json_agg(
+            DISTINCT jsonb_build_object(
+              'id', pi.id,
+              'url', pi.url
+            )
+          ) FILTER (WHERE pi.id IS NOT NULL),
+          '[]'
+        ) AS imagenes
+
+      FROM productos p
+      LEFT JOIN categorias c ON c.id = p.categoria_id
+      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
+      LEFT JOIN producto_imagenes pi ON pi.producto_id = p.id
+
+      WHERE p.internal_code = :code
+      AND p.activo = true
+      AND v.estado_validacion = 'aprobado'
+      AND v.estado_admin = 'activo'
+
+      GROUP BY
+        p.id,
+        p.internal_code,
+        c.id,
+        c.nombre,
+        v.user_id,
+        v.nombre_comercio,
+        v.logo
+
+      LIMIT 1
+    `;
+
+    const rows: any = await sequelize.query(productQuery, {
+      replacements: { code: code.toUpperCase() },
+      type: QueryTypes.SELECT,
+    });
+
+    if (!rows || rows.length === 0) {
+      res.status(404).json({ message: "Producto no encontrado" });
+      return;
+    }
+
+    const rawProduct = rows[0];
+
+    // ── Registrar vista con source: 'code' (no bloquea respuesta) ──
+    try {
+      await sequelize.query(
+        `INSERT INTO product_views (product_id, ip_address, user_agent, source)
+         VALUES (:product_id, :ip, :ua, 'code')`,
+        {
+          replacements: {
+            product_id: rawProduct.id,
+            ip: req.ip || null,
+            ua: req.headers["user-agent"] || null,
+          },
+          type: QueryTypes.INSERT,
+        }
+      );
+    } catch (viewError) {
+      console.error("Error registrando vista por código:", viewError);
+    }
+
+    const product = buildPublicProductDTO(rawProduct);
+
+    if (Array.isArray(product.imagenes)) {
+      product.imagenes = product.imagenes.slice(0, 4);
+    }
+
+    await logEvent({
+      type: "product_view",
+      user_id: (req as any).user?.id ?? null,
+      product_id: rawProduct.id,
+    });
+
+    const relatedQuery = `
+      SELECT
+        p.id,
+        p.nombre,
+        p.precio,
+        p.imagen_url,
+        p.rating_avg,
+        p.rating_count,
+        p.departamento,
+        p.municipio,
+        c.id AS categoria_id,
+        c.nombre AS categoria_nombre
+      FROM productos p
+      LEFT JOIN categorias c ON c.id = p.categoria_id
+      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
+      WHERE p.categoria_id = (
+        SELECT categoria_id FROM productos WHERE id = :id
+      )
+      AND p.id != :id
+      AND p.activo = true
+      AND v.estado_validacion = 'aprobado'
+      AND v.estado_admin = 'activo'
+      ORDER BY p.created_at DESC
+      LIMIT 12
+    `;
+
+    const relatedRows: any = await sequelize.query(relatedQuery, {
+      replacements: { id: rawProduct.id },
+      type: QueryTypes.SELECT,
+    });
+
+    const related = (relatedRows || []).map((r: any) =>
+      buildPublicProductCardDTO(r)
+    );
+
+    res.json({
+      product: {
+        ...product,
+        internal_code: rawProduct.internal_code ?? null,
+      },
+      related,
+    });
+
+  } catch (error) {
+    console.error("Error en getProductByCode:", error);
+    res.status(500).json({ message: "Error al obtener producto" });
   }
 };
 

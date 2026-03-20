@@ -22,7 +22,10 @@
     "ai:cycle": "node flow-ai/runners/run-daily-cycle.js",
     "ai:scheduler": "node flow-ai/runners/scheduler.js",
     "ai:task": "node flow-ai/runners/run-claude-task-exporter.js",
-    "ai:growth": "node flow-ai/runners/run-growth-agent.js"
+    "ai:growth": "node flow-ai/runners/run-growth-agent.js",
+
+    "backfill:codes": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/backfill-product-codes.ts",
+    "backfill:codes:dry": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt DRY_RUN=true ts-node --project tsconfig.json scripts/backfill-product-codes.ts"
   },
   "keywords": [
     "express",

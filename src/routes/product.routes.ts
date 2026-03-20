@@ -38,6 +38,7 @@ import {
   getTopProductsByCategory,
   getProductReviews,
   createProductReview,
+  getProductByCode,
 } from "../controllers/product.controller";
 
 const router: Router = Router();
@@ -74,6 +75,9 @@ router.get(
 /* =========================================================
    📌 4. PRODUCTO — DETALLE PÚBLICO
 ========================================================= */
+// ⚠️ /code/:internal_code MUST be registered before /:id to prevent
+//    the ":id" wildcard from capturing the literal path segment "code".
+router.get("/products/code/:internal_code", asyncHandler(getProductByCode));
 router.get("/products/:id", asyncHandler(getProductById));
 router.get("/productos/:id", asyncHandler(getProductById)); // legacy
 router.get("/products/:id/reviews", asyncHandler(getProductReviews));

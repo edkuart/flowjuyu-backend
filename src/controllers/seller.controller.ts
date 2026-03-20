@@ -992,6 +992,280 @@ export const getSellerAnalyticsDaily: RequestHandler = async (req, res) => {
   }
 };
 
+// ===========================
+// 📊 Product analytics per product (QR vs web vs total)
+// GET /api/seller/analytics/products
+// ===========================
+export const getSellerProductAnalytics: RequestHandler = async (req, res) => {
+  try {
+    const user: any = (req as any).user;
+
+    if (!user?.id) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const sellerId = user.id;
+
+    const rows: any[] = await sequelize.query(
+      `SELECT
+        p.id           AS product_id,
+        p.nombre,
+        p.internal_code,
+        COUNT(pv.id)::int                                              AS views_total,
+        COUNT(*) FILTER (WHERE pv.source = 'code')::int               AS views_qr,
+        COUNT(*) FILTER (WHERE pv.source = 'web')::int                AS views_web
+      FROM productos p
+      LEFT JOIN product_views pv ON pv.product_id = p.id
+      WHERE p.vendedor_id = :sellerId
+      GROUP BY p.id, p.nombre, p.internal_code
+      ORDER BY views_total DESC`,
+      {
+        replacements: { sellerId },
+        type: QueryTypes.SELECT,
+      }
+    ) as any[];
+
+    res.json({ success: true, data: rows ?? [] });
+  } catch (error) {
+    console.error("Error getSellerProductAnalytics:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
+// ===========================
+// 📈 Growth: last 7 days vs previous 7 days
+// GET /api/seller/analytics/growth
+// ===========================
+export const getSellerGrowthAnalytics: RequestHandler = async (req, res) => {
+  try {
+    const user: any = (req as any).user;
+
+    if (!user?.id) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const sellerId = user.id;
+
+    // Single-pass conditional aggregation — no extra joins
+    const [row]: any = await sequelize.query(
+      `SELECT
+        COUNT(*) FILTER (
+          WHERE pv.viewed_at >= CURRENT_DATE - INTERVAL '7 days'
+        )::int AS views_last7,
+
+        COUNT(*) FILTER (
+          WHERE pv.viewed_at >= CURRENT_DATE - INTERVAL '14 days'
+            AND pv.viewed_at  < CURRENT_DATE - INTERVAL '7 days'
+        )::int AS views_prev7,
+
+        COUNT(*) FILTER (
+          WHERE pv.source = 'code'
+            AND pv.viewed_at >= CURRENT_DATE - INTERVAL '7 days'
+        )::int AS qr_last7,
+
+        COUNT(*) FILTER (
+          WHERE pv.source = 'code'
+            AND pv.viewed_at >= CURRENT_DATE - INTERVAL '14 days'
+            AND pv.viewed_at  < CURRENT_DATE - INTERVAL '7 days'
+        )::int AS qr_prev7
+
+      FROM product_views pv
+      JOIN productos p ON p.id = pv.product_id
+      WHERE p.vendedor_id = :sellerId
+        AND pv.viewed_at >= CURRENT_DATE - INTERVAL '14 days'`,
+      { replacements: { sellerId }, type: QueryTypes.SELECT }
+    );
+
+    const views_last7: number = row?.views_last7 ?? 0;
+    const views_prev7: number = row?.views_prev7 ?? 0;
+    const qr_last7:    number = row?.qr_last7    ?? 0;
+    const qr_prev7:    number = row?.qr_prev7    ?? 0;
+
+    function changePct(cur: number, prev: number): number {
+      if (prev > 0) return Math.round(((cur - prev) / prev) * 100);
+      if (cur  > 0) return 100;
+      return 0;
+    }
+
+    res.json({
+      success: true,
+      views_last7,
+      views_prev7,
+      qr_last7,
+      qr_prev7,
+      views_change_percent: changePct(views_last7, views_prev7),
+      qr_change_percent:    changePct(qr_last7,    qr_prev7),
+    });
+  } catch (error) {
+    console.error("Error getSellerGrowthAnalytics:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
+// ===========================
+// 💡 Automatic seller insights
+// GET /api/seller/analytics/insights
+// ===========================
+
+type InsightSeverity = "positive" | "warning" | "neutral"
+
+interface Insight {
+  type:     string
+  severity: InsightSeverity
+  title:    string
+  message:  string
+}
+
+export const getSellerInsightsAnalytics: RequestHandler = async (req, res) => {
+  try {
+    const user: any = (req as any).user;
+
+    if (!user?.id) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const sellerId = user.id;
+
+    // Reuse the same per-product query as getSellerProductAnalytics
+    const rows: any[] = await sequelize.query(
+      `SELECT
+        p.id           AS product_id,
+        p.nombre,
+        COUNT(pv.id)::int                                    AS views_total,
+        COUNT(*) FILTER (WHERE pv.source = 'code')::int     AS views_qr,
+        COUNT(*) FILTER (WHERE pv.source = 'web')::int      AS views_web
+      FROM productos p
+      LEFT JOIN product_views pv ON pv.product_id = p.id
+      WHERE p.vendedor_id = :sellerId
+      GROUP BY p.id, p.nombre
+      ORDER BY views_total DESC`,
+      { replacements: { sellerId }, type: QueryTypes.SELECT }
+    ) as any[];
+
+    const insights: Insight[] = [];
+
+    if (rows.length === 0) {
+      insights.push({
+        type:     "no_products",
+        severity: "neutral",
+        title:    "Aún no tienes productos",
+        message:  "Crea tu primer producto para comenzar a recibir visitas.",
+      });
+      res.json({ success: true, insights });
+      return;
+    }
+
+    const totalViews  = rows.reduce((s, r) => s + (r.views_total as number), 0);
+    const totalQr     = rows.reduce((s, r) => s + (r.views_qr    as number), 0);
+    const zeroCount   = rows.filter(r => (r.views_total as number) === 0).length;
+    const activeCount = rows.length - zeroCount;
+    const topProduct  = rows[0];
+
+    // ── 1. No traffic at all ──────────────────────────────────────────────────
+    if (totalViews === 0) {
+      insights.push({
+        type:     "no_views",
+        severity: "warning",
+        title:    "Tus productos aún no tienen visitas",
+        message:  "Comparte los enlaces de tus productos o genera sus QR para atraer tus primeras visitas.",
+      });
+      res.json({ success: true, insights });
+      return;
+    }
+
+    // ── 2. Top product share ──────────────────────────────────────────────────
+    const topSharePct = Math.round((topProduct.views_total / totalViews) * 100);
+
+    if (topSharePct >= 70 && rows.length > 1) {
+      insights.push({
+        type:     "traffic_concentrated",
+        severity: "warning",
+        title:    "El tráfico está muy concentrado",
+        message:  `"${topProduct.nombre}" concentra el ${topSharePct}% de tus visitas. Considera compartir los demás productos.`,
+      });
+    } else if (topSharePct >= 40) {
+      insights.push({
+        type:     "top_product",
+        severity: "positive",
+        title:    "Tu producto más fuerte está liderando",
+        message:  `"${topProduct.nombre}" concentra el ${topSharePct}% de tus visitas.`,
+      });
+    } else {
+      insights.push({
+        type:     "balanced_traffic",
+        severity: "positive",
+        title:    "Tráfico bien distribuido",
+        message:  `Tus ${activeCount} producto${activeCount !== 1 ? "s" : ""} activo${activeCount !== 1 ? "s" : ""} reciben visitas de forma equilibrada.`,
+      });
+    }
+
+    // ── 3. Products with zero views ───────────────────────────────────────────
+    if (zeroCount === 1) {
+      const zeroProduct = rows.find(r => r.views_total === 0);
+      insights.push({
+        type:     "zero_views",
+        severity: "warning",
+        title:    "Un producto no recibe visitas",
+        message:  `"${zeroProduct?.nombre}" aún no tiene visitas. Comparte su enlace o QR.`,
+      });
+    } else if (zeroCount > 1) {
+      insights.push({
+        type:     "zero_views",
+        severity: "warning",
+        title:    "Tienes productos sin visitas",
+        message:  `${zeroCount} producto${zeroCount !== 1 ? "s" : ""} aún no reciben visitas. Comparte sus enlaces o códigos QR.`,
+      });
+    }
+
+    // ── 4. QR traffic share ───────────────────────────────────────────────────
+    const qrSharePct = totalViews > 0 ? Math.round((totalQr / totalViews) * 100) : 0;
+
+    if (qrSharePct >= 30) {
+      insights.push({
+        type:     "strong_qr_traffic",
+        severity: "positive",
+        title:    "Tu QR está funcionando",
+        message:  `El ${qrSharePct}% de tus visitas llegan vía código QR. Sigue compartiéndolo.`,
+      });
+    } else if (totalQr === 0 && totalViews >= 10) {
+      insights.push({
+        type:     "no_qr_traffic",
+        severity: "neutral",
+        title:    "Sin tráfico vía QR todavía",
+        message:  "Comparte el QR de tus productos en ferias, redes sociales o tienda física para abrir este canal.",
+      });
+    }
+
+    // ── 5. All products have views (positive reinforcement) ───────────────────
+    if (zeroCount === 0 && rows.length >= 3) {
+      insights.push({
+        type:     "full_catalogue_active",
+        severity: "positive",
+        title:    "Todo tu catálogo tiene visitas",
+        message:  `Los ${rows.length} productos de tu catálogo han recibido al menos una visita.`,
+      });
+    }
+
+    // ── 6. Single product — encourage expansion ───────────────────────────────
+    if (rows.length === 1) {
+      insights.push({
+        type:     "single_product",
+        severity: "neutral",
+        title:    "Amplía tu catálogo",
+        message:  "Tienes un solo producto. Agregar más aumenta las posibilidades de que los compradores encuentren tu tienda.",
+      });
+    }
+
+    res.json({ success: true, insights });
+  } catch (error) {
+    console.error("Error getSellerInsightsAnalytics:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
 export const updateSellerCustomization: RequestHandler = async (req, res) => {
   try {
     const user: any = (req as any).user

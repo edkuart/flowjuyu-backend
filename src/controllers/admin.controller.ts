@@ -547,6 +547,86 @@ export const getAllAdminProducts: RequestHandler = async (req, res) => {
   }
 };
 
+// ===========================
+// ⚡ ADMIN PRODUCT TOGGLE (activo)
+// PATCH /api/admin/products/:id/toggle
+// ===========================
+export const toggleAdminProduct: RequestHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [[product]]: any = await sequelize.query(
+      `SELECT id, activo FROM productos WHERE id = :id LIMIT 1`,
+      { replacements: { id }, type: QueryTypes.SELECT }
+    );
+
+    if (!product) {
+      res.status(404).json({ success: false, message: "Producto no encontrado" });
+      return;
+    }
+
+    await sequelize.query(
+      `UPDATE productos SET activo = :activo WHERE id = :id`,
+      { replacements: { activo: !product.activo, id } }
+    );
+
+    res.json({ success: true, activo: !product.activo });
+  } catch (error) {
+    console.error("Error toggleAdminProduct:", error);
+    res.status(500).json({ success: false, message: "Error actualizando producto" });
+  }
+};
+
+// ===========================
+// 🔍 ADMIN PRODUCT SEARCH
+// GET /api/admin/products/search?q=...
+// ===========================
+export const searchAdminProducts: RequestHandler = async (req, res) => {
+  try {
+    const q = (req.query.q as string | undefined)?.trim() ?? "";
+
+    if (!q || q.length < 1) {
+      res.json({ data: [] });
+      return;
+    }
+
+    const [rows]: any = await sequelize.query(
+      `SELECT
+        p.id,
+        p.nombre,
+        p.activo,
+        p.internal_code,
+        p.seller_sku,
+        p.vendedor_id,
+        s.nombre_comercio,
+        u.correo AS vendedor_email,
+        CASE
+          WHEN p.internal_code = :q          THEN 1
+          WHEN p.seller_sku    = :q          THEN 2
+          ELSE                                    3
+        END AS priority
+      FROM productos p
+      LEFT JOIN vendedor_perfil s ON s.user_id = p.vendedor_id
+      LEFT JOIN users u           ON u.id      = p.vendedor_id
+      WHERE
+           p.internal_code = :q
+        OR p.seller_sku    = :q
+        OR p.nombre        ILIKE :like
+      ORDER BY priority ASC, p.created_at DESC
+      LIMIT 20`,
+      {
+        replacements: { q, like: `%${q}%` },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    res.json({ data: rows ?? [] });
+  } catch (error) {
+    console.error("Error searchAdminProducts:", error);
+    res.status(500).json({ success: false, message: "Error buscando productos" });
+  }
+};
+
 export const getAdminProductDetail = async (
   req: Request,
   res: Response

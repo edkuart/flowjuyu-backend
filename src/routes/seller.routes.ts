@@ -151,6 +151,25 @@ router.get(
   asyncHandler(SellerController.getSellerAnalyticsDaily)
 );
 
+// ⚠️ specific paths MUST come before any /:id wildcard
+router.get(
+  "/analytics/products",
+  requireActiveSeller,
+  asyncHandler(SellerController.getSellerProductAnalytics)
+);
+
+router.get(
+  "/analytics/insights",
+  requireActiveSeller,
+  asyncHandler(SellerController.getSellerInsightsAnalytics)
+);
+
+router.get(
+  "/analytics/growth",
+  requireActiveSeller,
+  asyncHandler(SellerController.getSellerGrowthAnalytics)
+);
+
 // ==============================
 // 🧾 Estado de cuenta
 // ==============================

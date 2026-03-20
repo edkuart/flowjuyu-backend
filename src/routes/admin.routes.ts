@@ -7,6 +7,7 @@ import path from "path";
 
 // Controllers
 import * as AdminController from "../controllers/admin.controller";
+import { searchAdminProducts } from "../controllers/admin.controller";
 import * as AdminTicketController from "../controllers/admin.ticket.controller";
 import {
   markInProgress,
@@ -316,9 +317,20 @@ router.get(
   asyncHandler(AdminController.getAllAdminProducts)
 );
 
+// ⚠️ /products/search MUST be before /products/:id
+router.get(
+  "/products/search",
+  asyncHandler(searchAdminProducts)
+);
+
 router.get(
   "/products/:id",
   asyncHandler(AdminController.getAdminProductDetail)
+);
+
+router.patch(
+  "/products/:id/toggle",
+  asyncHandler(AdminController.toggleAdminProduct)
 );
 
 export default router;
