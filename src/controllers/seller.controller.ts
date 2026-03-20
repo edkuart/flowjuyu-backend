@@ -8,6 +8,77 @@ import supabase from "../lib/supabase";
 import Product from "../models/product.model";
 import { getSellerAnalyticsData } from "../services/analytics.service";
 import { v4 as uuidv4 } from "uuid";
+import { verifyRefreshToken } from "../lib/jwt";
+import { REFRESH_TOKEN_COOKIE } from "../lib/cookies";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/seller/entry-point
+//
+// Lightweight probe used by the Next.js server component at /seller to
+// determine where to redirect the seller.
+//
+// Authenticates via the HttpOnly refresh cookie (fj_rt) — NOT the access
+// token — so it can be called directly from a Next.js server component
+// without localStorage access.
+//
+// Returns the minimal routing fields only; no sensitive KYC documents.
+// ─────────────────────────────────────────────────────────────────────────────
+export const getSellerEntryData: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    // ── Validate refresh cookie ──
+    const rawToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+
+    if (!rawToken) {
+      res.status(401).json({ ok: false, message: "No hay sesión activa" });
+      return;
+    }
+
+    let decoded;
+    try {
+      decoded = verifyRefreshToken(rawToken);
+    } catch {
+      res.status(401).json({ ok: false, message: "Sesión expirada" });
+      return;
+    }
+
+    const userId = Number(decoded.sub);
+
+    // ── Load profile (routing fields only) ──
+    const perfil = await VendedorPerfil.findOne({
+      where: { user_id: userId },
+      attributes: [
+        "nombre_comercio",
+        "descripcion",
+        "banner_url",
+        "telefono",
+        "telefono_comercio",
+        "estado_validacion",
+        "estado_admin",
+      ],
+    });
+
+    if (!perfil) {
+      res.json({ ok: true, perfil: null });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      perfil: {
+        nombre_comercio:   perfil.nombre_comercio,
+        descripcion:       perfil.descripcion       ?? null,
+        banner_url:        perfil.banner_url        ?? null,
+        telefono:          perfil.telefono          ?? null,
+        telefono_comercio: perfil.telefono_comercio ?? null,
+        estado_validacion: perfil.estado_validacion,
+        estado_admin:      perfil.estado_admin,
+      },
+    });
+  } catch (error) {
+    console.error("Error en getSellerEntryData:", error);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
 
 // ==============================
 // Dashboard general del vendedor

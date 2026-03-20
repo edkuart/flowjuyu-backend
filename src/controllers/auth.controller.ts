@@ -139,42 +139,45 @@ export const registerVendedor = async (
   req: Request,
   res: Response
 ): Promise<void> => {
+  // ── Validate and check uniqueness BEFORE opening a transaction.
+  // This avoids leaking idle transactions on common rejection paths (400/409).
+  const {
+    nombre,
+    telefono,
+    password,
+    nombreComercio,
+    telefonoComercio,
+    direccion,
+    departamento,
+    municipio,
+    descripcion,
+    dpi,
+  } = req.body;
+
+  const email = resolveEmail(req.body);
+
+  if (!nombre || !email || !password || !dpi || !nombreComercio) {
+    res.status(400).json({
+      ok:      false,
+      message: "Faltan campos obligatorios",
+    });
+    return;
+  }
+
+  const existing = await User.findOne({ where: { correo: email } });
+
+  if (existing) {
+    res.status(409).json({
+      ok:      false,
+      message: "El correo ya está registrado",
+    });
+    return;
+  }
+
+  // ── Open transaction only after pre-flight checks pass ──────────────────
   const t = await sequelize.transaction();
 
   try {
-    const {
-      nombre,
-      telefono,
-      password,
-      nombreComercio,
-      telefonoComercio,
-      direccion,
-      departamento,
-      municipio,
-      descripcion,
-      dpi,
-    } = req.body;
-
-    const email = resolveEmail(req.body);
-
-    if (!nombre || !email || !password || !dpi || !nombreComercio) {
-      res.status(400).json({
-        ok:      false,
-        message: "Faltan campos obligatorios",
-      });
-      return;
-    }
-
-    const existing = await User.findOne({ where: { correo: email } });
-
-    if (existing) {
-      res.status(409).json({
-        ok:      false,
-        message: "El correo ya está registrado",
-      });
-      return;
-    }
-
     const hash    = await bcrypt.hash(String(password), 10);
     const newUser = await User.create(
       {
@@ -253,14 +256,16 @@ export const registerVendedor = async (
         user_id:          newUser.id,
         nombre:           nombre.trim(),
         email:            email.toLowerCase().trim(),
-        telefono:         telefono ? telefono.trim() : null,
-        direccion:        direccion ? direccion.trim() : null,
+        // Optional text fields: store empty string when absent, never null,
+        // because the vendedor_perfil table has NOT NULL on these columns.
+        telefono:          (telefono    ?? "").toString().trim(),
+        direccion:         (direccion   ?? "").toString().trim(),
         logo,
-        nombre_comercio:  nombreComercio.trim(),
-        telefono_comercio: telefonoComercio ? telefonoComercio.trim() : null,
-        departamento:     departamento ?? null,
-        municipio:        municipio ?? null,
-        descripcion:      descripcion ?? null,
+        nombre_comercio:   nombreComercio.trim(),
+        telefono_comercio: (telefonoComercio ?? "").toString().trim(),
+        departamento:      (departamento ?? "").toString().trim(),
+        municipio:         (municipio   ?? "").toString().trim(),
+        descripcion:       (descripcion ?? "").toString().trim(),
         dpi:              dpi.trim(),
         foto_dpi_frente:  fotoFrente,
         foto_dpi_reverso: fotoReverso,
@@ -276,17 +281,34 @@ export const registerVendedor = async (
       { transaction: t }
     );
 
+    // issueTokenPair sets the HttpOnly refresh cookie on the response.
+    // It must run before commit so that any unexpected throw is still caught
+    // by the block below and can roll back cleanly.
+    const token = issueTokenPair(res, newUser);
+    const userDTO = buildUserDTO(newUser);
+
     await t.commit();
 
-    const token = issueTokenPair(res, newUser);
+    // Clear the refresh cookie immediately after registration so the seller
+    // is forced back through a clean login before accessing their dashboard.
+    // This ensures the entry-point flow runs with a fresh, validated session.
+    clearRefreshTokenCookie(res);
 
+    // Response is sent only after a successful commit.
     res.status(201).json({
-      ok:    true,
+      ok:          true,
       token,
-      user:  buildUserDTO(newUser),
+      user:        userDTO,
+      forceLogout: true,
     });
   } catch (error) {
-    await t.rollback();
+    // Guard against "Transaction already finished" — if commit succeeded but
+    // something else threw, rollback is impossible and must be skipped.
+    // `t.finished` exists at runtime but is absent from Sequelize's type
+    // definitions, so we read it via a cast and also wrap in try/catch.
+    if ((t as any).finished !== "commit") {
+      try { await t.rollback(); } catch { /* already finished */ }
+    }
     console.error("Error en registerVendedor:", error);
     res.status(500).json({ ok: false, message: "Error al registrar vendedor" });
   }

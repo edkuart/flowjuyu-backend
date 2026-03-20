@@ -55,6 +55,13 @@ router.post(
   asyncHandler(SellerController.activateSeller),
 );
 
+// Lightweight entry-point probe — validated via fj_rt refresh cookie.
+// Used by the Next.js /seller server component to compute onboarding redirect.
+router.get(
+  "/entry-point",
+  asyncHandler(SellerController.getSellerEntryData),
+);
+
 /* ==================================================
    🔐 MIDDLEWARE GLOBAL SELLER
 ================================================== */
@@ -84,6 +91,14 @@ router.get(
   "/orders",
   requireActiveSeller,
   asyncHandler(SellerController.getSellerOrders)
+);
+
+// ==============================
+// 📦 Productos del vendedor
+// ==============================
+router.get(
+  "/products",
+  asyncHandler(SellerController.getSellerProducts)
 );
 
 // ==============================
