@@ -37,14 +37,34 @@ function parseDurationMs(str: string, fallbackMs: number): number {
   }
 }
 
+// ─── Cookie attribute helpers ─────────────────────────────────────────────────
+//
+// COOKIE_SAME_SITE controls cross-domain behavior:
+//   "lax"  — same eTLD+1 deployments (frontend + backend both on *.flowjuyu.com)
+//   "none" — cross-domain deployments (Vercel frontend + Render/Railway backend)
+//             REQUIRES secure:true — browsers reject SameSite=None without Secure.
+//
+// Set in your production environment:
+//   COOKIE_SAME_SITE=none   (cross-domain)
+//   COOKIE_SAME_SITE=lax    (same-domain, default)
+
+const isProduction = process.env.NODE_ENV === "production";
+
+type SameSiteValue = "lax" | "none" | "strict";
+
+function getSameSite(): SameSiteValue {
+  const val = process.env.COOKIE_SAME_SITE ?? "lax";
+  if (val === "none" || val === "strict" || val === "lax") return val;
+  return "lax";
+}
+
 // ─── setRefreshTokenCookie ───────────────────────────────────────────────────
 
 /**
- * Attaches the refresh token to the response as an HttpOnly, SameSite=lax
- * cookie. `maxAge` is derived from JWT_REFRESH_EXPIRES_IN (default 7 days)
- * so cookie lifetime stays in sync with token lifetime.
- *
- * `secure` is enabled only in production, allowing local dev over HTTP.
+ * Attaches the refresh token to the response as an HttpOnly cookie.
+ * `sameSite` is configurable via COOKIE_SAME_SITE env var (default "lax").
+ * `secure` is enabled only in production.
+ * `maxAge` stays in sync with JWT_REFRESH_EXPIRES_IN.
  */
 export function setRefreshTokenCookie(res: Response, token: string): void {
   const maxAgeMs = parseDurationMs(
@@ -54,9 +74,9 @@ export function setRefreshTokenCookie(res: Response, token: string): void {
 
   res.cookie(REFRESH_TOKEN_COOKIE, token, {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: getSameSite(),
     path:     "/",
-    secure:   process.env.NODE_ENV === "production",
+    secure:   isProduction,
     maxAge:   maxAgeMs,
   });
 }
@@ -71,8 +91,8 @@ export function setRefreshTokenCookie(res: Response, token: string): void {
 export function clearRefreshTokenCookie(res: Response): void {
   res.clearCookie(REFRESH_TOKEN_COOKIE, {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: getSameSite(),
     path:     "/",
-    secure:   process.env.NODE_ENV === "production",
+    secure:   isProduction,
   });
 }

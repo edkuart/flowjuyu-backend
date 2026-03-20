@@ -837,6 +837,7 @@ export const getSession: RequestHandler = async (req, res) => {
     const rawToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
 
     if (!rawToken) {
+      console.log("[session] fj_rt cookie missing — returning 401");
       res.status(401).json({ ok: false, message: "No hay sesión activa" });
       return;
     }
@@ -845,7 +846,8 @@ export const getSession: RequestHandler = async (req, res) => {
     let decoded;
     try {
       decoded = verifyRefreshToken(rawToken);
-    } catch {
+    } catch (err) {
+      console.log("[session] JWT verification failed:", (err as Error).message);
       clearRefreshTokenCookie(res);
       res.status(401).json({ ok: false, message: "Sesión expirada. Inicia sesión nuevamente." });
       return;
