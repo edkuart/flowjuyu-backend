@@ -735,6 +735,7 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         p.nombre,
         p.precio,
         p.imagen_url,
+        p.internal_code,
         p.created_at
       FROM productos p
       WHERE p.vendedor_id = :id

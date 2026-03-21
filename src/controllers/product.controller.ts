@@ -743,6 +743,7 @@ export const getProductById = async (
         v.user_id AS vendedor_id,
         v.nombre_comercio,
         v.logo,
+        v.whatsapp_numero,
 
         COALESCE(
           json_agg(
@@ -771,7 +772,8 @@ export const getProductById = async (
         c.nombre,
         v.user_id,
         v.nombre_comercio,
-        v.logo
+        v.logo,
+        v.whatsapp_numero
 
       LIMIT 1
     `;
@@ -873,9 +875,12 @@ export const getProductById = async (
     res.json({
       product: {
         ...product,
-        // internal_code is appended outside the DTO to keep the DTO
-        // contract stable. Buyers see it as a trust/reference signal.
+        // Fields appended outside the DTO to keep the DTO contract stable.
         internal_code: rawProduct.internal_code ?? null,
+        vendedor: {
+          ...product.vendedor,
+          whatsapp: rawProduct.whatsapp_numero ?? null,
+        },
       },
       related,
     });
@@ -924,6 +929,7 @@ export const getProductByCode = async (
         v.user_id AS vendedor_id,
         v.nombre_comercio,
         v.logo,
+        v.whatsapp_numero,
 
         COALESCE(
           json_agg(
@@ -952,7 +958,8 @@ export const getProductByCode = async (
         c.nombre,
         v.user_id,
         v.nombre_comercio,
-        v.logo
+        v.logo,
+        v.whatsapp_numero
 
       LIMIT 1
     `;
@@ -1038,6 +1045,10 @@ export const getProductByCode = async (
       product: {
         ...product,
         internal_code: rawProduct.internal_code ?? null,
+        vendedor: {
+          ...product.vendedor,
+          whatsapp: rawProduct.whatsapp_numero ?? null,
+        },
       },
       related,
     });
