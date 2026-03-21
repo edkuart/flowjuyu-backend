@@ -96,7 +96,14 @@ const corsOptions: cors.CorsOptions = {
       return cb(null, true);
     }
 
-    if (origin.endsWith(".flowjuyu.com")) {
+    // endsWith(".flowjuyu.com") misses the apex domain "https://flowjuyu.com"
+    // because that string ends with "flowjuyu.com" (no leading dot).
+    // Check both: subdomain pattern AND exact apex.
+    if (
+      origin.endsWith(".flowjuyu.com") ||
+      origin === "https://flowjuyu.com" ||
+      origin === "http://flowjuyu.com"
+    ) {
       return cb(null, true);
     }
 

@@ -72,12 +72,15 @@ export function setRefreshTokenCookie(res: Response, token: string): void {
     SEVEN_DAYS_MS
   );
 
+  const cookieDomain = process.env.COOKIE_DOMAIN || undefined;
+
   res.cookie(REFRESH_TOKEN_COOKIE, token, {
     httpOnly: true,
     sameSite: getSameSite(),
     path:     "/",
     secure:   isProduction,
     maxAge:   maxAgeMs,
+    ...(cookieDomain ? { domain: cookieDomain } : {}),
   });
 }
 
@@ -89,10 +92,13 @@ export function setRefreshTokenCookie(res: Response, token: string): void {
  * browser to actually delete the cookie.
  */
 export function clearRefreshTokenCookie(res: Response): void {
+  const cookieDomain = process.env.COOKIE_DOMAIN || undefined;
+
   res.clearCookie(REFRESH_TOKEN_COOKIE, {
     httpOnly: true,
     sameSite: getSameSite(),
     path:     "/",
     secure:   isProduction,
+    ...(cookieDomain ? { domain: cookieDomain } : {}),
   });
 }
