@@ -416,6 +416,55 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
       logoUrl = publicUrl.publicUrl;
     }
 
+    // Parse header_style (arrives as a JSON string from multipart FormData).
+    // Always falls back to the existing value on any parsing or validation failure.
+    const VALID_MODES = new Set(["gradient", "image", "image+overlay"]);
+    let headerStyle: any = perfil.header_style ?? null;
+
+    if (req.body.header_style !== undefined) {
+      try {
+        const raw =
+          typeof req.body.header_style === "string"
+            ? JSON.parse(req.body.header_style)
+            : req.body.header_style;
+
+        // Validate and coerce into the expected shape — never trust client data
+        if (raw && typeof raw === "object") {
+          headerStyle = {
+            mode: VALID_MODES.has(raw.mode) ? raw.mode : "gradient",
+            overlay_color:
+              typeof raw.overlay_color === "string" && /^#[0-9a-fA-F]{6}$/.test(raw.overlay_color)
+                ? raw.overlay_color
+                : "#0f2e22",
+            overlay_opacity:
+              typeof raw.overlay_opacity === "number" &&
+              raw.overlay_opacity >= 0 &&
+              raw.overlay_opacity <= 1
+                ? raw.overlay_opacity
+                : 0.7,
+          };
+        } else {
+          // Unexpected shape — keep existing
+        }
+      } catch {
+        // Invalid JSON — keep existing value; do not crash the request
+      }
+    }
+
+    // Normalize social URLs:
+    //   - undefined (field not sent) → keep existing value via ??
+    //   - "" (user cleared field)    → null
+    //   - "instagram.com/..."        → "https://instagram.com/..."
+    const normalizeSocial = (
+      raw: string | undefined,
+      existing: string | null | undefined,
+    ): string | null => {
+      if (raw === undefined) return existing ?? null;
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
+      return trimmed.startsWith("http") ? trimmed : `https://${trimmed}`;
+    };
+
     const fieldsToUpdate = {
       nombre_comercio:  req.body.nombre_comercio  ?? perfil.nombre_comercio,
       descripcion:      req.body.descripcion      ?? perfil.descripcion,
@@ -424,7 +473,11 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
       departamento:     req.body.departamento     ?? perfil.departamento,
       municipio:        req.body.municipio        ?? perfil.municipio,
       whatsapp_numero:  req.body.whatsapp_numero  ?? perfil.whatsapp_numero,
-      logo:             logoUrl,
+      instagram:    normalizeSocial(req.body.instagram, perfil.instagram),
+      facebook:     normalizeSocial(req.body.facebook,  perfil.facebook),
+      tiktok:       normalizeSocial(req.body.tiktok,    perfil.tiktok),
+      header_style: headerStyle,
+      logo:         logoUrl,
       updatedAt:        new Date(),
     };
 
@@ -710,6 +763,10 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         vp.productos_destacados,
         vp.mensaje_destacado,
         vp.estado_validacion,
+        vp.instagram,
+        vp.facebook,
+        vp.tiktok,
+        vp.header_style,
         vp."createdAt"
       FROM vendedor_perfil vp
       WHERE vp.user_id = :id
@@ -765,6 +822,10 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         productos_destacados: sellerData.productos_destacados ?? [],
         mensaje_destacado:    sellerData.mensaje_destacado    ?? null,
         estado_validacion:    sellerData.estado_validacion    ?? null,
+        instagram:            sellerData.instagram            ?? null,
+        facebook:             sellerData.facebook             ?? null,
+        tiktok:               sellerData.tiktok               ?? null,
+        header_style:         sellerData.header_style         ?? null,
         // Handle both Sequelize camelCase and raw snake_case column names
         created_at:           sellerData.createdAt            ?? sellerData.created_at ?? null,
       },

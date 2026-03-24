@@ -79,6 +79,18 @@ interface VendedorPerfilAttrs {
   plan_expires_at?: Date | null;
   whatsapp_numero?: string | null;
 
+  /* 📱 REDES SOCIALES */
+  instagram?: string | null;
+  facebook?: string | null;
+  tiktok?: string | null;
+
+  /* 🎨 ESTILO DEL ENCABEZADO */
+  header_style?: {
+    mode: "gradient" | "image" | "image+overlay";
+    overlay_color?: string;
+    overlay_opacity?: number;
+  } | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -117,6 +129,10 @@ type Creation = Optional<
   | "banner_url"
   | "identidad_tags"
   | "productos_destacados"
+  | "instagram"
+  | "facebook"
+  | "tiktok"
+  | "header_style"
 >;
 
 /* ======================================================
@@ -168,6 +184,14 @@ export class VendedorPerfil
   public plan_activo!: boolean;
   public plan_expires_at?: Date | null;
   public whatsapp_numero?: string | null;
+
+  /* 📱 REDES SOCIALES */
+  public instagram?: string | null;
+  public facebook?: string | null;
+  public tiktok?: string | null;
+
+  /* 🎨 ESTILO DEL ENCABEZADO */
+  public header_style?: VendedorPerfilAttrs["header_style"];
 
   public readonly createdAt?: Date;
   public readonly updatedAt?: Date;
@@ -337,6 +361,34 @@ VendedorPerfil.init(
 
     mensaje_destacado: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    /* ===============================
+       📱 REDES SOCIALES
+    ================================ */
+
+    instagram: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    facebook: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    tiktok: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    /* ===============================
+       🎨 ESTILO DEL ENCABEZADO
+    ================================ */
+
+    header_style: {
+      type: DataTypes.JSONB,
       allowNull: true,
     },
 
