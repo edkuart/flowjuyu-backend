@@ -12,6 +12,8 @@ import {
   getAiReport,
   getAiTasks,
   getAiMemory,
+  getLatestTelemetry,
+  getLatestLLMResponse,
 } from "../services/ai.service";
 
 import { analyzeMarketplace }        from "../services/ai/ai.intelligence.service";
@@ -188,6 +190,36 @@ export async function handleGetAgents(
   try {
     const data = await monitorAgents();
     res.json({ ok: true, supervisor: data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function handleGetTelemetry(
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const telemetry = await getLatestTelemetry();
+    res.json({ ok: true, telemetry });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function handleGetLLMResponse(
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const llmResponse = await getLatestLLMResponse();
+    if (!llmResponse) {
+      res.json({ ok: false, message: "No LLM response yet" });
+      return;
+    }
+    res.json({ ok: true, llm_response: llmResponse });
   } catch (err) {
     next(err);
   }

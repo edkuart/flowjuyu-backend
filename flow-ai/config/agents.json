@@ -34,6 +34,41 @@
       "role": "marketplace-brain",
       "canRunCLI": false,
       "canEditCode": false
+    },
+    {
+      "name": "telemetry-collector",
+      "enabled": true,
+      "role": "telemetry-normalization",
+      "canRunCLI": false,
+      "canEditCode": false
+    },
+    {
+      "name": "priority-generator",
+      "enabled": true,
+      "role": "priority-scoring",
+      "canRunCLI": false,
+      "canEditCode": false
+    },
+    {
+      "name": "llm-trigger",
+      "enabled": true,
+      "role": "llm-activation-gate",
+      "canRunCLI": false,
+      "canEditCode": false
+    },
+    {
+      "name": "llm-executor",
+      "enabled": true,
+      "role": "llm-api-execution",
+      "canRunCLI": false,
+      "canEditCode": false
+    },
+    {
+      "name": "llm-analysis-agent",
+      "enabled": true,
+      "role": "prompt-generation",
+      "canRunCLI": false,
+      "canEditCode": false
     }
   ]
 }

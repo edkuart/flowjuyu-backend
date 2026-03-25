@@ -1,3 +1,4 @@
+require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
@@ -48,32 +49,40 @@ function getLatestReport() {
    Check if task already exists
 ===================================== */
 
+const TASK_COOLDOWN_DAYS = 7;
+
 function taskExists(title) {
 
-  const checkDirs = [inboxDir, doneDir];
-
-  for (const dir of checkDirs) {
-
-    const files = fs.readdirSync(dir);
-
-    for (const file of files) {
-
-      try {
-
-        const task = JSON.parse(
-          fs.readFileSync(path.join(dir, file))
-        );
-
-        if (task.title === title) {
-          return true;
-        }
-
-      } catch (err) {
-        console.warn("Invalid task file skipped:", file);
-      }
-
+  // Always block if task is already in inbox (same-cycle deduplication)
+  const inboxFiles = fs.readdirSync(inboxDir);
+  for (const file of inboxFiles) {
+    try {
+      const task = JSON.parse(fs.readFileSync(path.join(inboxDir, file)));
+      if (task.title === title) return true;
+    } catch (err) {
+      console.warn("Invalid inbox task file skipped:", file);
     }
+  }
 
+  // For done tasks: only block if completed within the cooldown window
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - TASK_COOLDOWN_DAYS);
+
+  const doneFiles = fs.readdirSync(doneDir);
+  for (const file of doneFiles) {
+    try {
+      const task = JSON.parse(fs.readFileSync(path.join(doneDir, file)));
+      if (task.title !== title) continue;
+
+      const createdAt = task.created_at ? new Date(task.created_at) : null;
+      if (createdAt && createdAt > cutoff) {
+        // Task was completed recently — still within cooldown
+        return true;
+      }
+      // Task is older than cooldown — allow recreation
+    } catch (err) {
+      console.warn("Invalid done task file skipped:", file);
+    }
   }
 
   return false;

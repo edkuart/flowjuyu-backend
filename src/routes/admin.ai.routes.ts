@@ -15,6 +15,10 @@ import {
   handleGetRisks,
   handleGetDecisions,
   handleGetAgents,
+  // Telemetry artifact endpoint
+  handleGetTelemetry,
+  // LLM response artifact endpoint
+  handleGetLLMResponse,
   // Brain — action endpoint
   handleRunBrainCycle,
 } from "../controllers/admin.ai.controller";
@@ -53,6 +57,15 @@ router.get("/sellers",       handleGetSellers);
 router.get("/risks",         handleGetRisks);
 router.get("/decisions",     handleGetDecisions);
 router.get("/agents",        handleGetAgents);
+
+// ─────────────────────────────────────────────────────────
+// Telemetry — read latest artifact
+// GET /api/admin/ai/telemetry → latest telemetry-*.json artifact
+// Contains: filtered_metrics, trends, metric_conflicts, daily_history
+// ─────────────────────────────────────────────────────────
+
+router.get("/telemetry",     handleGetTelemetry);
+router.get("/llm-response", handleGetLLMResponse);
 
 // ─────────────────────────────────────────────────────────
 // Brain — trigger endpoint

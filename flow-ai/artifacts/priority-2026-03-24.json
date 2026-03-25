@@ -1,0 +1,120 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-03-24T23:54:03.225Z",
+  "date": "2026-03-24",
+  "telemetry_source": "telemetry-2026-03-24.json",
+  "issues": [
+    {
+      "id": "seller_activation_zero",
+      "title": "Zero real sellers have active products",
+      "severity": "high",
+      "priority_score": 100,
+      "impact_area": "seller",
+      "trend": "stable",
+      "confidence": 1,
+      "source": "telemetry",
+      "reasoning": "filtered_metrics shows 6 real sellers and real_sellers_with_products = 0. None of the production sellers have listed any products, making the catalog functionally empty for real buyers.",
+      "recommended_action": "Review the 6 real sellers (Edwart's Market 02, Edwart's Market 01, Daniel tienda…) and determine whether their products are in draft, deactivated, or never created. Implement a seller onboarding re-engagement flow.",
+      "created_at": "2026-03-24T23:54:03.225Z",
+      "data": {
+        "real_seller_count": 6,
+        "real_sellers_with_products": 0,
+        "real_seller_names": [
+          "Edwart's Market 02",
+          "Edwart's Market 01",
+          "Daniel tienda",
+          "Edwart's Market 07",
+          "Textiles Banekxel",
+          "Tienda PowerShell"
+        ]
+      }
+    },
+    {
+      "id": "dead_catalog",
+      "title": "88% of products have zero views (14 of 16)",
+      "severity": "high",
+      "priority_score": 95,
+      "impact_area": "product",
+      "trend": "stable",
+      "confidence": 0.9,
+      "source": "telemetry",
+      "reasoning": "current_state.products_without_views = 14 out of 16 total products (88%). Trend is stable over 1 days. 8 are confirmed real (non-test) products. Empty trending_products and trending_categories arrays are a direct downstream consequence — no engagement data exists for the recommendation engine.",
+      "recommended_action": "Verify that products are reachable from the buyer-facing frontend. Check if listings are published vs. draft/inactive. Confirmed real dead products include: que hueva, huipil rosa, collar ceremonial, anillo…. Investigate product discovery path (search indexing, category browsing, direct URLs).",
+      "created_at": "2026-03-24T23:54:03.225Z",
+      "data": {
+        "products_without_views": 14,
+        "products_total": 16,
+        "pct_without_views": 88,
+        "trend_direction": "stable",
+        "real_dead_products_count": 8,
+        "real_dead_product_names": [
+          "que hueva",
+          "huipil rosa",
+          "collar ceremonial",
+          "anillo",
+          "zapato",
+          "anillo",
+          "anillo rojo",
+          "Cinta maya"
+        ]
+      }
+    },
+    {
+      "id": "test_data_contamination",
+      "title": "Test accounts are 60% of seller base (9 of 15)",
+      "severity": "medium",
+      "priority_score": 60,
+      "impact_area": "data",
+      "trend": "stable",
+      "confidence": 1,
+      "source": "telemetry",
+      "reasoning": "filtered_metrics: real_seller_count=6, test_seller_count=9 (60% of total). Test accounts inflate inactive_sellers, dead_products, and all derived health scores. 1 metric conflict(s) detected — test contamination likely contributes to the divergence.",
+      "recommended_action": "Add an is_test flag to test/demo entities in the database so analytics queries can exclude them. Until then, use filtered_metrics values exclusively for automated decisions and health scoring. Test accounts identified by keywords: test, prueba, demo, asd, admin.",
+      "created_at": "2026-03-24T23:54:03.225Z",
+      "data": {
+        "real_seller_count": 6,
+        "test_seller_count": 9,
+        "total_sellers": 15,
+        "pct_test": 60,
+        "test_keywords": [
+          "test",
+          "prueba",
+          "demo",
+          "asd",
+          "admin"
+        ]
+      }
+    },
+    {
+      "id": "metric_source_conflict",
+      "title": "1 metric source conflict detected",
+      "severity": "medium",
+      "priority_score": 50,
+      "impact_area": "data",
+      "trend": "stable",
+      "confidence": 1,
+      "source": "telemetry",
+      "reasoning": "metric_conflicts: products_without_views (analytics=12, intelligence=14, Δ2). Two data sources (analytics CLI and intelligence DB) report different values for the same metric. Automated decisions and health scores that rely on these metrics may trigger incorrectly.",
+      "recommended_action": "Compare the SQL/ORM queries behind both sources for the conflicting metric(s). The most likely cause is a filter difference (e.g., active vs. all products). Align both queries on a shared definition and document it. Until resolved, prefer the intelligence (DB-backed) value for decisions.",
+      "created_at": "2026-03-24T23:54:03.225Z",
+      "data": {
+        "conflicts": [
+          {
+            "metric": "products_without_views",
+            "analytics_value": 12,
+            "intelligence_value": 14,
+            "delta": 2,
+            "warning": true
+          }
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "high": 2,
+    "medium": 2,
+    "low": 0,
+    "top_score": 100
+  }
+}

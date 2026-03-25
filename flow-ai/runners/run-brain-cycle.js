@@ -21,6 +21,8 @@
  *   BRAIN_CYCLE_TOKEN   Admin Bearer token for authentication
  */
 
+require("dotenv").config();
+
 const https = require("https");
 const http  = require("http");
 const path  = require("path");

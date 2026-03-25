@@ -1,0 +1,9 @@
+{
+  "id": "task-1774377332432",
+  "title": "Products missing images",
+  "description": "Some products lack images which impacts marketplace conversion rate.",
+  "priority": "high",
+  "status": "pending",
+  "source": "ai-supervisor",
+  "created_at": "2026-03-24T18:35:32.432Z"
+}

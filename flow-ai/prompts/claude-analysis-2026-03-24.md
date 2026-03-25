@@ -1,20 +1,3 @@
-# FLOWJUYU DEV BRIDGE — 2026-03-24
-
-The AI analysis prompt for today has been generated.
-
-**Load this file into Claude Code to run the analysis:**
-
-  C:\Users\Dell\Projects\Flowjuyu-1.0\flowjuyu-backend\flow-ai\prompts\claude-analysis-2026-03-24.md
-
-The prompt includes:
-  - Current marketplace state (16 products, 13 inactive sellers)
-  - 7-day trend data (91 historical data points)
-  - Task pipeline state (0 pending, 10 done)
-  - Latest analytics report
-  - Structured questions to guide analysis
-
----
-
 # FLOWJUYU AI ANALYSIS REQUEST
 Generated: 2026-03-24T18:17:42.898Z
 Date: 2026-03-24
@@ -289,4 +272,3 @@ Description: [1–2 sentence description of what needs to be investigated or don
 - Prefer backend/product improvements over infrastructure changes
 
 ---
-

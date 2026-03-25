@@ -37,13 +37,14 @@ import {
 // Base paths
 // ─────────────────────────────────────────────────────────
 
-const AI_BASE     = path.resolve(process.cwd(), "flow-ai");
-const REPORTS_DIR = path.join(AI_BASE, "reports", "daily");
-const MEMORY_DIR  = path.join(AI_BASE, "memory");
-const CONFIG_DIR  = path.join(AI_BASE, "config");
-const INBOX_DIR   = path.join(AI_BASE, "tasks", "inbox");
-const INPROG_DIR  = path.join(AI_BASE, "tasks", "in-progress");
-const DONE_DIR    = path.join(AI_BASE, "tasks", "done");
+const AI_BASE      = path.resolve(process.cwd(), "flow-ai");
+const REPORTS_DIR  = path.join(AI_BASE, "reports", "daily");
+const MEMORY_DIR   = path.join(AI_BASE, "memory");
+const CONFIG_DIR   = path.join(AI_BASE, "config");
+const INBOX_DIR    = path.join(AI_BASE, "tasks", "inbox");
+const INPROG_DIR   = path.join(AI_BASE, "tasks", "in-progress");
+const DONE_DIR     = path.join(AI_BASE, "tasks", "done");
+const ARTIFACTS_DIR = path.join(AI_BASE, "artifacts");
 
 // ─────────────────────────────────────────────────────────
 // Validation
@@ -445,6 +446,56 @@ export async function getAiMemory(): Promise<AiMemory> {
     ]);
 
   return { sessions, marketplace, improvements, bugs, decisions };
+}
+
+// ─────────────────────────────────────────────────────────
+// Telemetry artifact
+// ─────────────────────────────────────────────────────────
+
+/**
+ * Returns the most recent telemetry artifact produced by the
+ * telemetry-collector runner (flow-ai/artifacts/telemetry-*.json).
+ *
+ * Returns null when no artifact exists yet.
+ * Never throws — callers receive null on any filesystem error.
+ */
+export async function getLatestTelemetry(): Promise<Record<string, unknown> | null> {
+  const files = await safeListDir(ARTIFACTS_DIR);
+
+  // safeListDir returns reverse-sorted (newest filename first).
+  const latest = files.find(
+    (f) => f.startsWith("telemetry-") && f.endsWith(".json")
+  );
+
+  if (!latest) return null;
+
+  return safeReadJson<Record<string, unknown> | null>(
+    path.join(ARTIFACTS_DIR, latest),
+    null
+  );
+}
+
+/**
+ * Returns the most recent LLM response artifact produced by the
+ * llm-executor runner (flow-ai/artifacts/llm-response-*.json).
+ *
+ * Returns null when no artifact exists yet.
+ * Never throws — callers receive null on any filesystem error.
+ */
+export async function getLatestLLMResponse(): Promise<Record<string, unknown> | null> {
+  const files = await safeListDir(ARTIFACTS_DIR);
+
+  // safeListDir returns reverse-sorted (newest filename first).
+  const latest = files.find(
+    (f) => f.startsWith("llm-response-") && f.endsWith(".json")
+  );
+
+  if (!latest) return null;
+
+  return safeReadJson<Record<string, unknown> | null>(
+    path.join(ARTIFACTS_DIR, latest),
+    null
+  );
 }
 
 // ─────────────────────────────────────────────────────────

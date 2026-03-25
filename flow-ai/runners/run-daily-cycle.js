@@ -1,3 +1,4 @@
+require("dotenv").config();
 const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -49,15 +50,34 @@ function isEnabled(config, agentName) {
 ===================================== */
 
 const RUNNERS = [
-  { name: "analytics-agent", file: "flow-ai/runners/run-analytics-agent.js" },
-  { name: "supervisor",      file: "flow-ai/runners/run-supervisor.js" },
-  { name: "dev-agent",       file: "flow-ai/runners/run-dev-agent.js" },
-  { name: "code-analysis",   file: "flow-ai/runners/run-code-analysis-agent.js" },
-  { name: "memory-agent",    file: "flow-ai/runners/run-memory-agent.js" },
-  { name: "growth-agent",    file: "flow-ai/runners/run-growth-agent.js" },
+  { name: "analytics-agent",    file: "flow-ai/runners/run-analytics-agent.js" },
+  { name: "supervisor",         file: "flow-ai/runners/run-supervisor.js" },
+  { name: "dev-agent",          file: "flow-ai/runners/run-dev-agent.js" },
+  { name: "code-analysis",      file: "flow-ai/runners/run-code-analysis-agent.js" },
+  { name: "memory-agent",       file: "flow-ai/runners/run-memory-agent.js" },
+  { name: "growth-agent",       file: "flow-ai/runners/run-growth-agent.js" },
   // AI Brain Cycle — runs DB-powered intelligence, scanner, growth,
   // seller analysis, and risk detection via the admin API.
-  { name: "brain-cycle",     file: "flow-ai/runners/run-brain-cycle.js" },
+  { name: "brain-cycle",        file: "flow-ai/runners/run-brain-cycle.js" },
+  // Telemetry collector — aggregates intelligence.json + 7-day marketplace trends
+  // + task pipeline into a single normalized JSON artifact.
+  // Runs AFTER brain-cycle (intelligence.json fresh) and memory-agent (marketplace.json fresh).
+  { name: "telemetry-collector", file: "flow-ai/runners/run-telemetry-collector.js" },
+  // Priority generator — converts telemetry signals into a sorted, machine-readable
+  // priority-YYYY-MM-DD.json artifact. Deterministic (no LLM). Runs after telemetry.
+  { name: "priority-generator",  file: "flow-ai/runners/run-priority-generator.js" },
+  // LLM trigger — reads priority artifact and activates LLM prompt generation ONLY
+  // when high-priority issues exist (score >= 90 or severity = high). Zero cost on quiet cycles.
+  { name: "llm-trigger",         file: "flow-ai/runners/run-llm-trigger.js" },
+  // LLM executor — calls Anthropic API with the trigger prompt and saves structured
+  // analysis to flow-ai/artifacts/llm-response-YYYY-MM-DD.json.
+  // Requires ANTHROPIC_API_KEY. Skips if no trigger prompt or response already exists.
+  // Only runs when llm-trigger has written a prompt (controlled cost).
+  { name: "llm-executor",        file: "flow-ai/runners/run-llm-executor.js" },
+  // LLM analysis agent — reads telemetry artifact, builds a structured analytical
+  // prompt for Claude Code. Idempotent (skips if today's prompt exists).
+  // Soft-exits gracefully if telemetry artifact is missing.
+  { name: "llm-analysis-agent",  file: "flow-ai/runners/run-llm-analysis-agent.js" },
 ];
 
 function run(command) {

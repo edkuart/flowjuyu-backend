@@ -1,0 +1,137 @@
+{
+  "schema_version": "1.1",
+  "generated_at": "2026-03-24T23:54:03.111Z",
+  "date": "2026-03-24",
+  "data_changed": null,
+  "current_state": {
+    "products_total": 16,
+    "products_without_views": 14,
+    "products_missing_images": 2,
+    "inactive_sellers": 13,
+    "trending_products": [],
+    "trending_categories": [],
+    "state_generated_at": "2026-03-24T23:22:22.551Z"
+  },
+  "raw_metrics": {
+    "products_total": 16,
+    "products_without_views": 14,
+    "products_missing_images": 2,
+    "inactive_sellers": 13,
+    "analytics_dead_products_count": 12,
+    "analytics_seller_count": 15
+  },
+  "filtered_metrics": {
+    "real_seller_count": 6,
+    "test_seller_count": 9,
+    "real_sellers_with_products": 0,
+    "real_dead_products_count": 8,
+    "test_dead_products_count": 4,
+    "real_seller_names": [
+      "Edwart's Market 02",
+      "Edwart's Market 01",
+      "Daniel tienda",
+      "Edwart's Market 07",
+      "Textiles Banekxel",
+      "Tienda PowerShell"
+    ],
+    "real_dead_product_names": [
+      "que hueva",
+      "huipil rosa",
+      "collar ceremonial",
+      "anillo",
+      "zapato",
+      "anillo",
+      "anillo rojo",
+      "Cinta maya"
+    ],
+    "note": "filtered_metrics excludes entities matching: test, prueba, demo, asd, admin"
+  },
+  "metric_conflicts": [
+    {
+      "metric": "products_without_views",
+      "analytics_value": 12,
+      "intelligence_value": 14,
+      "delta": 2,
+      "warning": true
+    }
+  ],
+  "daily_history": {
+    "distinct_days": 1,
+    "first_day": "2026-03-24",
+    "last_day": "2026-03-24",
+    "history_sufficient": false
+  },
+  "trends": {
+    "products_total": {
+      "insufficient_history": true,
+      "distinct_days": 1,
+      "note": "Only 1 distinct day of data (2026-03-24) — cannot compute trend"
+    },
+    "products_without_views": {
+      "insufficient_history": true,
+      "distinct_days": 1,
+      "note": "Only 1 distinct day of data (2026-03-24) — cannot compute trend"
+    },
+    "products_missing_images": {
+      "insufficient_history": true,
+      "distinct_days": 1,
+      "note": "Only 1 distinct day of data (2026-03-24) — cannot compute trend"
+    },
+    "inactive_sellers": {
+      "insufficient_history": true,
+      "distinct_days": 1,
+      "note": "Only 1 distinct day of data (2026-03-24) — cannot compute trend"
+    }
+  },
+  "task_pipeline": {
+    "inbox_count": 3,
+    "done_count": 10,
+    "pending_tasks": [
+      {
+        "id": "task-1774377332432",
+        "title": "Products missing images",
+        "priority": "high",
+        "status": "pending"
+      },
+      {
+        "id": "task-1774377332430",
+        "title": "Review inactive sellers",
+        "priority": "medium",
+        "status": "pending"
+      },
+      {
+        "id": "task-1774377332130",
+        "title": "Investigate products without views",
+        "priority": "high",
+        "status": "pending"
+      }
+    ]
+  },
+  "cycle_state": {
+    "cycles_run": 5,
+    "last_run": "2026-03-24T18:16:29.199Z",
+    "tasks_completed": 10,
+    "reports_generated": 19
+  },
+  "recent_improvements": [
+    {
+      "date": "2026-03-16T16:39:34.035Z",
+      "improvements": [
+        "Refactor large files detected by code analysis"
+      ]
+    }
+  ],
+  "data_points_available": 91,
+  "recent_reports": [
+    "growth-2026-03-24.md",
+    "growth-2026-03-20.md",
+    "growth-2026-03-19.md",
+    "growth-2026-03-17.md",
+    "growth-2026-03-16.md",
+    "dev-task-1773685890371.md",
+    "dev-task-1773678428150.md",
+    "dev-task-1773678425999.md",
+    "dev-task-1773678424741.md",
+    "dev-task-1773678313565.md"
+  ]
+}

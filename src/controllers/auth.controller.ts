@@ -262,7 +262,9 @@ export const registerVendedor = async (
         direccion:         (direccion   ?? "").toString().trim(),
         logo,
         nombre_comercio:   nombreComercio.trim(),
-        telefono_comercio: (telefonoComercio ?? "").toString().trim(),
+        telefono_comercio: telefonoComercio
+          ? { country_code: "502", number: (telefonoComercio as string).trim() }
+          : null,
         departamento:      (departamento ?? "").toString().trim(),
         municipio:         (municipio   ?? "").toString().trim(),
         descripcion:       (descripcion ?? "").toString().trim(),

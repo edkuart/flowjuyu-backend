@@ -10,11 +10,11 @@ You are acting as the Claude Dev Agent for Flowjuyu.
 - Internal diagnostic tools are executed through PowerShell script: scripts/flow.ps1
 
 ## Task To Work On
-Task ID: task-1774377332130
-Title: Investigate products without views
+Task ID: task-1774377332432
+Title: Products missing images
 Priority: high
 Status: pending
-Description: Several products have no views. Investigate catalog visibility, search indexing, and SEO.
+Description: Some products lack images which impacts marketplace conversion rate.
 
 ## Recent Reports
 ### growth-2026-03-24.md

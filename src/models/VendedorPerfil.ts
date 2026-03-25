@@ -3,6 +3,14 @@ import { sequelize } from "../config/db";
 import { User } from "./user.model";
 
 /* ======================================================
+   📞 PHONE NUMBER
+====================================================== */
+export type PhoneNumber = {
+  country_code: string; // e.g. "502"
+  number: string;       // local digits only, e.g. "55554446"
+};
+
+/* ======================================================
    🎯 Estados Oficiales
 ====================================================== */
 export type EstadoValidacion =
@@ -39,7 +47,7 @@ interface VendedorPerfilAttrs {
   direccion?: string | null;
   logo?: string | null;
   nombre_comercio: string;
-  telefono_comercio?: string | null;
+  telefono_comercio?: PhoneNumber | null;
   departamento?: string | null;
   municipio?: string | null;
   descripcion?: string | null;
@@ -77,7 +85,7 @@ interface VendedorPerfilAttrs {
   plan: PlanTipo;
   plan_activo: boolean;
   plan_expires_at?: Date | null;
-  whatsapp_numero?: string | null;
+  whatsapp_numero?: PhoneNumber | null;
 
   /* 📱 REDES SOCIALES */
   instagram?: string | null;
@@ -89,6 +97,7 @@ interface VendedorPerfilAttrs {
     mode: "gradient" | "image" | "image+overlay";
     overlay_color?: string;
     overlay_opacity?: number;
+    gradient_variant?: string;
   } | null;
 
   createdAt?: Date;
@@ -150,7 +159,7 @@ export class VendedorPerfil
   public direccion?: string | null;
   public logo?: string | null;
   public nombre_comercio!: string;
-  public telefono_comercio?: string | null;
+  public telefono_comercio?: PhoneNumber | null;
   public departamento?: string | null;
   public municipio?: string | null;
   public descripcion?: string | null;
@@ -183,7 +192,7 @@ export class VendedorPerfil
   public plan!: PlanTipo;
   public plan_activo!: boolean;
   public plan_expires_at?: Date | null;
-  public whatsapp_numero?: string | null;
+  public whatsapp_numero?: PhoneNumber | null;
 
   /* 📱 REDES SOCIALES */
   public instagram?: string | null;
@@ -234,7 +243,7 @@ VendedorPerfil.init(
     },
 
     telefono_comercio: {
-      type: DataTypes.STRING(15),
+      type: DataTypes.JSONB,
       allowNull: true,
     },
 
@@ -334,7 +343,7 @@ VendedorPerfil.init(
     },
 
     whatsapp_numero: {
-      type: DataTypes.STRING(15),
+      type: DataTypes.JSONB,
       allowNull: true,
     },
 

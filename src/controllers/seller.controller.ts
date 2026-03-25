@@ -1,6 +1,7 @@
 // src/controllers/seller.controller.ts
 import { Request, Response, RequestHandler } from "express";
 import { VendedorPerfil } from "../models/VendedorPerfil";
+import type { PhoneNumber } from "../models/VendedorPerfil";
 import { QueryTypes } from "sequelize";
 import { User } from "../models/user.model";
 import { sequelize } from "../config/db";
@@ -419,6 +420,7 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
     // Parse header_style (arrives as a JSON string from multipart FormData).
     // Always falls back to the existing value on any parsing or validation failure.
     const VALID_MODES = new Set(["gradient", "image", "image+overlay"]);
+    const VALID_GRADIENT_VARIANTS = new Set(["default", "suave", "calido", "oscuro"]);
     let headerStyle: any = perfil.header_style ?? null;
 
     if (req.body.header_style !== undefined) {
@@ -428,7 +430,8 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
             ? JSON.parse(req.body.header_style)
             : req.body.header_style;
 
-        // Validate and coerce into the expected shape — never trust client data
+        // Validate known fields individually — preserve unknown-but-safe fields
+        // like gradient_variant rather than rebuilding from scratch
         if (raw && typeof raw === "object") {
           headerStyle = {
             mode: VALID_MODES.has(raw.mode) ? raw.mode : "gradient",
@@ -442,6 +445,10 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
               raw.overlay_opacity <= 1
                 ? raw.overlay_opacity
                 : 0.7,
+            // Preserve gradient_variant — only store recognised values
+            ...(typeof raw.gradient_variant === "string" && VALID_GRADIENT_VARIANTS.has(raw.gradient_variant)
+              ? { gradient_variant: raw.gradient_variant }
+              : {}),
           };
         } else {
           // Unexpected shape — keep existing
@@ -450,6 +457,29 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
         // Invalid JSON — keep existing value; do not crash the request
       }
     }
+
+    // Parse and validate a PhoneNumber object from a multipart string field.
+    // Returns the existing value if input is absent, null if explicitly cleared,
+    // or the validated PhoneNumber if the input is valid.
+    const parsePhone = (
+      raw: string | undefined,
+      existing: PhoneNumber | null | undefined,
+    ): PhoneNumber | null => {
+      if (raw === undefined) return existing ?? null;
+      if (raw === "" || raw === "null") return null;
+      try {
+        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+        const cc  = parsed?.country_code;
+        const num = parsed?.number;
+        if (
+          typeof cc === "string" && /^\d{1,4}$/.test(cc) &&
+          typeof num === "string" && /^\d{4,15}$/.test(num)
+        ) {
+          return { country_code: cc, number: num };
+        }
+      } catch { /* invalid JSON — fall through to return null */ }
+      return existing ?? null;
+    };
 
     // Normalize social URLs:
     //   - undefined (field not sent) → keep existing value via ??
@@ -466,19 +496,20 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
     };
 
     const fieldsToUpdate = {
-      nombre_comercio:  req.body.nombre_comercio  ?? perfil.nombre_comercio,
-      descripcion:      req.body.descripcion      ?? perfil.descripcion,
-      telefono_comercio:req.body.telefono_comercio?? perfil.telefono_comercio,
-      direccion:        req.body.direccion        ?? perfil.direccion,
-      departamento:     req.body.departamento     ?? perfil.departamento,
-      municipio:        req.body.municipio        ?? perfil.municipio,
-      whatsapp_numero:  req.body.whatsapp_numero  ?? perfil.whatsapp_numero,
+      nombre_comercio:   req.body.nombre_comercio   ?? perfil.nombre_comercio,
+      descripcion:       req.body.descripcion       ?? perfil.descripcion,
+      telefono_comercio: parsePhone(req.body.telefono_comercio, perfil.telefono_comercio),
+      direccion:         req.body.direccion         ?? perfil.direccion,
+      departamento:      req.body.departamento      ?? perfil.departamento,
+      municipio:         req.body.municipio         ?? perfil.municipio,
+      whatsapp_numero:   parsePhone(req.body.whatsapp_numero, perfil.whatsapp_numero),
+      mensaje_destacado: req.body.mensaje_destacado ?? perfil.mensaje_destacado,
       instagram:    normalizeSocial(req.body.instagram, perfil.instagram),
       facebook:     normalizeSocial(req.body.facebook,  perfil.facebook),
       tiktok:       normalizeSocial(req.body.tiktok,    perfil.tiktok),
       header_style: headerStyle,
       logo:         logoUrl,
-      updatedAt:        new Date(),
+      updatedAt:    new Date(),
     };
 
     await VendedorPerfil.update(fieldsToUpdate, { where: { user_id: user.id } });
