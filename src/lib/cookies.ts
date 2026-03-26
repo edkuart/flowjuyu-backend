@@ -53,9 +53,14 @@ const isProduction = process.env.NODE_ENV === "production";
 type SameSiteValue = "lax" | "none" | "strict";
 
 function getSameSite(): SameSiteValue {
-  const val = process.env.COOKIE_SAME_SITE ?? "lax";
+  const val = process.env.COOKIE_SAME_SITE;
   if (val === "none" || val === "strict" || val === "lax") return val;
-  return "lax";
+  // Production default: "none" so the cookie is sent on cross-domain requests
+  // (frontend on Vercel, backend on Railway share eTLD+1 only when custom
+  //  domain api.flowjuyu.com is configured — otherwise they are cross-site).
+  // SameSite=None requires Secure=true, which is already set in production.
+  // Development default: "lax" (same-origin localhost, Secure not required).
+  return isProduction ? "none" : "lax";
 }
 
 // ─── setRefreshTokenCookie ───────────────────────────────────────────────────

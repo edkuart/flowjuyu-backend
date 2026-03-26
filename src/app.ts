@@ -116,7 +116,11 @@ const corsOptions: cors.CorsOptions = {
     }
 
     console.warn("🚫 CORS blocked:", origin);
-    return cb(null, false);
+    // Use an error, not cb(null, false). With cb(null, false) the cors package
+    // lets the request fall through without CORS headers — the browser then
+    // sees a response with no Access-Control-Allow-Origin, which under HTTP/2
+    // manifests as ERR_HTTP2_PROTOCOL_ERROR instead of a clear CORS error.
+    return cb(new Error(`CORS: origin '${origin}' not allowed`));
   },
 
   credentials: true,
@@ -176,7 +180,14 @@ app.use(
       maxAge: 1000 * 60 * 60 * 24,
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
-      sameSite: "lax",
+      // Keep in sync with the refresh-token cookie (cookies.ts).
+      // In production default to "none" so cross-domain requests include it.
+      // Overridable via COOKIE_SAME_SITE env var.
+      sameSite: (() => {
+        const v = process.env.COOKIE_SAME_SITE;
+        if (v === "none" || v === "strict" || v === "lax") return v;
+        return process.env.NODE_ENV === "production" ? "none" : "lax";
+      })(),
     },
   })
 );
