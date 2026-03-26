@@ -41,6 +41,14 @@ import { refreshTemplateStats }      from "../services/content/TemplatePerforman
 import { proposeEvolvedTemplates }   from "../services/content/PromptEvolutionService";
 import { updatePatternMemory }        from "../services/content/EditLearningService";
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Normalize an Express 5 param (string | string[]) to a plain string. */
+function param(p: string | string[] | undefined): string {
+  if (Array.isArray(p)) return p[0] ?? "";
+  return p ?? "";
+}
+
 // ─── Request schemas ─────────────────────────────────────────────────────────
 
 const generateSchema = z.object({
@@ -286,7 +294,7 @@ export async function handleReview(
   next: NextFunction
 ): Promise<void> {
   try {
-    const variantId = req.params.variant_id;
+    const variantId = param(req.params.variant_id);
     if (!variantId) {
       res.status(400).json({ ok: false, code: "MISSING_VARIANT_ID" });
       return;
@@ -385,7 +393,7 @@ export async function handlePublish(
   next: NextFunction
 ): Promise<void> {
   try {
-    const variantId = req.params.variant_id;
+    const variantId = param(req.params.variant_id);
     if (!variantId) {
       res.status(400).json({ ok: false, code: "MISSING_VARIANT_ID" });
       return;
@@ -683,7 +691,7 @@ export async function handleApproveTemplate(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { id } = req.params;
+    const id = param(req.params.id);
     if (!id) {
       res.status(400).json({ ok: false, code: "MISSING_TEMPLATE_ID" });
       return;
@@ -718,7 +726,7 @@ export async function handleRejectTemplate(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { id } = req.params;
+    const id = param(req.params.id);
     if (!id) {
       res.status(400).json({ ok: false, code: "MISSING_TEMPLATE_ID" });
       return;
@@ -776,7 +784,7 @@ export async function handleRunAdaptation(
 
     res.json({
       ok: true,
-      stats_refreshed:      statsRefreshed.length,
+      stats_refreshed:      statsRefreshed.updated,
       health_transitions:   transitions.map((t) => ({
         slug:        t.slug,
         from:        t.from_status,

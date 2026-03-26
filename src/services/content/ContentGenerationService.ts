@@ -119,7 +119,7 @@ interface SelectedTemplate {
 
 async function selectTemplate(
   content_type: ContentType,
-  ctx: Parameters<typeof renderUserPrompt>[1]
+  ctx: ProductContext
 ): Promise<SelectedTemplate> {
   try {
     // Lazy import to avoid circular dependency at module load time
