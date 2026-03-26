@@ -99,7 +99,7 @@ router.post(
   verifyToken(["seller"]),
   requireRole("seller"),
   requireActiveSeller,
-  uploadProductImages.array("imagenes[]", 5),
+  uploadProductImages.array("imagenes", 5),
   asyncHandler(createProduct)
 );
 
@@ -127,7 +127,7 @@ router.put(
   verifyToken(["seller"]),
   requireRole("seller"),
   requireActiveSeller,
-  uploadProductImages.array("imagenes[]", 5),
+  uploadProductImages.array("imagenes", 5),
   asyncHandler(updateProduct)
 );
 

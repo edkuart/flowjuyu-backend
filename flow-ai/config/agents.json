@@ -69,6 +69,27 @@
       "role": "prompt-generation",
       "canRunCLI": false,
       "canEditCode": false
+    },
+    {
+      "name": "content-performance-rollup",
+      "enabled": true,
+      "role": "content-analytics",
+      "canRunCLI": false,
+      "canEditCode": false
+    },
+    {
+      "name": "content-optimizer",
+      "enabled": true,
+      "role": "content-prioritization",
+      "canRunCLI": false,
+      "canEditCode": false
+    },
+    {
+      "name": "content-adaptation",
+      "enabled": true,
+      "role": "template-health-evolution",
+      "canRunCLI": false,
+      "canEditCode": false
     }
   ]
 }

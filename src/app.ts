@@ -22,7 +22,8 @@ import publicRoutes from "./routes/public.routes";
 import analyticsRoutes from "./routes/analytics.routes";
 import adminRoutes from "./routes/admin.routes";
 import adminTicketRoutes from "./routes/admin.ticket.routes";
-import adminAiRoutes from "./routes/admin.ai.routes"; // 🔥 NUEVO
+import adminAiRoutes from "./routes/admin.ai.routes";
+import adminContentRoutes from "./routes/admin.content.routes"; // Phase 2: AI Content
 import intentionRoutes from "./routes/intention.routes";
 import categoriesRoutes from "./routes/categories.routes";
 import reviewRoutes from "./routes/review.routes";
@@ -32,6 +33,9 @@ import recommendationsRoutes from "./routes/recommendations.routes";
 
 // Phase 2 table setup
 import { setupPhase2Tables } from "./utils/setupTables";
+
+// Initialize Sequelize associations (must run before any query uses `include`)
+import "./models";
 
 // Middleware global
 import { errorHandler } from "./middleware/errorHandler";
@@ -225,7 +229,8 @@ app.use("/api/categories", categoriesRoutes);
 // ===========================
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminTicketRoutes);
-app.use("/api/admin/ai", adminAiRoutes); // 🔥 AI OS endpoint
+app.use("/api/admin/ai", adminAiRoutes);
+app.use("/api/admin/ai/content", adminContentRoutes); // Phase 2: AI Content Intelligence
 
 // ===========================
 // Dominio

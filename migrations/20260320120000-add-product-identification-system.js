@@ -22,23 +22,38 @@
  *
  * Rollback:
  *   Drops both columns and their indexes (idempotent).
+ *
+ * Idempotency:
+ *   All steps are guarded — safe to re-run if a previous run was partial.
  */
 
 module.exports = {
   // ─── UP ──────────────────────────────────────────────────────────────────────
   async up(queryInterface, Sequelize) {
-    // ── Step 1: Add nullable columns ─────────────────────────────────────────
-    await queryInterface.addColumn("productos", "internal_code", {
-      type: Sequelize.STRING(30),
-      allowNull: true,       // will become NOT NULL after backfill
-      defaultValue: null,
-    });
+    const columns = await queryInterface.describeTable("productos");
 
-    await queryInterface.addColumn("productos", "seller_sku", {
-      type: Sequelize.STRING(100),
-      allowNull: true,
-      defaultValue: null,
-    });
+    // ── Step 1: Add nullable columns ─────────────────────────────────────────
+    if (!columns.internal_code) {
+      await queryInterface.addColumn("productos", "internal_code", {
+        type: Sequelize.STRING(30),
+        allowNull: true,       // will become NOT NULL after backfill
+        defaultValue: null,
+      });
+      console.log("[migration] added internal_code to productos");
+    } else {
+      console.log("[migration] internal_code already exists on productos — skipping addColumn");
+    }
+
+    if (!columns.seller_sku) {
+      await queryInterface.addColumn("productos", "seller_sku", {
+        type: Sequelize.STRING(100),
+        allowNull: true,
+        defaultValue: null,
+      });
+      console.log("[migration] added seller_sku to productos");
+    } else {
+      console.log("[migration] seller_sku already exists on productos — skipping addColumn");
+    }
 
     // ── Step 2: Backfill existing products ────────────────────────────────────
     //
@@ -139,24 +154,39 @@ module.exports = {
     `);
 
     // ── Step 3: Enforce NOT NULL now that every row has a code ───────────────
-    await queryInterface.changeColumn("productos", "internal_code", {
-      type: Sequelize.STRING(30),
-      allowNull: false,
-    });
+    // Re-describe to check current nullability; skip if already NOT NULL.
+    const columnsNow = await queryInterface.describeTable("productos");
+    if (columnsNow.internal_code && columnsNow.internal_code.allowNull !== false) {
+      await queryInterface.changeColumn("productos", "internal_code", {
+        type: Sequelize.STRING(30),
+        allowNull: false,
+      });
+      console.log("[migration] set internal_code NOT NULL");
+    }
 
     // ── Step 4: Unique index — internal_code ──────────────────────────────────
-    await queryInterface.addIndex("productos", ["internal_code"], {
-      unique: true,
-      name: "idx_productos_internal_code",
-    });
+    const [indexes] = await queryInterface.sequelize.query(`
+      SELECT indexname FROM pg_indexes
+      WHERE tablename = 'productos' AND indexname = 'idx_productos_internal_code';
+    `);
+    if (indexes.length === 0) {
+      await queryInterface.addIndex("productos", ["internal_code"], {
+        unique: true,
+        name: "idx_productos_internal_code",
+      });
+      console.log("[migration] created idx_productos_internal_code");
+    } else {
+      console.log("[migration] idx_productos_internal_code already exists — skipping");
+    }
 
     // ── Step 5: Partial unique index — (vendedor_id, seller_sku) ─────────────
     // Sequelize's addIndex does not support WHERE clauses; use raw SQL.
     await queryInterface.sequelize.query(`
-      CREATE UNIQUE INDEX idx_productos_vendedor_seller_sku
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_productos_vendedor_seller_sku
         ON productos (vendedor_id, seller_sku)
         WHERE seller_sku IS NOT NULL;
     `);
+    console.log("[migration] ensured idx_productos_vendedor_seller_sku");
   },
 
   // ─── DOWN ─────────────────────────────────────────────────────────────────

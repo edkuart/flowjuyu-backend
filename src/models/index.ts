@@ -7,6 +7,17 @@ import { VendedorPerfil } from "./VendedorPerfil";
 import { Ticket } from "./ticket.model";
 import { TicketMessage } from "./ticketMessage.model";
 
+// Phase 2: AI Content Intelligence models
+import { AiContentItem } from "./AiContentItem.model";
+import { AiContentVariant } from "./AiContentVariant.model";
+import { AiContentReview } from "./AiContentReview.model";
+
+// Phase 3: Performance Tracking
+import { AiContentPerformanceDaily } from "./AiContentPerformanceDaily.model";
+
+// Phase 5: Adaptive Templates
+import AiContentTemplate from "./AiContentTemplate.model";
+
 /**
  * ============================================
  * 🧠 Asociaciones centralizadas
@@ -79,6 +90,66 @@ function setupAssociations() {
       as: "user",
     });
   }
+
+  /* ============================
+     📝 AiContentItem ↔ AiContentVariant
+  ============================ */
+
+  if (!AiContentItem.associations.variants) {
+    AiContentItem.hasMany(AiContentVariant, {
+      foreignKey: "content_item_id",
+      as: "variants",
+      onDelete: "CASCADE",
+    });
+  }
+
+  if (!AiContentVariant.associations.item) {
+    AiContentVariant.belongsTo(AiContentItem, {
+      foreignKey: "content_item_id",
+      as: "item",
+    });
+  }
+
+  /* ============================
+     📝 AiContentVariant ↔ AiContentReview
+  ============================ */
+
+  if (!AiContentVariant.associations.reviews) {
+    AiContentVariant.hasMany(AiContentReview, {
+      foreignKey: "variant_id",
+      as: "reviews",
+      onDelete: "CASCADE",
+    });
+  }
+
+  if (!AiContentReview.associations.variant) {
+    AiContentReview.belongsTo(AiContentVariant, {
+      foreignKey: "variant_id",
+      as: "variant",
+    });
+  }
+
+  /* ============================
+     📊 AiContentItem ↔ AiContentPerformanceDaily
+  ============================ */
+
+  if (!AiContentItem.associations.performance) {
+    AiContentItem.hasMany(AiContentPerformanceDaily, {
+      foreignKey: "content_item_id",
+      as: "performance",
+      onDelete: "CASCADE",
+    });
+  }
+
+  if (!(AiContentPerformanceDaily as any).associations?.item) {
+    AiContentPerformanceDaily.belongsTo(AiContentItem, {
+      foreignKey: "content_item_id",
+      as: "item",
+    });
+  }
+
+  // AiContentTemplate is a standalone config table — no foreign key associations needed.
+  // It is referenced by ai_content_variants.template_id (VARCHAR, not FK) for immutability.
 }
 
 setupAssociations();
@@ -95,6 +166,14 @@ export {
   VendedorPerfil,
   Ticket,
   TicketMessage,
+  // Phase 2
+  AiContentItem,
+  AiContentVariant,
+  AiContentReview,
+  // Phase 3
+  AiContentPerformanceDaily,
+  // Phase 5
+  AiContentTemplate,
 };
 
 export const models = {
@@ -102,4 +181,12 @@ export const models = {
   VendedorPerfil,
   Ticket,
   TicketMessage,
+  // Phase 2
+  AiContentItem,
+  AiContentVariant,
+  AiContentReview,
+  // Phase 3
+  AiContentPerformanceDaily,
+  // Phase 5
+  AiContentTemplate,
 };

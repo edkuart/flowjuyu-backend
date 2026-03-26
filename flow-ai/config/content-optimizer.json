@@ -1,0 +1,29 @@
+{
+  "generation": {
+    "max_variants_per_product_per_48h": 2,
+    "max_daily_budget":                10,
+    "cooldown_hours":                  72
+  },
+  "priority": {
+    "weights": {
+      "content_gap":              0.35,
+      "product_potential":        0.25,
+      "performance_opportunity":  0.20,
+      "recency_decay":            0.10,
+      "diversity_factor":         0.10
+    }
+  },
+  "exploration": {
+    "rate":                    0.20,
+    "min_exploitation_score":  0.40
+  },
+  "safety": {
+    "min_impressions":             5,
+    "max_failed_pattern_repeats":  2,
+    "min_days_data_for_stop":      3
+  },
+  "queue": {
+    "max_items_per_run":       8,
+    "content_types_order":     ["caption", "product_description", "image_prompt_brief"]
+  }
+}

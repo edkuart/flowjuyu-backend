@@ -396,30 +396,61 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     }
 
     // =====================
-    // 2️⃣ Subir imágenes (temporal)
+    // 2️⃣ Subir imágenes
     // =====================
-    const files = (req.files as Express.Multer.File[]) || [];
+    console.log("[createProduct] content-type:", req.headers["content-type"]);
+    console.log("[createProduct] body keys:", Object.keys(req.body || {}));
+    console.log(
+      "[createProduct] req.files raw:",
+      Array.isArray(req.files)
+        ? (req.files as any[]).map((f) => ({
+            fieldname: f.fieldname,
+            originalname: f.originalname,
+            mimetype: f.mimetype,
+            size: f.size,
+            bufferLength: f.buffer?.length ?? 0,
+          }))
+        : req.files
+    );
+
+    const files = (Array.isArray(req.files) ? req.files : []) as Express.Multer.File[];
+    console.log(`[createProduct] files count: ${files.length}`);
+
     const urls: string[] = [];
 
     for (const f of files) {
-      const filename = `products/${Date.now()}-${Math.round(
-        Math.random() * 1e9
-      )}-${f.originalname}`;
+      // Sanitize filename: strip special chars/spaces to avoid Supabase path errors
+      const ext = f.originalname.split(".").pop()?.toLowerCase() ?? "jpg";
+      const safeName = f.originalname
+        .replace(/\.[^.]+$/, "")          // strip extension
+        .replace(/[^a-zA-Z0-9_\-]/g, "_") // replace unsafe chars
+        .slice(0, 60);                     // cap length
+      const filename = `products/${Date.now()}-${Math.round(Math.random() * 1e9)}-${safeName}.${ext}`;
 
-      const { error } = await supabase.storage
+      console.log(`[createProduct] uploading → bucket=productos path=${filename} size=${f.buffer?.length} mime=${f.mimetype}`);
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
         .from("productos")
-        .upload(filename, f.buffer, { contentType: f.mimetype });
+        .upload(filename, f.buffer, { contentType: f.mimetype, upsert: false });
 
-      if (error) throw error;
+      console.log("[createProduct] upload result:", { uploadData, uploadError });
+
+      if (uploadError) {
+        console.error("[createProduct] ❌ Supabase upload error:", uploadError);
+        throw uploadError;
+      }
 
       uploadedFiles.push(filename);
 
-      const { data } = supabase.storage
+      const { data: urlData } = supabase.storage
         .from("productos")
         .getPublicUrl(filename);
 
-      urls.push(data.publicUrl);
+      console.log("[createProduct] public URL:", urlData.publicUrl);
+      urls.push(urlData.publicUrl);
     }
+
+    console.log("[createProduct] all uploaded URLs:", urls);
 
     const imagenPrincipal = urls[0] ?? null;
 
@@ -1148,20 +1179,31 @@ export const updateProduct = async (
     const uploadedImageUrls: string[] = [];
 
     for (const f of files) {
-      const filename = `products/${Date.now()}-${Math.round(
-        Math.random() * 1e9,
-      )}-${f.originalname}`;
+      const ext = f.originalname.split(".").pop()?.toLowerCase() ?? "jpg";
+      const safeName = f.originalname
+        .replace(/\.[^.]+$/, "")
+        .replace(/[^a-zA-Z0-9_\-]/g, "_")
+        .slice(0, 60);
+      const filename = `products/${Date.now()}-${Math.round(Math.random() * 1e9)}-${safeName}.${ext}`;
 
-      const { error } = await supabase.storage
+      console.log(`[updateProduct] uploading → bucket=productos path=${filename} size=${f.buffer?.length} mime=${f.mimetype}`);
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
         .from("productos")
-        .upload(filename, f.buffer, { contentType: f.mimetype });
+        .upload(filename, f.buffer, { contentType: f.mimetype, upsert: false });
 
-      if (error) throw error;
+      console.log("[updateProduct] upload result:", { uploadData, uploadError });
+
+      if (uploadError) {
+        console.error("[updateProduct] ❌ Supabase upload error:", uploadError);
+        throw uploadError;
+      }
 
       const { data } = supabase.storage
         .from("productos")
         .getPublicUrl(filename);
 
+      console.log("[updateProduct] public URL:", data.publicUrl);
       uploadedImageUrls.push(data.publicUrl);
     }
 

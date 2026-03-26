@@ -78,6 +78,20 @@ const RUNNERS = [
   // prompt for Claude Code. Idempotent (skips if today's prompt exists).
   // Soft-exits gracefully if telemetry artifact is missing.
   { name: "llm-analysis-agent",  file: "flow-ai/runners/run-llm-analysis-agent.js" },
+  // Content performance rollup — aggregates yesterday's analytics events into
+  // ai_content_performance_daily and writes a 7-day learning artifact + decisions map.
+  // Requires pg + DATABASE_URL. Skips gracefully if no published items exist.
+  { name: "content-performance-rollup", file: "flow-ai/runners/run-content-performance-rollup.js" },
+  // Content optimizer — builds the prioritized generation queue using performance data
+  // from the rollup above. Writes optimizer artifact + updates content-decisions.json.
+  // Set OPTIMIZER_AUTO_GENERATE=true + OPTIMIZER_SERVICE_TOKEN to enable auto-triggering.
+  // Runs AFTER performance rollup so decisions are based on fresh data.
+  { name: "content-optimizer", file: "flow-ai/runners/run-content-optimizer.js" },
+  // Content adaptation — refreshes template metrics, evaluates template health,
+  // extracts edit patterns, and proposes evolved candidate templates.
+  // Set ADAPTER_API_ENABLED=true + OPTIMIZER_SERVICE_TOKEN to run the full TypeScript pipeline.
+  // Runs AFTER optimizer so generation data is as fresh as possible.
+  { name: "content-adaptation", file: "flow-ai/runners/run-content-adaptation.js" },
 ];
 
 function run(command) {
