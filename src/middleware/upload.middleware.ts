@@ -4,6 +4,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
+import type { RequestHandler } from "express";
 
 // ---------------------------
 // 🔧 Configuración general
@@ -45,7 +46,7 @@ const upload = multer({
 // 📂 Middleware exportado
 // 🔥 ALINEADO CON FRONTEND
 // ---------------------------
-export const uploadVendedorDocs = upload.fields([
+export const uploadVendedorDocs: RequestHandler = upload.fields([
   { name: "logo", maxCount: 1 },
   { name: "foto_dpi_frente", maxCount: 1 },
   { name: "foto_dpi_reverso", maxCount: 1 },

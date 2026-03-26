@@ -12,7 +12,7 @@ import {
   deleteCategory
 } from "../controllers/categories.controller";
 
-const router = Router();
+const router: ReturnType<typeof Router> = Router();
 
 /* =========================================
    PUBLIC

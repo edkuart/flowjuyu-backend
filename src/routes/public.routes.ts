@@ -6,7 +6,7 @@ import { VendedorPerfil } from "../models/VendedorPerfil"
 import { getPublicSellerStore } from "../controllers/seller.controller"
 import { createContactTicket } from "../controllers/contact.controller"
 
-const router = Router()
+const router: ReturnType<typeof Router> = Router()
 
 /* ======================================================
    📩 CONTACTO (PÚBLICO)

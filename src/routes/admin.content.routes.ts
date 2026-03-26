@@ -23,7 +23,7 @@ import {
   handleRunAdaptation,
 } from "../controllers/admin.content.controller";
 
-const router = Router();
+const router: ReturnType<typeof Router> = Router();
 
 router.use(requireRole("admin"));
 

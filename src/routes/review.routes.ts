@@ -8,7 +8,7 @@ import {
   reviewLimiter,
 } from "../controllers/review.controller";
 
-const router = Router();
+const router: ReturnType<typeof Router> = Router();
 
 // Public — get seller rating summary
 router.get("/seller/:sellerId/rating", getSellerRating);

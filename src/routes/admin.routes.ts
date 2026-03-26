@@ -31,7 +31,7 @@ import {
 
 import { getSellerLeads } from "../controllers/admin.leads.controller";
 
-const router = Router();
+const router: ReturnType<typeof Router> = Router();
 
 /* ===============================
    🔐 MIDDLEWARE ADMIN GLOBAL

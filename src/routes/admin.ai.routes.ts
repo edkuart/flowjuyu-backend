@@ -25,7 +25,7 @@ import {
 
 import { requireRole } from "../middleware/auth";
 
-const router = Router();
+const router: ReturnType<typeof Router> = Router();
 
 // All routes require admin role.
 router.use(requireRole("admin"));

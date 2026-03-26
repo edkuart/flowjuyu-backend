@@ -11,7 +11,7 @@ import {
   removeFavoriteByRef,
 } from "../controllers/favorites.controller";
 
-const router = Router();
+const router: ReturnType<typeof Router> = Router();
 
 // All routes require a valid JWT (any role)
 router.use(verifyToken(["buyer", "seller", "admin", "support"]));

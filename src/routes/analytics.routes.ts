@@ -11,7 +11,7 @@ import {
 
 import { requireRole } from "../middleware/auth";
 
-const router = Router();
+const router: ReturnType<typeof Router> = Router();
 
 /* =====================================================
    🔒 Rate limit específico para tracking público

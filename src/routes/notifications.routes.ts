@@ -8,7 +8,7 @@ import {
   markNotificationRead,
 } from "../controllers/notifications.controller";
 
-const router = Router();
+const router: ReturnType<typeof Router> = Router();
 
 // All routes require a valid JWT (buyer role)
 router.use(verifyToken(["buyer", "seller", "admin", "support"]));

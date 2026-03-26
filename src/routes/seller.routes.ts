@@ -8,7 +8,7 @@ import { requireActiveSeller } from "../middleware/requireActiveSeller";
 import * as SellerController from "../controllers/seller.controller";
 import * as SellerTicketController from "../controllers/sellerTicket.controller";
 
-const router = Router();
+const router: ReturnType<typeof Router> = Router();
 
 /* ==================================================
    📦 Configuración Multer

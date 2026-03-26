@@ -3,7 +3,7 @@ import asyncHandler from "../middleware/asyncHandler";
 import { verifyToken, requireRole } from "../middleware/auth";
 import * as AdminTicketController from "../controllers/admin.ticket.controller";
 
-const router = Router();
+const router: ReturnType<typeof Router> = Router();
 
 /* ===============================
    🔐 MIDDLEWARE ADMIN
