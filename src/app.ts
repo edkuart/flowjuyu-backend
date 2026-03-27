@@ -38,9 +38,10 @@ import { setupPhase2Tables } from "./utils/setupTables";
 import "./models";
 
 // Middleware global
-import { errorHandler } from "./middleware/errorHandler";
-import { multerErrorHandler } from "./middleware/multerError.middleware";
-import { httpLogger } from "./middleware/httpLogger";
+import { errorHandler }        from "./middleware/errorHandler";
+import { multerErrorHandler }  from "./middleware/multerError.middleware";
+import { httpLogger }          from "./middleware/httpLogger";
+import { responseTimeLogger }  from "./middleware/responseTime";
 
 // ===========================
 // App base
@@ -65,6 +66,7 @@ app.use(
 // ===========================
 app.set("trust proxy", 1);
 app.use(httpLogger);
+app.use(responseTimeLogger);
 
 // ===========================
 // Compresión
@@ -231,6 +233,10 @@ app.get("/healthz", healthz);
 // ===========================
 app.use("/api", publicRoutes);
 app.use("/api", authRoutes);
+// recommendationsRoutes MUST come before productRoutes:
+// productRoutes registers GET /products/:id which would match /products/recommended
+// as id="recommended" before Express reaches this handler if mounted after.
+app.use("/api/products", recommendationsRoutes);
 app.use("/api", productRoutes);
 app.use("/api", intentionRoutes);
 app.use("/api/categories", categoriesRoutes);
@@ -251,7 +257,6 @@ app.use("/api/seller", sellerRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/favorites", favoritesRoutes);
 app.use("/api/notifications", notificationsRoutes);
-app.use("/api/products", recommendationsRoutes);
 
 // ===========================
 // Analytics

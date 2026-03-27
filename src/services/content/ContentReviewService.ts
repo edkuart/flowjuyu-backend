@@ -100,10 +100,18 @@ export async function editAndApproveVariant(
 
     assertVariantTransition(variant, "edited_and_approved");
 
+    const item = await AiContentItem.findByPk(variant.content_item_id, {
+      transaction: t,
+      lock: true,
+    });
+    if (!item) {
+      throw Object.assign(new Error("CONTENT_ITEM_NOT_FOUND"), { statusCode: 404 });
+    }
+
     const contentBefore = variant.content_body;
     const contentAfter  = newContentBody.trim();
     const editCharDelta = Math.abs(contentAfter.length - contentBefore.length);
-    const newHash       = computeContentHash(contentAfter, variant.language, variant.template_id);
+    const newHash       = computeContentHash(contentAfter, variant.language, item.content_type);
     const newWordCount  = contentAfter.split(/\s+/).filter(Boolean).length;
 
     await variant.update(
@@ -129,11 +137,7 @@ export async function editAndApproveVariant(
       { transaction: t }
     );
 
-    const item = await AiContentItem.findByPk(variant.content_item_id, {
-      transaction: t,
-      lock: true,
-    });
-    if (item && ["in_review", "generating"].includes(item.status)) {
+    if (["in_review", "generating"].includes(item.status)) {
       await item.update({ status: "approved" }, { transaction: t });
     }
 

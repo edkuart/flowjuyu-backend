@@ -18,6 +18,11 @@ import {
   SocialAuthError,
   type SocialProfile,
 } from "../services/socialAuth.service";
+import {
+  getCachedSession,
+  setCachedSession,
+  invalidateSession,
+} from "../lib/sessionCache";
 
 // ────────────────────────────────────────────────────────────
 // User DTO — canonical response shape
@@ -484,6 +489,9 @@ export const logoutAll: RequestHandler = async (req, res) => {
     user.token_version += 1;
     await user.save();
 
+    // Evict cached session immediately so the next /session hits the DB
+    invalidateSession(user.id);
+
     res.status(200).json({
       ok:      true,
       message: "Sesión cerrada en todos los dispositivos",
@@ -781,7 +789,9 @@ export const refresh: RequestHandler = async (req, res) => {
     }
 
     // Load user — token_version check happens before issuing anything
-    const user = await User.findByPk(decoded.sub);
+    const user = await User.findByPk(decoded.sub, {
+      attributes: ["id", "nombre", "correo", "rol", "token_version"],
+    });
 
     if (!user) {
       clearRefreshTokenCookie(res);
@@ -844,7 +854,7 @@ export const getSession: RequestHandler = async (req, res) => {
       return;
     }
 
-    // Verify refresh-token signature and expiry
+    // Verify refresh-token signature and expiry (CPU-only, no DB)
     let decoded;
     try {
       decoded = verifyRefreshToken(rawToken);
@@ -855,8 +865,22 @@ export const getSession: RequestHandler = async (req, res) => {
       return;
     }
 
-    // Load user — validates existence
-    const user = await User.findByPk(decoded.sub);
+    const userId = Number(decoded.sub);
+
+    // ── Fast path: cache hit ──────────────────────────────────────────────
+    const cached = getCachedSession(userId, decoded.token_version);
+    if (cached) {
+      res.status(200).json({
+        ok:   true,
+        user: { id: cached.id, name: cached.nombre, email: cached.correo, role: cached.rol },
+      });
+      return;
+    }
+
+    // ── Slow path: DB lookup ──────────────────────────────────────────────
+    const user = await User.findByPk(userId, {
+      attributes: ["id", "nombre", "correo", "rol", "token_version"],
+    });
 
     if (!user) {
       clearRefreshTokenCookie(res);
@@ -871,12 +895,14 @@ export const getSession: RequestHandler = async (req, res) => {
       return;
     }
 
-    // Suspended accounts cannot have active sessions
-    if ((user as any).estado === "suspendido") {
-      clearRefreshTokenCookie(res);
-      res.status(403).json({ ok: false, message: "Cuenta suspendida" });
-      return;
-    }
+    // Populate cache for subsequent requests within the TTL window
+    setCachedSession({
+      id:            user.id,
+      nombre:        user.nombre,
+      correo:        user.correo,
+      rol:           user.rol,
+      token_version: user.token_version,
+    });
 
     res.status(200).json({
       ok:   true,

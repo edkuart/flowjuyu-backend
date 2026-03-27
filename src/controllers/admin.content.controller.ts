@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import AiContentItem from "../models/AiContentItem.model";
 import AiContentVariant from "../models/AiContentVariant.model";
+import AiContentUsage from "../models/AiContentUsage.model";
 import { ContentItemService } from "../services/content/ContentItemService";
 import { generateVariant } from "../services/content/ContentGenerationService";
 import {
@@ -119,96 +120,114 @@ export async function handleGenerate(
     }
 
     // ── Generation pipeline ───────────────────────────────────────────────
+    // markGenerating sets status = 'generating'. From this point on any
+    // unexpected exception must reset the item back to 'pending' so the
+    // caller can retry. All expected failure branches (GENERATION_FAILED,
+    // GUARDRAIL_FAILED, BELOW_THRESHOLD) already update status themselves.
 
     await ContentItemService.markGenerating(item);
 
-    const genResult = await generateVariant(item);
+    try {
+      const genResult = await generateVariant(item);
 
-    // Always stamp cooldown, regardless of generation outcome
-    await ContentItemService.stampGeneration(item);
+      // Always stamp cooldown, regardless of generation outcome
+      await ContentItemService.stampGeneration(item);
 
-    if (!genResult.success) {
-      await ContentItemService.markBlocked(item);
-      res.status(200).json({
-        ok:               false,
-        code:             "GENERATION_FAILED",
-        rejection_reason: genResult.rejectionReason,
-        variant_id:       genResult.variant.id,
-      });
-      return;
-    }
-
-    // ── Guardrails ────────────────────────────────────────────────────────
-
-    const guardrailResult = await runGuardrails(
-      genResult.variant,
-      subject_id
-    );
-    await applyGuardrailResult(genResult.variant, guardrailResult);
-
-    if (!guardrailResult.passed) {
-      // Only mark item as blocked if every variant for this item has failed
-      const totalVariants   = await AiContentVariant.count({
-        where: { content_item_id: item.id },
-      });
-      const blockedVariants = await AiContentVariant.count({
-        where: { content_item_id: item.id, status: "guardrail_failed" },
-      });
-
-      if (totalVariants === blockedVariants) {
+      if (!genResult.success) {
         await ContentItemService.markBlocked(item);
-      } else {
-        await item.update({ status: "in_review" });
+        res.status(200).json({
+          ok:               false,
+          code:             "GENERATION_FAILED",
+          rejection_reason: genResult.rejectionReason,
+          variant_id:       genResult.variant.id,
+        });
+        return;
       }
 
+      // ── Guardrails ──────────────────────────────────────────────────────
+
+      const guardrailResult = await runGuardrails(
+        genResult.variant,
+        subject_id
+      );
+      await applyGuardrailResult(genResult.variant, guardrailResult);
+
+      if (!guardrailResult.passed) {
+        const totalVariants   = await AiContentVariant.count({
+          where: { content_item_id: item.id },
+        });
+        const blockedVariants = await AiContentVariant.count({
+          where: { content_item_id: item.id, status: "guardrail_failed" },
+        });
+
+        if (totalVariants === blockedVariants) {
+          await ContentItemService.markBlocked(item);
+        } else {
+          await item.update({ status: "in_review" });
+        }
+
+        res.status(200).json({
+          ok:         false,
+          code:       "GUARDRAIL_FAILED",
+          failures:   guardrailResult.failures,
+          variant_id: genResult.variant.id,
+        });
+        return;
+      }
+
+      // ── Scoring ─────────────────────────────────────────────────────────
+
+      const scoreResult = scoreContent(
+        genResult.variant.content_body,
+        content_type as ContentType,
+        { productName: product.nombre, precio: Number(product.precio) }
+      );
+      await applyScoring(genResult.variant, scoreResult);
+
+      // Reload to get DB-rounded score values
+      await genResult.variant.reload();
+
+      if (scoreResult.should_discard) {
+        await item.update({ status: "pending" });
+        res.status(200).json({
+          ok:               false,
+          code:             "BELOW_THRESHOLD",
+          generation_score: scoreResult.generation_score,
+          variant_id:       genResult.variant.id,
+        });
+        return;
+      }
+
+      await ContentItemService.markInReview(item);
+
+      console.log(`[handleGenerate] AI generation completed — item=${item.id} variant=${genResult.variant.id} score=${scoreResult.generation_score}`);
+
       res.status(200).json({
-        ok:         false,
-        code:       "GUARDRAIL_FAILED",
-        failures:   guardrailResult.failures,
+        ok:         true,
+        code:       "QUEUED_FOR_REVIEW",
         variant_id: genResult.variant.id,
+        item_id:    item.id,
+        queue_flag: scoreResult.queue_flag,
+        scores: {
+          generation_score:      genResult.variant.generation_score,
+          score_specificity:     genResult.variant.score_specificity,
+          score_brand_alignment: genResult.variant.score_brand_alignment,
+          score_readability:     genResult.variant.score_readability,
+          score_seo_coverage:    genResult.variant.score_seo_coverage,
+        },
       });
-      return;
+
+    } catch (pipelineErr) {
+      // Unexpected exception — reset item so it can be retried immediately
+      console.error(`[handleGenerate] pipeline exception, resetting item=${item.id} to pending:`, pipelineErr);
+      try {
+        await ContentItemService.markFailed(item);
+      } catch (resetErr) {
+        console.error(`[handleGenerate] failed to reset item=${item.id} status:`, resetErr);
+      }
+      throw pipelineErr; // re-throw → outer catch → next(err)
     }
 
-    // ── Scoring ───────────────────────────────────────────────────────────
-
-    const scoreResult = scoreContent(
-      genResult.variant.content_body,
-      content_type as ContentType,
-      { productName: product.nombre, precio: Number(product.precio) }
-    );
-    await applyScoring(genResult.variant, scoreResult);
-
-    // Reload to get DB-rounded score values
-    await genResult.variant.reload();
-
-    if (scoreResult.should_discard) {
-      await item.update({ status: "pending" });
-      res.status(200).json({
-        ok:               false,
-        code:             "BELOW_THRESHOLD",
-        generation_score: scoreResult.generation_score,
-        variant_id:       genResult.variant.id,
-      });
-      return;
-    }
-
-    await ContentItemService.markInReview(item);
-
-    res.status(200).json({
-      ok:         true,
-      code:       "QUEUED_FOR_REVIEW",
-      variant_id: genResult.variant.id,
-      item_id:    item.id,
-      queue_flag: scoreResult.queue_flag,
-      scores: {
-        generation_score:      genResult.variant.generation_score,
-        score_specificity:     genResult.variant.score_specificity,
-        score_brand_alignment: genResult.variant.score_brand_alignment,
-        score_readability:     genResult.variant.score_readability,
-        score_seo_coverage:    genResult.variant.score_seo_coverage,
-      },
-    });
   } catch (err) {
     next(err);
   }
@@ -800,6 +819,155 @@ export async function handleRunAdaptation(
         proposed: proposed.map((p) => ({ content_type: p.content_type, slug: p.slug, reason: p.reason })),
         skipped:  skipped.map((p)  => ({ content_type: p.content_type, reason: p.reason })),
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── GET /api/admin/ai/published-content ─────────────────────────────────────
+//
+// Returns all published (and approved/edited_and_approved) variants with their
+// parent content item and associated product data.
+// Safe join strategy: fetch variants + items first, then batch-fetch products
+// by collected subject_ids to avoid cross-model association setup.
+
+export async function handlePublishedContent(
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const variants = await AiContentVariant.findAll({
+      where: { status: { [Op.in]: ["published", "approved", "edited_and_approved"] } },
+      order: [["generated_at", "DESC"]],
+      limit: 100,
+    });
+
+    if (variants.length === 0) {
+      res.json({ ok: true, count: 0, content: [] });
+      return;
+    }
+
+    // Batch-fetch parent content items
+    const itemIds = [...new Set(variants.map((v) => v.content_item_id))];
+    const items   = await AiContentItem.findAll({
+      where: { id: itemIds },
+      attributes: ["id", "subject_type", "subject_id", "content_type", "status", "published_variant_id"],
+    });
+    const itemMap = new Map(items.map((i) => [i.id, i]));
+
+    // Batch-fetch products by the collected subject_ids
+    const productIds = [...new Set(items.map((i) => i.subject_id))];
+    const { default: Product } = await import("../models/product.model");
+    const products = await Product.findAll({
+      where: { id: productIds },
+      attributes: ["id", "nombre", "precio", "categoria_custom", "region_custom"],
+    });
+    const productMap = new Map(products.map((p: any) => [p.id, p]));
+
+    const content = variants.map((v) => {
+      const item    = itemMap.get(v.content_item_id) ?? null;
+      const product = item ? (productMap.get(item.subject_id) ?? null) : null;
+      return {
+        variant_id:    v.id,
+        content_body:  v.content_body,
+        content_type:  item?.content_type ?? null,
+        language:      v.language,
+        word_count:    v.word_count,
+        status:        v.status,
+        generated_at:  v.generated_at,
+        scores: {
+          generation_score:      v.generation_score,
+          score_specificity:     v.score_specificity,
+          score_brand_alignment: v.score_brand_alignment,
+          score_readability:     v.score_readability,
+          score_seo_coverage:    v.score_seo_coverage,
+        },
+        item: item
+          ? {
+              id:          item.id,
+              subject_type: item.subject_type,
+              content_type: item.content_type,
+              status:       item.status,
+            }
+          : null,
+        product: product
+          ? {
+              id:       (product as any).id,
+              nombre:   (product as any).nombre,
+              precio:   (product as any).precio,
+              categoria: (product as any).categoria_custom ?? null,
+              region:   (product as any).region_custom ?? null,
+            }
+          : null,
+      };
+    });
+
+    res.json({ ok: true, count: content.length, content });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── POST /api/admin/ai/mark-used ────────────────────────────────────────────
+//
+// Records that a variant was distributed to a platform.
+// Body: { variant_id: string, platform: string }
+// Inserts a row into ai_content_usage. One variant can be marked used
+// on multiple platforms independently.
+
+const markUsedSchema = z.object({
+  variant_id: z.string().uuid("variant_id must be a valid UUID"),
+  platform:   z.string().min(1).max(100),
+});
+
+export async function handleMarkUsed(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const parsed = markUsedSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok:     false,
+        code:   "VALIDATION_ERROR",
+        errors: parsed.error.flatten(),
+      });
+      return;
+    }
+
+    const { variant_id, platform } = parsed.data;
+
+    // Verify variant exists and is in a distributable status
+    const variant = await AiContentVariant.findByPk(variant_id, {
+      attributes: ["id", "status", "content_item_id"],
+    });
+
+    if (!variant) {
+      res.status(404).json({ ok: false, code: "VARIANT_NOT_FOUND" });
+      return;
+    }
+
+    const distributableStatuses = ["published", "approved", "edited_and_approved"];
+    if (!distributableStatuses.includes(variant.status)) {
+      res.status(409).json({
+        ok:     false,
+        code:   "VARIANT_NOT_DISTRIBUTABLE",
+        status: variant.status,
+      });
+      return;
+    }
+
+    const usage = await AiContentUsage.create({ variant_id, platform });
+
+    res.status(201).json({
+      ok:         true,
+      usage_id:   usage.id,
+      variant_id: usage.variant_id,
+      platform:   usage.platform,
+      used_at:    usage.used_at,
     });
   } catch (err) {
     next(err);

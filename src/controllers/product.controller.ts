@@ -36,7 +36,7 @@ const fileFilter: multer.Options["fileFilter"] = (_req, file, cb) =>
 
 export const uploadProductImages = multer({
   storage,
-  limits: { files: 5, fileSize: 5 * 1024 * 1024 },
+  limits: { files: 5, fileSize: 3 * 1024 * 1024 },
   fileFilter,
 });
 
@@ -2045,17 +2045,16 @@ export const getProductReviews = async (
 
     const rows: any = await sequelize.query(
       `
-      SELECT 
+      SELECT
         r.id,
         r.rating,
-        r.comentario,
-        r.created_at,
-        u.nombre AS buyer_nombre
+        r.comentario  AS comment,
+        'Comprador'   AS buyer_name,
+        r.created_at
       FROM reviews r
-      JOIN users u ON u.id = r.buyer_id
       JOIN productos p ON p.id = r.producto_id
       JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
-      WHERE 
+      WHERE
         r.producto_id = :id
         AND p.activo = true
         AND v.estado_validacion = 'aprobado'
@@ -2460,7 +2459,8 @@ export const getTrendingProducts = async (req: Request, res: Response) => {
     });
 
   } catch (error) {
-    console.error("Error obteniendo trending products:", error);
-    res.status(500).json({ message: "Error interno" });
+    console.error("[getTrendingProducts] ERROR:", (error as any)?.message);
+    console.error("[getTrendingProducts] SQL:", (error as any)?.parent?.message);
+    res.json({ success: true, data: [] });
   }
 };

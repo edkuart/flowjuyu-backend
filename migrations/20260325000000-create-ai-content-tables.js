@@ -152,9 +152,9 @@ module.exports = {
         },
         // LLM metadata
         template_id: {
-          type: Sequelize.STRING(80),
-          allowNull: false,
-          comment: "Slug of the prompt template used (not a FK in MVS)",
+          type: Sequelize.UUID,
+          allowNull: true,
+          comment: "FK to ai_content_templates.id; null when template table is empty at generation time",
         },
         model_used: {
           type: Sequelize.STRING(60),

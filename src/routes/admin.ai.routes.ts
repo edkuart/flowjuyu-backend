@@ -23,6 +23,11 @@ import {
   handleRunBrainCycle,
 } from "../controllers/admin.ai.controller";
 
+import {
+  handlePublishedContent,
+  handleMarkUsed,
+} from "../controllers/admin.content.controller";
+
 import { requireRole } from "../middleware/auth";
 
 const router: ReturnType<typeof Router> = Router();
@@ -73,5 +78,14 @@ router.get("/llm-response", handleGetLLMResponse);
 // ─────────────────────────────────────────────────────────
 
 router.post("/brain", handleRunBrainCycle);
+
+// ─────────────────────────────────────────────────────────
+// Distribution + Analytics
+// GET  /api/admin/ai/published-content → approved/published variants with product info
+// POST /api/admin/ai/mark-used         → record variant distribution to a platform
+// ─────────────────────────────────────────────────────────
+
+router.get("/published-content", handlePublishedContent);
+router.post("/mark-used",        handleMarkUsed);
 
 export default router;

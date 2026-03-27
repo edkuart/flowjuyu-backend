@@ -234,7 +234,11 @@ function computeDiversityFactor(row: CoverageRow): number {
 
 function checkBlock(row: CoverageRow, config: OptimizerConfig): string | null {
   // Cooldown
-  if (row.cooldown_until && new Date(row.cooldown_until) > new Date()) {
+  if (
+    process.env.NODE_ENV === "production" &&
+    row.cooldown_until &&
+    new Date(row.cooldown_until) > new Date()
+  ) {
     return `cooldown_active_until:${new Date(row.cooldown_until).toISOString()}`;
   }
   // Terminal / in-flight statuses

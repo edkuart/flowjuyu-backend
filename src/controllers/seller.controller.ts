@@ -722,13 +722,17 @@ export const getSellers: RequestHandler = async (_req, res): Promise<void> => {
 
 export const getTopSellers = async (req: Request, res: Response) => {
   try {
+    // Reviews belong to products, not directly to sellers.
+    // Chain: vendedor_perfil → productos (vendedor_id) → reviews (product_id)
     const sellers = await sequelize.query(
       `
       SELECT
-        vp.user_id AS vendedor_id,
+        vp.user_id     AS vendedor_id,
         vp.nombre_comercio,
         vp.logo,
-        COUNT(r.id) AS total_reviews,
+        vp.departamento,
+        vp.municipio,
+        COUNT(r.id)    AS total_reviews,
         COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0) AS rating_avg,
         (
           (COUNT(r.id)::float / (COUNT(r.id) + 5)) * COALESCE(AVG(r.rating), 0)
@@ -738,29 +742,33 @@ export const getTopSellers = async (req: Request, res: Response) => {
       FROM vendedor_perfil vp
       LEFT JOIN productos p ON p.vendedor_id = vp.user_id
       LEFT JOIN reviews r ON r.producto_id = p.id
-      GROUP BY vp.user_id, vp.nombre_comercio, vp.logo
+      WHERE vp.estado_validacion = 'aprobado'
+        AND vp.estado_admin      = 'activo'
+      GROUP BY vp.user_id, vp.nombre_comercio, vp.logo, vp.departamento, vp.municipio
       ORDER BY weighted_score DESC NULLS LAST
+      LIMIT 10
       `,
       { type: QueryTypes.SELECT }
     );
 
     const normalized = (sellers as any[]).map((s) => ({
-      id: Number(s.vendedor_id),  // 🔥 ESTE ES EL FIX
-      nombre_comercio: s.nombre_comercio,
-      logo_url: s.logo,           // 👈 opcionalmente alinea nombres
+      id: Number(s.vendedor_id),
+      nombre_comercio: s.nombre_comercio ?? null,
+      logo_url: s.logo ?? null,
+      departamento: s.departamento ?? null,
+      municipio: s.municipio ?? null,
       total_reviews: Number(s.total_reviews),
       rating_avg: Number(Number(s.rating_avg).toFixed(2)),
       weighted_score: Number(Number(s.weighted_score).toFixed(3)),
     }));
 
-    res.json({
-      success: true,
-      data: normalized,
-    });
+    res.json({ data: normalized });
 
   } catch (error) {
-    console.error("Error obteniendo top sellers:", error);
-    res.status(500).json({ message: "Error interno" });
+    console.error("[getTopSellers] ERROR:", (error as any)?.message);
+    console.error("[getTopSellers] SQL:", (error as any)?.parent?.message);
+    console.error("[getTopSellers] STACK:", (error as any)?.stack);
+    res.json({ data: [] });
   }
 };
 

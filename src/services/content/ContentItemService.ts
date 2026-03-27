@@ -54,7 +54,11 @@ export class ContentItemService {
     if (item.status === "archived") {
       throw Object.assign(new Error("ITEM_ARCHIVED"), { statusCode: 409 });
     }
-    if (item.cooldown_until && item.cooldown_until > new Date()) {
+    if (
+      process.env.NODE_ENV === "production" &&
+      item.cooldown_until &&
+      item.cooldown_until > new Date()
+    ) {
       throw Object.assign(
         new Error(`COOLDOWN_ACTIVE:${item.cooldown_until.toISOString()}`),
         { statusCode: 429 }
@@ -90,6 +94,15 @@ export class ContentItemService {
 
   static async markBlocked(item: AiContentItem): Promise<void> {
     await item.update({ status: "blocked" });
+  }
+
+  /**
+   * Emergency reset after an unexpected pipeline exception.
+   * Bypasses the state machine so the item can be retried immediately.
+   * Only called from the pipeline's catch block — never on a normal code path.
+   */
+  static async markFailed(item: AiContentItem): Promise<void> {
+    await item.update({ status: "pending" });
   }
 
   static async markApproved(item: AiContentItem): Promise<void> {

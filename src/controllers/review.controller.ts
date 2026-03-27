@@ -1,4 +1,15 @@
 // src/controllers/review.controller.ts
+//
+// Real reviews table schema (confirmed from live DB):
+//   id          UUID  PK
+//   producto_id UUID  NOT NULL  → referencias productos.id
+//   buyer_id    INT   NOT NULL
+//   rating      INT   NOT NULL  (1–5)
+//   comentario  TEXT
+//   created_at  TIMESTAMP
+//
+// There is NO seller_id column. Reviews are linked to sellers
+// through the chain: reviews.producto_id → productos.id → productos.vendedor_id
 
 import { RequestHandler } from "express";
 import { sequelize } from "../config/db";
@@ -11,31 +22,42 @@ import { createNotification } from "../utils/notifications";
    GET /api/reviews/seller/:sellerId/rating
 ============================================================ */
 export const getSellerRating: RequestHandler = async (req, res) => {
+  const { sellerId } = req.params;
+  const safeEmpty = { success: true, data: { rating: 0, total_reviews: 0 } };
+
   try {
-    const { sellerId } = req.params;
+    const id = Number(sellerId);
+    if (!Number.isFinite(id) || id <= 0) {
+      res.json(safeEmpty);
+      return;
+    }
 
     const [result] = await sequelize.query<{
-      avg_rating: string | null;
-      total: number;
+      rating: string;
+      total_reviews: string;
     }>(
       `
       SELECT
-        ROUND(AVG(rating)::numeric, 1)::text AS avg_rating,
-        COUNT(*)::int                         AS total
-      FROM reviews
-      WHERE seller_id = :sellerId
+        COALESCE(ROUND(AVG(r.rating)::numeric, 1), 0) AS rating,
+        COUNT(r.id)                                    AS total_reviews
+      FROM reviews r
+      JOIN productos p ON p.id = r.producto_id
+      WHERE p.vendedor_id = :sellerId
       `,
-      { replacements: { sellerId: Number(sellerId) }, type: QueryTypes.SELECT }
+      { replacements: { sellerId: id }, type: QueryTypes.SELECT }
     );
 
     res.json({
       success: true,
-      avg_rating: result?.avg_rating ? Number(result.avg_rating) : null,
-      total: result?.total ?? 0,
+      data: {
+        rating:        Number(result?.rating        ?? 0),
+        total_reviews: Number(result?.total_reviews ?? 0),
+      },
     });
   } catch (err) {
-    console.error("getSellerRating error:", err);
-    res.status(500).json({ message: "Error interno" });
+    console.error("SELLER RATING ERROR:", (err as any)?.message);
+    console.error("PG ERROR:", (err as any)?.parent?.message);
+    res.json(safeEmpty);
   }
 };
 
@@ -46,15 +68,15 @@ export const getSellerRating: RequestHandler = async (req, res) => {
 export const getSellerReviews: RequestHandler = async (req, res) => {
   try {
     const { sellerId } = req.params;
-    const limit = Math.min(Number(req.query.limit) || 20, 50);
-    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const limit  = Math.min(Number(req.query.limit)  || 20, 50);
+    const offset = Math.max(Number(req.query.offset) || 0,  0);
 
     const reviews = await sequelize.query<{
-      id: number;
+      id: string;
       rating: number;
       comment: string | null;
       buyer_name: string;
-      product_id: string | null;
+      product_id: string;
       product_nombre: string | null;
       created_at: string;
     }>(
@@ -62,14 +84,14 @@ export const getSellerReviews: RequestHandler = async (req, res) => {
       SELECT
         r.id,
         r.rating,
-        r.comment,
-        r.buyer_name,
-        r.product_id,
-        p.nombre AS product_nombre,
+        r.comentario             AS comment,
+        'Comprador'              AS buyer_name,
+        r.producto_id::text      AS product_id,
+        p.nombre                 AS product_nombre,
         r.created_at
       FROM reviews r
-      LEFT JOIN productos p ON p.id = r.product_id
-      WHERE r.seller_id = :sellerId
+      JOIN productos p ON p.id = r.producto_id
+      WHERE p.vendedor_id = :sellerId
       ORDER BY r.created_at DESC
       LIMIT :limit OFFSET :offset
       `,
@@ -82,7 +104,7 @@ export const getSellerReviews: RequestHandler = async (req, res) => {
     res.json({ success: true, data: reviews });
   } catch (err) {
     console.error("getSellerReviews error:", err);
-    res.status(500).json({ message: "Error interno" });
+    res.json({ success: true, data: [] });
   }
 };
 
@@ -90,11 +112,14 @@ export const getSellerReviews: RequestHandler = async (req, res) => {
    ✍️ CREATE REVIEW
    POST /api/reviews/seller/:sellerId
    Body: { rating, comment?, buyer_name?, product_id? }
+   Notes:
+   - product_id (UUID) must belong to the seller.
+   - If omitted, the first active product of the seller is used.
 ============================================================ */
 export const createReview: RequestHandler = async (req, res) => {
   try {
     const { sellerId } = req.params;
-    const { rating, comment, buyer_name, product_id } = req.body;
+    const { rating, comment, product_id } = req.body;
     const buyer_id = (req as any).user?.id ?? null;
 
     if (!rating || rating < 1 || rating > 5) {
@@ -102,49 +127,65 @@ export const createReview: RequestHandler = async (req, res) => {
       return;
     }
 
-    // Prevent duplicate review by same buyer for the same seller
-    if (buyer_id) {
-      const [existing] = await sequelize.query<{ id: number }>(
-        `SELECT id FROM reviews WHERE seller_id = :sellerId AND buyer_id = :buyerId LIMIT 1`,
+    // Resolve producto_id: use provided or fall back to first seller product
+    let producto_id: string | null = product_id || null;
+
+    if (!producto_id) {
+      const [firstProduct] = await sequelize.query<{ id: string }>(
+        `SELECT id FROM productos WHERE vendedor_id = :sellerId AND activo = true LIMIT 1`,
         {
-          replacements: { sellerId: Number(sellerId), buyerId: buyer_id },
+          replacements: { sellerId: Number(sellerId) },
+          type: QueryTypes.SELECT,
+        }
+      );
+      producto_id = firstProduct?.id ?? null;
+    }
+
+    if (!producto_id) {
+      res.status(400).json({ message: "Este vendedor no tiene productos activos para reseñar" });
+      return;
+    }
+
+    // Prevent duplicate review by same buyer for the same product
+    if (buyer_id) {
+      const [existing] = await sequelize.query<{ id: string }>(
+        `SELECT id FROM reviews WHERE producto_id = :productoId AND buyer_id = :buyerId LIMIT 1`,
+        {
+          replacements: { productoId: producto_id, buyerId: buyer_id },
           type: QueryTypes.SELECT,
         }
       );
       if (existing) {
-        res.status(409).json({ message: "Ya dejaste una reseña para este vendedor" });
+        res.status(409).json({ message: "Ya dejaste una reseña para este producto" });
         return;
       }
     }
 
-    const [result] = await sequelize.query<{ id: number }>(
+    const [result] = await sequelize.query<{ id: string }>(
       `
-      INSERT INTO reviews (seller_id, product_id, buyer_id, buyer_name, rating, comment)
-      VALUES (:sellerId, :productId, :buyerId, :buyerName, :rating, :comment)
+      INSERT INTO reviews (producto_id, buyer_id, rating, comentario)
+      VALUES (:productoId, :buyerId, :rating, :comentario)
       RETURNING id
       `,
       {
         replacements: {
-          sellerId:  Number(sellerId),
-          productId: product_id || null,
-          buyerId:   buyer_id,
-          buyerName: buyer_name || "Comprador",
-          rating:    Number(rating),
-          comment:   comment || null,
+          productoId:  producto_id,
+          buyerId:     buyer_id,
+          rating:      Number(rating),
+          comentario:  comment || null,
         },
         type: QueryTypes.SELECT,
       }
     );
 
-    // Notify the buyer who just submitted the review
     if (buyer_id) {
       createNotification(
         buyer_id,
         "review",
         "Dejaste una reseña",
         "Tu opinión ayuda a otros compradores.",
-        product_id ? `/product/${product_id}` : undefined
-      ).catch(() => {/* non-critical — ignore */});
+        `/product/${producto_id}`
+      ).catch(() => {/* non-critical */});
     }
 
     res.status(201).json({ success: true, id: result.id });

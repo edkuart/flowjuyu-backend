@@ -18,6 +18,9 @@ import { AiContentPerformanceDaily } from "./AiContentPerformanceDaily.model";
 // Phase 5: Adaptive Templates
 import AiContentTemplate from "./AiContentTemplate.model";
 
+// Phase 6: Distribution Analytics
+import AiContentUsage from "./AiContentUsage.model";
+
 /**
  * ============================================
  * 🧠 Asociaciones centralizadas
@@ -150,6 +153,25 @@ function setupAssociations() {
 
   // AiContentTemplate is a standalone config table — no foreign key associations needed.
   // It is referenced by ai_content_variants.template_id (VARCHAR, not FK) for immutability.
+
+  /* ============================
+     📊 AiContentVariant ↔ AiContentUsage
+  ============================ */
+
+  if (!AiContentVariant.associations.usage) {
+    AiContentVariant.hasMany(AiContentUsage, {
+      foreignKey: "variant_id",
+      as: "usage",
+      onDelete: "CASCADE",
+    });
+  }
+
+  if (!AiContentUsage.associations.variant) {
+    AiContentUsage.belongsTo(AiContentVariant, {
+      foreignKey: "variant_id",
+      as: "variant",
+    });
+  }
 }
 
 setupAssociations();
@@ -174,6 +196,8 @@ export {
   AiContentPerformanceDaily,
   // Phase 5
   AiContentTemplate,
+  // Phase 6
+  AiContentUsage,
 };
 
 export const models = {
@@ -189,4 +213,6 @@ export const models = {
   AiContentPerformanceDaily,
   // Phase 5
   AiContentTemplate,
+  // Phase 6
+  AiContentUsage,
 };

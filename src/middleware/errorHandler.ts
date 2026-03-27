@@ -33,7 +33,7 @@ export const errorHandler: ErrorRequestHandler = (
     }
 
     if (err.code === "LIMIT_FILE_SIZE") {
-      message = "Cada imagen puede pesar máximo 5MB.";
+      message = "Cada imagen puede pesar máximo 3MB.";
     }
 
     res.status(400).json({ message });

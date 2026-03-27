@@ -7,7 +7,8 @@
       "Bash(node -e \":*)",
       "Bash(find c:UsersDellProjectsFlowjuyu-1.0flowjuyu-backend -type f \\\\\\(-name *admin* -o -path */admin/* \\\\\\))",
       "Bash(find /c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend/src/app -type f -name *.ts -o -name *.tsx)",
-      "Bash(grep -v ^.*ai/)"
+      "Bash(grep -v ^.*ai/)",
+      "Bash(npx sequelize-cli:*)"
     ]
   }
 }

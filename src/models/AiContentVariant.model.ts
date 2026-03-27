@@ -22,7 +22,7 @@ interface AiContentVariantAttributes {
   language: string;
   word_count: number;
   // LLM call metadata
-  template_id: string;
+  template_id: string | null;
   model_used: string;
   prompt_tokens: number;
   completion_tokens: number;
@@ -52,6 +52,7 @@ type AiContentVariantCreation = Optional<
   AiContentVariantAttributes,
   | "id"
   | "generated_at"
+  | "template_id"
   | "score_specificity"
   | "score_brand_alignment"
   | "score_readability"
@@ -78,7 +79,7 @@ export class AiContentVariant
   public content_hash!: string;
   public language!: string;
   public word_count!: number;
-  public template_id!: string;
+  public template_id!: string | null;
   public model_used!: string;
   public prompt_tokens!: number;
   public completion_tokens!: number;
@@ -133,8 +134,8 @@ AiContentVariant.init(
       allowNull: false,
     },
     template_id: {
-      type: DataTypes.STRING(80),
-      allowNull: false,
+      type: DataTypes.UUID,
+      allowNull: true,
     },
     model_used: {
       type: DataTypes.STRING(60),
