@@ -141,10 +141,10 @@ export const getProductForEdit = async (
 
         COALESCE(
           json_agg(
-            DISTINCT jsonb_build_object(
+            jsonb_build_object(
               'id', pi.id,
               'url', pi.url
-            )
+            ) ORDER BY pi.id ASC
           ) FILTER (WHERE pi.id IS NOT NULL),
           '[]'
         ) AS imagenes
@@ -454,8 +454,10 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
 
     const imagenPrincipal = urls[0] ?? null;
 
-    // Galería (máx 5 imágenes incluyendo la principal)
-    const galeria = urls.slice(1, 5);
+    // Galería — ALL uploaded images go into producto_imagenes so that
+    // getProductForEdit (which only reads producto_imagenes) returns the
+    // full set. imagen_url still holds urls[0] for catalog/thumbnail use.
+    const galeria = urls;
 
     // =====================
     // 3️⃣ Insertar producto (ATÓMICO) — con retry para internal_code
