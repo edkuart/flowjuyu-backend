@@ -772,6 +772,12 @@ export const getProductById = async (
         c.id AS categoria_id,
         c.nombre AS categoria_nombre,
 
+        -- Clase y Tela
+        cl.id AS clase_id,
+        cl.nombre AS clase_nombre,
+        t.id AS tela_id,
+        t.nombre AS tela_nombre,
+
         -- Vendedor estructurado
         v.user_id AS vendedor_id,
         v.nombre_comercio,
@@ -790,6 +796,8 @@ export const getProductById = async (
 
       FROM productos p
       LEFT JOIN categorias c ON c.id = p.categoria_id
+      LEFT JOIN clases cl ON cl.id = p.clase_id
+      LEFT JOIN telas t ON t.id = p.tela_id
       JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       LEFT JOIN producto_imagenes pi ON pi.producto_id = p.id
 
@@ -803,6 +811,10 @@ export const getProductById = async (
         p.internal_code,
         c.id,
         c.nombre,
+        cl.id,
+        cl.nombre,
+        t.id,
+        t.nombre,
         v.user_id,
         v.nombre_comercio,
         v.logo,
@@ -910,6 +922,12 @@ export const getProductById = async (
         ...product,
         // Fields appended outside the DTO to keep the DTO contract stable.
         internal_code: rawProduct.internal_code ?? null,
+        clase: rawProduct.clase_id
+          ? { id: rawProduct.clase_id, nombre: rawProduct.clase_nombre }
+          : null,
+        tela: rawProduct.tela_id
+          ? { id: rawProduct.tela_id, nombre: rawProduct.tela_nombre }
+          : null,
         vendedor: {
           ...product.vendedor,
           whatsapp: rawProduct.whatsapp_numero ?? null,

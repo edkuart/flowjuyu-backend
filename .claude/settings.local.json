@@ -8,7 +8,10 @@
       "Bash(find c:UsersDellProjectsFlowjuyu-1.0flowjuyu-backend -type f \\\\\\(-name *admin* -o -path */admin/* \\\\\\))",
       "Bash(find /c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend/src/app -type f -name *.ts -o -name *.tsx)",
       "Bash(grep -v ^.*ai/)",
-      "Bash(npx sequelize-cli:*)"
+      "Bash(npx sequelize-cli:*)",
+      "Bash(find c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend/src -path */product-edit* -o -path */useProductEdit* -o -path */product-edit.ts -o -path */productos*editar*)",
+      "Bash(find c:UsersDellProjectsFlowjuyu-1.0flowjuyu-frontendsrcapp -type d -name [*)",
+      "Bash(grep -A 50 \"const productQuery = \\\\`\" /c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-backend/src/controllers/product.controller.ts)"
     ]
   }
 }
