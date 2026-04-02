@@ -2,7 +2,7 @@
 
 import { Router } from "express";
 import * as Auth from "../controllers/auth.controller";
-import { uploadVendedorDocs } from "../middleware/upload.middleware";
+import { uploadVendedorDocs, validateUploadedFiles } from "../middleware/upload.middleware";
 import { requireAuth, requireRole } from "../middleware/auth";
 
 const router: Router = Router();
@@ -18,7 +18,7 @@ router.post("/login",             Auth.login);
 // 🔐 SELLER AUTH (KYC multipart)
 // ======================================================
 
-router.post("/register/seller",   uploadVendedorDocs, Auth.registerVendedor);
+router.post("/register/seller",   uploadVendedorDocs, validateUploadedFiles, Auth.registerVendedor);
 
 // ======================================================
 // 🔐 SOCIAL LOGIN

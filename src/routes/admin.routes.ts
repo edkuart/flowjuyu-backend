@@ -27,6 +27,7 @@ import {
   requestKycDocuments,
   flagSellerManually,
   getSellerTickets,
+  getSellerKycUrls,
 } from "../controllers/admin.seller.governance.controller";
 
 import { getSellerLeads } from "../controllers/admin.leads.controller";
@@ -306,6 +307,12 @@ router.patch(
 router.get(
   "/sellers/:id/tickets",
   asyncHandler(getSellerTickets)
+);
+
+// 🔑 KYC SIGNED URLS — time-limited, admin-only
+router.get(
+  "/sellers/:id/kyc-urls",
+  asyncHandler(getSellerKycUrls)
 );
 
 /* ===============================

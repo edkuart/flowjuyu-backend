@@ -113,10 +113,6 @@ const corsOptions: cors.CorsOptions = {
       return cb(null, true);
     }
 
-    if (origin.endsWith(".vercel.app")) {
-      return cb(null, true);
-    }
-
     console.warn("🚫 CORS blocked:", origin);
     // Use an error, not cb(null, false). With cb(null, false) the cors package
     // lets the request fall through without CORS headers — the browser then
@@ -151,9 +147,14 @@ if (process.env.NODE_ENV !== "production") {
 // ===========================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: process.env.NODE_ENV === "production"
+    ? {
+        rejectUnauthorized: true,
+        ...(process.env.DB_CA_CERT && {
+          ca: Buffer.from(process.env.DB_CA_CERT, "base64").toString("utf-8"),
+        }),
+      }
+    : false,
   keepAlive: true,
 });
 
@@ -172,10 +173,7 @@ app.use(
       tableName: "sessions",
       createTableIfMissing: true,
     }),
-    secret:
-      process.env.SESSION_SECRET ||
-      process.env.JWT_SECRET ||
-      "fallback_secret",
+    secret: process.env.SESSION_SECRET!,
     resave: false,
     saveUninitialized: false,
     cookie: {

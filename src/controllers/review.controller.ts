@@ -111,30 +111,66 @@ export const getSellerReviews: RequestHandler = async (req, res) => {
 /* ============================================================
    ✍️ CREATE REVIEW
    POST /api/reviews/seller/:sellerId
-   Body: { rating, comment?, buyer_name?, product_id? }
+   Requires: authenticated buyer (requireRole("buyer") in route)
+   Body: { rating, comment?, product_id? }
    Notes:
    - product_id (UUID) must belong to the seller.
    - If omitted, the first active product of the seller is used.
+   - buyer_id is always taken from req.user — never trusted from body.
 ============================================================ */
 export const createReview: RequestHandler = async (req, res) => {
   try {
     const { sellerId } = req.params;
     const { rating, comment, product_id } = req.body;
-    const buyer_id = (req as any).user?.id ?? null;
+
+    // Validate sellerId before any DB query — Number("abc") is NaN which
+    // causes a PostgreSQL type error and a misleading 500 response.
+    const sellerIdNum = Number(sellerId);
+    if (!Number.isFinite(sellerIdNum) || sellerIdNum <= 0) {
+      res.status(400).json({ message: "sellerId inválido" });
+      return;
+    }
+
+    // req.user is guaranteed to exist — requireRole("buyer") enforces this.
+    const buyer_id = req.user!.id;
 
     if (!rating || rating < 1 || rating > 5) {
       res.status(400).json({ message: "rating debe ser entre 1 y 5" });
       return;
     }
 
-    // Resolve producto_id: use provided or fall back to first seller product
-    let producto_id: string | null = product_id || null;
+    // Resolve producto_id: use provided or fall back to first seller product.
+    // When product_id is provided by the client, validate it belongs to :sellerId
+    // to prevent a buyer from posting reviews to a seller via a foreign product.
+    let producto_id: string | null = null;
 
-    if (!producto_id) {
+    if (product_id) {
+      const [owned] = await sequelize.query<{ id: string }>(
+        `SELECT id FROM productos
+         WHERE id = :productId
+           AND vendedor_id = :sellerId
+           AND activo = true
+         LIMIT 1`,
+        {
+          replacements: {
+            productId: product_id,
+            sellerId:  sellerIdNum,
+          },
+          type: QueryTypes.SELECT,
+        }
+      );
+
+      if (!owned) {
+        res.status(400).json({ message: "Producto no válido para este vendedor" });
+        return;
+      }
+
+      producto_id = owned.id;
+    } else {
       const [firstProduct] = await sequelize.query<{ id: string }>(
         `SELECT id FROM productos WHERE vendedor_id = :sellerId AND activo = true LIMIT 1`,
         {
-          replacements: { sellerId: Number(sellerId) },
+          replacements: { sellerId: sellerIdNum },
           type: QueryTypes.SELECT,
         }
       );
@@ -147,18 +183,16 @@ export const createReview: RequestHandler = async (req, res) => {
     }
 
     // Prevent duplicate review by same buyer for the same product
-    if (buyer_id) {
-      const [existing] = await sequelize.query<{ id: string }>(
-        `SELECT id FROM reviews WHERE producto_id = :productoId AND buyer_id = :buyerId LIMIT 1`,
-        {
-          replacements: { productoId: producto_id, buyerId: buyer_id },
-          type: QueryTypes.SELECT,
-        }
-      );
-      if (existing) {
-        res.status(409).json({ message: "Ya dejaste una reseña para este producto" });
-        return;
+    const [existing] = await sequelize.query<{ id: string }>(
+      `SELECT id FROM reviews WHERE producto_id = :productoId AND buyer_id = :buyerId LIMIT 1`,
+      {
+        replacements: { productoId: producto_id, buyerId: buyer_id },
+        type: QueryTypes.SELECT,
       }
+    );
+    if (existing) {
+      res.status(409).json({ message: "Ya dejaste una reseña para este producto" });
+      return;
     }
 
     const [result] = await sequelize.query<{ id: string }>(
@@ -178,15 +212,13 @@ export const createReview: RequestHandler = async (req, res) => {
       }
     );
 
-    if (buyer_id) {
-      createNotification(
-        buyer_id,
-        "review",
-        "Dejaste una reseña",
-        "Tu opinión ayuda a otros compradores.",
-        `/product/${producto_id}`
-      ).catch(() => {/* non-critical */});
-    }
+    createNotification(
+      buyer_id,
+      "review",
+      "Dejaste una reseña",
+      "Tu opinión ayuda a otros compradores.",
+      `/product/${producto_id}`
+    ).catch(() => {/* non-critical */});
 
     res.status(201).json({ success: true, id: result.id });
   } catch (err) {
@@ -196,7 +228,7 @@ export const createReview: RequestHandler = async (req, res) => {
 };
 
 /* ============================================================
-   🚦 Rate limiter for public review submissions
+   🚦 Rate limiter for review submissions
 ============================================================ */
 export const reviewLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour

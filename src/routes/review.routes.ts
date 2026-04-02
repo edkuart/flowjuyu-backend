@@ -7,6 +7,7 @@ import {
   createReview,
   reviewLimiter,
 } from "../controllers/review.controller";
+import { requireRole } from "../middleware/auth";
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -16,7 +17,14 @@ router.get("/seller/:sellerId/rating", getSellerRating);
 // Public — list seller reviews
 router.get("/seller/:sellerId", getSellerReviews);
 
-// Public (rate-limited) — submit a review
-router.post("/seller/:sellerId", reviewLimiter, createReview);
+// Authenticated buyers only — submit a review
+// requireRole("buyer") runs before reviewLimiter so unauthenticated requests
+// are rejected with 401 before hitting the rate-limit counter.
+router.post(
+  "/seller/:sellerId",
+  requireRole("buyer"),
+  reviewLimiter,
+  createReview,
+);
 
 export default router;

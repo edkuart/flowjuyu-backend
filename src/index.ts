@@ -14,6 +14,7 @@ const PORT = Number(process.env.PORT || 8800);
 const REQUIRED_ENV: string[] = [
   "JWT_SECRET",
   "JWT_REFRESH_SECRET",
+  "SESSION_SECRET",
 ];
 
 function assertEnv() {

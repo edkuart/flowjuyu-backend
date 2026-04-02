@@ -11,6 +11,7 @@ import { Ticket } from "../models/ticket.model";
 import { TicketMessage } from "../models/ticketMessage.model";
 import supabase from "../lib/supabase";
 import { scoreFromChecklist, sanitizeChecklist } from "../services/kyc.service";
+import { getKycSignedUrl } from "../lib/kycStorage";
 
 /* ======================================================
    🔹 HELPER INTERFACES & ENGINES
@@ -925,5 +926,92 @@ export const getSellerTickets: RequestHandler = async (req, res) => {
   } catch (error) {
     console.error("getSellerTickets error:", error);
     res.status(500).json({ message: "Error interno" });
+  }
+};
+
+/* ======================================================
+   🔑 GET SELLER KYC SIGNED URLS
+   GET /api/admin/sellers/:id/kyc-urls
+   Returns time-limited signed URLs for all KYC documents.
+   Handles both legacy rows (full public URL) and new rows (path key).
+====================================================== */
+
+/**
+ * Resolves a stored KYC field value to a viewable URL.
+ *
+ * Legacy rows stored the full Supabase public URL.
+ * New rows store only the storage path key (e.g. "dpi_frente/uuid.jpg").
+ *
+ * - Full URL → returned as-is (still accessible while bucket is public)
+ * - Path key → signed URL valid for 1 hour
+ * - null/undefined → null (document was not uploaded)
+ */
+function extractKycStoragePath(stored: string): string | null {
+  const trimmed = stored.trim();
+  if (!trimmed) return null;
+
+  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+    return trimmed.includes("/") ? trimmed : null;
+  }
+
+  const marker = "/vendedores_dpi/";
+  const markerIndex = trimmed.indexOf(marker);
+  if (markerIndex === -1) return null;
+
+  const pathPart = trimmed.slice(markerIndex + marker.length).split("?")[0].trim();
+  if (!pathPart || !pathPart.includes("/")) return null;
+
+  return pathPart;
+}
+
+async function resolveKycUrl(stored: string | null | undefined): Promise<string | null> {
+  if (!stored) return null;
+
+  try {
+    const storagePath = extractKycStoragePath(stored);
+    if (!storagePath) return null;
+    return await getKycSignedUrl(storagePath);
+  } catch (error) {
+    console.error("resolveKycUrl error:", error);
+    return null;
+  }
+}
+
+export const getSellerKycUrls: RequestHandler = async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      res.status(400).json({ ok: false, message: "ID inválido" });
+      return;
+    }
+
+    const seller = await VendedorPerfil.findOne({
+      where: { user_id: userId },
+      attributes: ["id", "user_id", "foto_dpi_frente", "foto_dpi_reverso", "selfie_con_dpi"],
+    });
+
+    if (!seller) {
+      res.status(404).json({ ok: false, message: "Vendedor no encontrado" });
+      return;
+    }
+
+    const [fotoFrente, fotoReverso, selfie] = await Promise.all([
+      resolveKycUrl(seller.foto_dpi_frente),
+      resolveKycUrl(seller.foto_dpi_reverso),
+      resolveKycUrl(seller.selfie_con_dpi),
+    ]);
+
+    res.json({
+      ok: true,
+      data: {
+        seller_user_id:  seller.user_id,
+        foto_dpi_frente: fotoFrente,
+        foto_dpi_reverso: fotoReverso,
+        selfie_con_dpi:  selfie,
+      },
+    });
+  } catch (error) {
+    console.error("getSellerKycUrls error:", error);
+    res.status(500).json({ ok: false, message: "Error interno al generar URLs" });
   }
 };

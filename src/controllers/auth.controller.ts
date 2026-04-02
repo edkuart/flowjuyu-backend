@@ -10,8 +10,8 @@ import { User } from "../models/user.model";
 import { VendedorPerfil } from "../models/VendedorPerfil";
 import { sendResetPasswordEmail } from "../services/email.service";
 import { runKYCAnalysis } from "../services/kyc.service";
-import supabase from "../lib/supabase";
 import { v4 as uuidv4 } from "uuid";
+import { uploadKycFile, uploadPublicFile } from "../lib/kycStorage";
 import {
   isSupportedProvider,
   verifySocialToken,
@@ -196,32 +196,27 @@ export const registerVendedor = async (
       { transaction: t }
     );
 
-    // ── Supabase file upload helper ──
+    // ── Supabase file upload helpers ──
+    //
+    // uploadKycDoc  → returns storage PATH (key). Used for PII documents (DPI,
+    //                 selfie). Served only via time-limited signed URLs.
+    // uploadLogoPub → returns permanent public URL. Used for the commercial logo,
+    //                 which is a public asset and not subject to PII restrictions.
     const files = (req.files as MulterFilesMap | undefined) || {};
 
-    async function uploadToSupabase(
+    async function uploadKycDoc(
       file:   Express.Multer.File,
-      folder: string
+      folder: string,
     ): Promise<string> {
       const ext      = file.originalname.split(".").pop();
-      const fileName = `${folder}/${uuidv4()}.${ext}`;
+      const fileName = `${uuidv4()}.${ext}`;
+      return uploadKycFile(folder, fileName, file.buffer, file.mimetype);
+    }
 
-      const { error } = await supabase.storage
-        .from("vendedores_dpi")
-        .upload(fileName, file.buffer, {
-          contentType: file.mimetype,
-          upsert: false,
-        });
-
-      if (error) {
-        throw new Error(`Error subiendo a Supabase: ${error.message}`);
-      }
-
-      const { data: urlData } = supabase.storage
-        .from("vendedores_dpi")
-        .getPublicUrl(fileName);
-
-      return urlData.publicUrl;
+    async function uploadLogoPub(file: Express.Multer.File): Promise<string> {
+      const ext      = file.originalname.split(".").pop();
+      const fileName = `${uuidv4()}.${ext}`;
+      return uploadPublicFile("logos", fileName, file.buffer, file.mimetype);
     }
 
     let fotoFrente: string | null = null;
@@ -230,16 +225,16 @@ export const registerVendedor = async (
     let logo: string | null = null;
 
     if (files["foto_dpi_frente"]?.[0]) {
-      fotoFrente = await uploadToSupabase(files["foto_dpi_frente"][0], "dpi_frente");
+      fotoFrente = await uploadKycDoc(files["foto_dpi_frente"][0], "dpi_frente");
     }
     if (files["foto_dpi_reverso"]?.[0]) {
-      fotoReverso = await uploadToSupabase(files["foto_dpi_reverso"][0], "dpi_reverso");
+      fotoReverso = await uploadKycDoc(files["foto_dpi_reverso"][0], "dpi_reverso");
     }
     if (files["selfie_con_dpi"]?.[0]) {
-      selfie = await uploadToSupabase(files["selfie_con_dpi"][0], "selfie");
+      selfie = await uploadKycDoc(files["selfie_con_dpi"][0], "selfie");
     }
     if (files["logo"]?.[0]) {
-      logo = await uploadToSupabase(files["logo"][0], "logos");
+      logo = await uploadLogoPub(files["logo"][0]);
     }
 
     // ── Automated KYC scoring ──

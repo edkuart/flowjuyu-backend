@@ -5,6 +5,7 @@ import multer from "multer";
 import asyncHandler from "../middleware/asyncHandler";
 import { verifyToken, requireRole, requireAuth } from "../middleware/auth";
 import { requireActiveSeller } from "../middleware/requireActiveSeller";
+import { validateUploadedFiles } from "../middleware/upload.middleware";
 import * as SellerController from "../controllers/seller.controller";
 import * as SellerTicketController from "../controllers/sellerTicket.controller";
 
@@ -16,13 +17,17 @@ const router: ReturnType<typeof Router> = Router();
 
 const storage = multer.memoryStorage();
 
+// Allowlist kept in sync with upload.middleware.ts so that both KYC upload
+// paths (registration and re-validation) accept the same set of MIME types.
+const ALLOWED_SELLER_MIME = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+
 const upload = multer({
   storage,
   limits: { fileSize: 3 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (!/^image\/(png|jpe?g|webp|avif)$/.test(file.mimetype)) {
+    if (!ALLOWED_SELLER_MIME.includes(file.mimetype)) {
       return cb(
-        new Error("Solo se permiten imágenes (png, jpg, webp, avif)")
+        new Error("Solo se permiten imágenes (jpeg, jpg, png, webp)")
       );
     }
     cb(null, true);
@@ -133,6 +138,7 @@ router.post(
     { name: "foto_dpi_reverso", maxCount: 1 },
     { name: "selfie_con_dpi", maxCount: 1 },
   ]),
+  validateUploadedFiles,
   asyncHandler(SellerController.validateSellerBusiness)
 );
 
