@@ -56,15 +56,10 @@ export const sequelize = new Sequelize(databaseUrl, {
 
   dialectOptions: {
     // 🔐 SSL en producción (Supabase / Railway / Render)
-    // rejectUnauthorized: true enforces CA verification.
-    // Provide DB_CA_CERT (base64-encoded PEM) if your host uses a private CA.
     ssl: isProd
       ? {
           require: true,
-          rejectUnauthorized: true,
-          ...(process.env.DB_CA_CERT && {
-            ca: Buffer.from(process.env.DB_CA_CERT, "base64").toString("utf-8"),
-          }),
+          rejectUnauthorized: false,
         }
       : undefined,
 

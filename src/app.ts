@@ -149,10 +149,8 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === "production"
     ? {
-        rejectUnauthorized: true,
-        ...(process.env.DB_CA_CERT && {
-          ca: Buffer.from(process.env.DB_CA_CERT, "base64").toString("utf-8"),
-        }),
+        require: true,
+        rejectUnauthorized: false,
       }
     : false,
   keepAlive: true,
