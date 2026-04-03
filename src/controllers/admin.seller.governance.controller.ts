@@ -12,6 +12,7 @@ import { TicketMessage } from "../models/ticketMessage.model";
 import supabase from "../lib/supabase";
 import { scoreFromChecklist, sanitizeChecklist } from "../services/kyc.service";
 import { getKycSignedUrl } from "../lib/kycStorage";
+import { logAuditEventFromRequest } from "../services/audit.service";
 
 /* ======================================================
    🔹 HELPER INTERFACES & ENGINES
@@ -487,6 +488,17 @@ export const approveSeller: RequestHandler = async (req, res) => {
       },
     });
 
+    void logAuditEventFromRequest(req, {
+      actor_user_id:  adminId,
+      actor_role:     "admin",
+      action:         "admin.seller.approve.success",
+      entity_type:    "seller",
+      entity_id:      String(seller.user_id),
+      target_user_id: seller.user_id,
+      status:         "success",
+      severity:       "high",
+      metadata:       { kyc_score: seller.kyc_score, before },
+    });
 
     res.json({
       ok: true,
@@ -567,6 +579,17 @@ export const rejectSeller: RequestHandler = async (req, res) => {
       },
     });
 
+    void logAuditEventFromRequest(req, {
+      actor_user_id:  adminId,
+      actor_role:     "admin",
+      action:         "admin.seller.reject.success",
+      entity_type:    "seller",
+      entity_id:      String(seller.user_id),
+      target_user_id: seller.user_id,
+      status:         "success",
+      severity:       "high",
+      metadata:       { before },
+    });
 
     res.json({ ok: true, message: "Vendedor rechazado correctamente" });
   } catch (error) {
@@ -618,6 +641,17 @@ export const suspendSeller: RequestHandler = async (req, res) => {
       },
     });
 
+    void logAuditEventFromRequest(req, {
+      actor_user_id:  adminId,
+      actor_role:     "admin",
+      action:         "admin.seller.suspend.success",
+      entity_type:    "seller",
+      entity_id:      String(seller.user_id),
+      target_user_id: seller.user_id,
+      status:         "success",
+      severity:       "critical",
+      metadata:       { before },
+    });
 
     res.json({
       ok: true,
@@ -1000,6 +1034,24 @@ export const getSellerKycUrls: RequestHandler = async (req, res) => {
       resolveKycUrl(seller.foto_dpi_reverso),
       resolveKycUrl(seller.selfie_con_dpi),
     ]);
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id:  req.user!.id,
+      actor_role:     "admin",
+      action:         "admin.kyc.view.success",
+      entity_type:    "seller",
+      entity_id:      String(seller.user_id),
+      target_user_id: seller.user_id,
+      status:         "success",
+      severity:       "high",
+      metadata:       {
+        docs_available: {
+          foto_dpi_frente:  !!fotoFrente,
+          foto_dpi_reverso: !!fotoReverso,
+          selfie_con_dpi:   !!selfie,
+        },
+      },
+    });
 
     res.json({
       ok: true,

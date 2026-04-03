@@ -21,6 +21,12 @@ import AiContentTemplate from "./AiContentTemplate.model";
 // Phase 6: Distribution Analytics
 import AiContentUsage from "./AiContentUsage.model";
 
+// Security: Audit Events
+import AuditEvent from "./AuditEvent.model";
+
+// Security: Intelligence Alerts
+import SecurityAlert from "./SecurityAlert.model";
+
 /**
  * ============================================
  * 🧠 Asociaciones centralizadas
@@ -198,6 +204,9 @@ export {
   AiContentTemplate,
   // Phase 6
   AiContentUsage,
+  // Security
+  AuditEvent,
+  SecurityAlert,
 };
 
 export const models = {
@@ -215,4 +224,7 @@ export const models = {
   AiContentTemplate,
   // Phase 6
   AiContentUsage,
+  // Security
+  AuditEvent,
+  SecurityAlert,
 };

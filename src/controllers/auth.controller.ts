@@ -23,6 +23,9 @@ import {
   setCachedSession,
   invalidateSession,
 } from "../lib/sessionCache";
+import { logAuditEventFromRequest } from "../services/audit.service";
+import { checkLoginAbuse } from "../services/abuseDetection.service";
+import { LOGIN_RULES } from "../config/securityRules";
 
 // ────────────────────────────────────────────────────────────
 // User DTO — canonical response shape
@@ -291,6 +294,25 @@ export const registerVendedor = async (
 
     await t.commit();
 
+    void logAuditEventFromRequest(req, {
+      actor_user_id: newUser.id,
+      actor_role:    "seller",
+      action:        "seller.register.success",
+      entity_type:   "seller",
+      entity_id:     String(newUser.id),
+      status:        "success",
+      severity:      "medium",
+      metadata: {
+        kyc_score:          kyc.score,
+        kyc_riesgo:         kyc.riesgo,
+        estado_validacion:  estadoValidacion,
+        has_dpi_frente:     !!fotoFrente,
+        has_dpi_reverso:    !!fotoReverso,
+        has_selfie:         !!selfie,
+        has_logo:           !!logo,
+      },
+    });
+
     // Clear the refresh cookie immediately after registration so the seller
     // is forced back through a clean login before accessing their dashboard.
     // This ensures the entry-point flow runs with a fresh, validated session.
@@ -311,6 +333,14 @@ export const registerVendedor = async (
     if ((t as any).finished !== "commit") {
       try { await t.rollback(); } catch { /* already finished */ }
     }
+    void logAuditEventFromRequest(req, {
+      actor_user_id: null,
+      actor_role:    "anonymous",
+      action:        "seller.register.failed",
+      status:        "failed",
+      severity:      "high",
+      metadata:      { reason: (error as Error)?.message },
+    });
     console.error("Error en registerVendedor:", error);
     res.status(500).json({ ok: false, message: "Error al registrar vendedor" });
   }
@@ -327,6 +357,33 @@ export const login = async (
   try {
     const email = resolveEmail(req.body);
     const plain  = resolvePassword(req.body);
+    const abuseCheck = await checkLoginAbuse({
+      ip:    req.ip ?? req.socket?.remoteAddress ?? "unknown",
+      email: email ?? null,
+    });
+
+    if (abuseCheck.blocked) {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: null,
+        actor_role:    "anonymous",
+        action:        "auth.login.blocked",
+        status:        "blocked",
+        severity:      "critical",
+        metadata: {
+          reason:        abuseCheck.reason,
+          threshold:     LOGIN_RULES.maxAttempts,
+          windowMinutes: LOGIN_RULES.windowMinutes,
+          retryAfter:    abuseCheck.retryAfter,
+        },
+      });
+      res.setHeader("Retry-After", String(abuseCheck.retryAfter ?? LOGIN_RULES.blockDurationMinutes * 60));
+      res.status(429).json({
+        ok:      false,
+        code:    "ABUSE_PROTECTION_TRIGGERED",
+        message: "Too many attempts. Please try again later.",
+      });
+      return;
+    }
 
     if (!email || !plain) {
       res.status(400).json({
@@ -339,6 +396,14 @@ export const login = async (
     const user = await User.findOne({ where: { correo: email } });
 
     if (!user) {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: null,
+        actor_role:    "anonymous",
+        action:        "auth.login.failed",
+        status:        "failed",
+        severity:      "high",
+        metadata:      { reason: "user_not_found", email },
+      });
       res.status(401).json({ ok: false, message: "Credenciales incorrectas" });
       return;
     }
@@ -346,6 +411,16 @@ export const login = async (
     const isValid = await bcrypt.compare(String(plain), user.password);
 
     if (!isValid) {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: user.id,
+        actor_role:    user.rol,
+        action:        "auth.login.failed",
+        entity_type:   "user",
+        entity_id:     String(user.id),
+        status:        "failed",
+        severity:      "high",
+        metadata:      { reason: "wrong_password" },
+      });
       res.status(401).json({ ok: false, message: "Credenciales incorrectas" });
       return;
     }
@@ -363,6 +438,16 @@ export const login = async (
 
       if (perfil) {
         if (perfil.estado_admin === "suspendido") {
+          void logAuditEventFromRequest(req, {
+            actor_user_id: user.id,
+            actor_role:    user.rol,
+            action:        "auth.login.failed",
+            entity_type:   "user",
+            entity_id:     String(user.id),
+            status:        "blocked",
+            severity:      "high",
+            metadata:      { reason: "account_suspended" },
+          });
           res.status(403).json({
             ok:      false,
             message: "Cuenta suspendida por administración",
@@ -371,6 +456,16 @@ export const login = async (
         }
 
         if (perfil.estado_validacion === "rechazado") {
+          void logAuditEventFromRequest(req, {
+            actor_user_id: user.id,
+            actor_role:    user.rol,
+            action:        "auth.login.failed",
+            entity_type:   "user",
+            entity_id:     String(user.id),
+            status:        "blocked",
+            severity:      "medium",
+            metadata:      { reason: "kyc_rejected" },
+          });
           res.status(403).json({
             ok:      false,
             message: "Tu solicitud fue rechazada. Contacta soporte.",
@@ -386,6 +481,16 @@ export const login = async (
     }
 
     const token = issueTokenPair(res, user);
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: user.id,
+      actor_role:    user.rol,
+      action:        "auth.login.success",
+      entity_type:   "user",
+      entity_id:     String(user.id),
+      status:        "success",
+      severity:      "low",
+    });
 
     res.status(200).json({
       ok:    true,
@@ -440,6 +545,16 @@ export const changePassword: RequestHandler = async (req, res) => {
     const isValid = await bcrypt.compare(passwordActual, user.password);
 
     if (!isValid) {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: user.id,
+        actor_role:    user.rol,
+        action:        "auth.password.change.failed",
+        entity_type:   "user",
+        entity_id:     String(user.id),
+        status:        "failed",
+        severity:      "medium",
+        metadata:      { reason: "wrong_current_password" },
+      });
       res.status(400).json({
         ok:      false,
         message: "La contraseña actual es incorrecta",
@@ -450,6 +565,16 @@ export const changePassword: RequestHandler = async (req, res) => {
     user.password       = await bcrypt.hash(passwordNueva, 12);
     user.token_version += 1;
     await user.save();
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: user.id,
+      actor_role:    user.rol,
+      action:        "auth.password.change.success",
+      entity_type:   "user",
+      entity_id:     String(user.id),
+      status:        "success",
+      severity:      "medium",
+    });
 
     res.status(200).json({
       ok:      true,
@@ -748,7 +873,18 @@ export const loginWithGoogle: RequestHandler = async (req, res) => {
 // POST /api/logout-all which increments token_version.
 // ────────────────────────────────────────────────────────────
 
-export const logout: RequestHandler = (_req, res) => {
+export const logout: RequestHandler = (req, res) => {
+  // actor context may be absent if the access token has already expired
+  const user = req.user;
+  void logAuditEventFromRequest(req, {
+    actor_user_id: user?.id  ?? null,
+    actor_role:    user?.role ?? "anonymous",
+    action:        "auth.logout.success",
+    entity_type:   user ? "user" : null,
+    entity_id:     user ? String(user.id) : null,
+    status:        "success",
+    severity:      "low",
+  });
   clearRefreshTokenCookie(res);
   res.status(200).json({ ok: true, message: "Sesión cerrada correctamente" });
 };
@@ -778,6 +914,14 @@ export const refresh: RequestHandler = async (req, res) => {
     try {
       decoded = verifyRefreshToken(rawToken);
     } catch {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: null,
+        actor_role:    "anonymous",
+        action:        "auth.refresh.failed",
+        status:        "failed",
+        severity:      "medium",
+        metadata:      { reason: "invalid_or_expired_token" },
+      });
       clearRefreshTokenCookie(res);
       res.status(401).json({ ok: false, message: "Sesión expirada. Inicia sesión nuevamente." });
       return;
@@ -789,6 +933,14 @@ export const refresh: RequestHandler = async (req, res) => {
     });
 
     if (!user) {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: Number(decoded.sub) || null,
+        actor_role:    "unknown",
+        action:        "auth.refresh.failed",
+        status:        "failed",
+        severity:      "high",
+        metadata:      { reason: "user_not_found", sub: decoded.sub },
+      });
       clearRefreshTokenCookie(res);
       res.status(401).json({ ok: false, message: "Usuario no encontrado" });
       return;
@@ -796,6 +948,16 @@ export const refresh: RequestHandler = async (req, res) => {
 
     // token_version mismatch means logoutAll was called — reject
     if (decoded.token_version !== user.token_version) {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: user.id,
+        actor_role:    user.rol,
+        action:        "auth.refresh.failed",
+        entity_type:   "user",
+        entity_id:     String(user.id),
+        status:        "blocked",
+        severity:      "high",
+        metadata:      { reason: "token_version_mismatch" },
+      });
       clearRefreshTokenCookie(res);
       res.status(401).json({
         ok:      false,
@@ -806,6 +968,16 @@ export const refresh: RequestHandler = async (req, res) => {
 
     // Suspended accounts cannot refresh
     if ((user as any).estado === "suspendido") {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: user.id,
+        actor_role:    user.rol,
+        action:        "auth.refresh.failed",
+        entity_type:   "user",
+        entity_id:     String(user.id),
+        status:        "blocked",
+        severity:      "high",
+        metadata:      { reason: "account_suspended" },
+      });
       clearRefreshTokenCookie(res);
       res.status(403).json({ ok: false, message: "Cuenta suspendida" });
       return;
@@ -813,6 +985,16 @@ export const refresh: RequestHandler = async (req, res) => {
 
     // Issue new access token + rotate refresh token (new cookie replaces old)
     const token = issueTokenPair(res, user);
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: user.id,
+      actor_role:    user.rol,
+      action:        "auth.refresh.success",
+      entity_type:   "user",
+      entity_id:     String(user.id),
+      status:        "success",
+      severity:      "low",
+    });
 
     res.status(200).json({
       ok:   true,

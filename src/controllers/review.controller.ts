@@ -16,6 +16,9 @@ import { sequelize } from "../config/db";
 import { QueryTypes } from "sequelize";
 import rateLimit from "express-rate-limit";
 import { createNotification } from "../utils/notifications";
+import { logAuditEventFromRequest } from "../services/audit.service";
+import { checkReviewAbuse } from "../services/abuseDetection.service";
+import { REVIEW_RULES } from "../config/securityRules";
 
 /* ============================================================
    🌟 GET SELLER RATING SUMMARY
@@ -133,6 +136,35 @@ export const createReview: RequestHandler = async (req, res) => {
 
     // req.user is guaranteed to exist — requireRole("buyer") enforces this.
     const buyer_id = req.user!.id;
+    const abuseCheck = await checkReviewAbuse({
+      userId: buyer_id,
+      ip:     req.ip ?? req.socket?.remoteAddress ?? "unknown",
+    });
+
+    if (abuseCheck.blocked) {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: buyer_id,
+        actor_role:    "buyer",
+        action:        "review.create.blocked",
+        entity_type:   "seller",
+        entity_id:     String(sellerIdNum),
+        status:        "blocked",
+        severity:      "high",
+        metadata: {
+          reason:        abuseCheck.reason,
+          threshold:     REVIEW_RULES.maxAttempts,
+          windowMinutes: REVIEW_RULES.windowMinutes,
+          retryAfter:    abuseCheck.retryAfter,
+        },
+      });
+      res.setHeader("Retry-After", String(abuseCheck.retryAfter ?? REVIEW_RULES.blockDurationMinutes * 60));
+      res.status(429).json({
+        ok:      false,
+        code:    "ABUSE_PROTECTION_TRIGGERED",
+        message: "Too many attempts. Please try again later.",
+      });
+      return;
+    }
 
     if (!rating || rating < 1 || rating > 5) {
       res.status(400).json({ message: "rating debe ser entre 1 y 5" });
@@ -161,6 +193,16 @@ export const createReview: RequestHandler = async (req, res) => {
       );
 
       if (!owned) {
+        void logAuditEventFromRequest(req, {
+          actor_user_id: buyer_id,
+          actor_role:    "buyer",
+          action:        "review.create.mismatch_blocked",
+          entity_type:   "seller",
+          entity_id:     String(sellerIdNum),
+          status:        "blocked",
+          severity:      "medium",
+          metadata:      { product_id, seller_id: sellerIdNum },
+        });
         res.status(400).json({ message: "Producto no válido para este vendedor" });
         return;
       }
@@ -191,6 +233,16 @@ export const createReview: RequestHandler = async (req, res) => {
       }
     );
     if (existing) {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: buyer_id,
+        actor_role:    "buyer",
+        action:        "review.create.duplicate_blocked",
+        entity_type:   "product",
+        entity_id:     producto_id,
+        status:        "blocked",
+        severity:      "low",
+        metadata:      { seller_id: sellerIdNum, product_id: producto_id },
+      });
       res.status(409).json({ message: "Ya dejaste una reseña para este producto" });
       return;
     }
@@ -219,6 +271,18 @@ export const createReview: RequestHandler = async (req, res) => {
       "Tu opinión ayuda a otros compradores.",
       `/product/${producto_id}`
     ).catch(() => {/* non-critical */});
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: buyer_id,
+      actor_role:    "buyer",
+      action:        "review.create.success",
+      entity_type:   "product",
+      entity_id:     producto_id,
+      target_user_id: sellerIdNum,
+      status:        "success",
+      severity:      "low",
+      metadata:      { review_id: result.id, rating: Number(rating), seller_id: sellerIdNum },
+    });
 
     res.status(201).json({ success: true, id: result.id });
   } catch (err) {

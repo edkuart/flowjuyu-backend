@@ -31,6 +31,15 @@ import {
 } from "../controllers/admin.seller.governance.controller";
 
 import { getSellerLeads } from "../controllers/admin.leads.controller";
+import { getAuditEvents } from "../controllers/admin.audit.controller";
+import {
+  getSecurityAlerts,
+  getUserRisk,
+  getIpRisk,
+  acknowledgeAlert,
+  resolveAlert,
+  triggerAlertGeneration,
+} from "../controllers/admin.security.controller";
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -338,6 +347,55 @@ router.get(
 router.patch(
   "/products/:id/toggle",
   asyncHandler(AdminController.toggleAdminProduct)
+);
+
+/* ===============================
+   🔎 AUDIT EVENTS
+=============================== */
+
+router.get(
+  "/audit-events",
+  asyncHandler(getAuditEvents)
+);
+
+/* ===============================
+   🛡️ SECURITY INTELLIGENCE
+=============================== */
+
+// Alert list (filtered)
+router.get(
+  "/security/alerts",
+  asyncHandler(getSecurityAlerts)
+);
+
+// Trigger full security scan
+router.post(
+  "/security/alerts/generate",
+  asyncHandler(triggerAlertGeneration)
+);
+
+// Acknowledge alert
+router.post(
+  "/security/alerts/:id/acknowledge",
+  asyncHandler(acknowledgeAlert)
+);
+
+// Resolve alert
+router.post(
+  "/security/alerts/:id/resolve",
+  asyncHandler(resolveAlert)
+);
+
+// User risk score
+router.get(
+  "/security/risk/users/:id",
+  asyncHandler(getUserRisk)
+);
+
+// IP risk score
+router.get(
+  "/security/risk/ip/:ip",
+  asyncHandler(getIpRisk)
 );
 
 export default router;

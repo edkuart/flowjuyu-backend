@@ -11,6 +11,9 @@ import { getSellerAnalyticsData } from "../services/analytics.service";
 import { v4 as uuidv4 } from "uuid";
 import { verifyRefreshToken } from "../lib/jwt";
 import { REFRESH_TOKEN_COOKIE } from "../lib/cookies";
+import { logAuditEventFromRequest } from "../services/audit.service";
+import { checkKycAbuse } from "../services/abuseDetection.service";
+import { KYC_RULES } from "../config/securityRules";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/seller/entry-point
@@ -516,6 +519,17 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
 
     const updatedPerfil = await VendedorPerfil.findOne({ where: { user_id: user.id } });
 
+    void logAuditEventFromRequest(req, {
+      actor_user_id: user.id,
+      actor_role:    user.role ?? "seller",
+      action:        "seller.profile.update.success",
+      entity_type:   "seller",
+      entity_id:     String(user.id),
+      status:        "success",
+      severity:      "low",
+      metadata:      { logo_changed: !!req.file, fields: Object.keys(fieldsToUpdate) },
+    });
+
     res.json({
       ok: true,
       message: "Perfil actualizado correctamente",
@@ -560,6 +574,36 @@ export const validateSellerBusiness: RequestHandler = async (req, res) => {
 
     if (!user?.id) {
       res.status(401).json({ message: "No autenticado", requestId });
+      return;
+    }
+
+    const abuseCheck = await checkKycAbuse({
+      userId: user.id,
+      ip:     req.ip ?? req.socket?.remoteAddress ?? "unknown",
+    });
+
+    if (abuseCheck.blocked) {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: user.id,
+        actor_role:    user.role ?? "seller",
+        action:        "seller.kyc.upload.blocked",
+        entity_type:   "seller",
+        entity_id:     String(user.id),
+        status:        "blocked",
+        severity:      "critical",
+        metadata: {
+          reason:        abuseCheck.reason,
+          threshold:     KYC_RULES.maxAttempts,
+          windowMinutes: KYC_RULES.windowMinutes,
+          retryAfter:    abuseCheck.retryAfter,
+        },
+      });
+      res.setHeader("Retry-After", String(abuseCheck.retryAfter ?? KYC_RULES.blockDurationMinutes * 60));
+      res.status(429).json({
+        ok:      false,
+        code:    "ABUSE_PROTECTION_TRIGGERED",
+        message: "Too many attempts. Please try again later.",
+      });
       return;
     }
 
@@ -667,6 +711,17 @@ export const validateSellerBusiness: RequestHandler = async (req, res) => {
       where: { user_id: user.id },
     });
 
+    void logAuditEventFromRequest(req, {
+      actor_user_id: user.id,
+      actor_role:    user.role ?? "seller",
+      action:        "seller.kyc.revalidate.success",
+      entity_type:   "seller",
+      entity_id:     String(user.id),
+      status:        "success",
+      severity:      "medium",
+      metadata:      { docs_submitted: Object.keys(updateFields).filter(k => k.startsWith("foto_") || k.startsWith("selfie")) },
+    });
+
     res.json({
       ok: true,
       message: "Documentos enviados correctamente. Están en revisión.",
@@ -674,6 +729,17 @@ export const validateSellerBusiness: RequestHandler = async (req, res) => {
     });
   } catch (error: any) {
     logError("controller", error);
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: (req as any).user?.id ?? null,
+      actor_role:    (req as any).user?.role ?? "seller",
+      action:        "seller.kyc.upload.failed",
+      entity_type:   "seller",
+      entity_id:     (req as any).user?.id ? String((req as any).user.id) : null,
+      status:        "failed",
+      severity:      "high",
+      metadata:      { reason: error?.message },
+    });
 
     const status =
       typeof error?.message === "string" &&
