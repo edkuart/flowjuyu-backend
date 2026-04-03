@@ -103,7 +103,7 @@ export const getUserRisk: RequestHandler = async (req, res) => {
 ============================================================ */
 export const getIpRisk: RequestHandler = async (req, res) => {
   try {
-    const ip = req.params.ip?.trim();
+    const ip = (Array.isArray(req.params.ip) ? req.params.ip[0] : req.params.ip)?.trim();
     if (!ip) {
       res.status(400).json({ ok: false, message: "IP requerida" });
       return;

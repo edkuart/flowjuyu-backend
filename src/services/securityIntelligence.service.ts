@@ -403,7 +403,6 @@ export async function createAlertIfNotExists(input: CreateAlertInput): Promise<v
       title:        input.title,
       description:  input.description,
       metadata:     input.metadata ?? null,
-      resolved_at:  null,
     });
   } catch (err) {
     // DB-level deduplication: the partial unique index idx_sec_alerts_active_dedup
