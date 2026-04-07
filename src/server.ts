@@ -5,6 +5,7 @@ import http from "http";
 import app from "./app";
 import { sequelize } from "./config/db";
 import { logger } from "./config/logger";
+import { startBillingCron, stopBillingCron } from "./services/billing.cron";
 
 const PORT = Number(process.env.PORT || 8800);
 
@@ -17,6 +18,7 @@ server.keepAliveTimeout = 65_000;   // conexiones keep-alive
 
 server.listen(PORT, () => {
   logger.info({ port: PORT }, "✅ Server listening");
+  startBillingCron();
 });
 
 let shuttingDown = false;
@@ -26,6 +28,9 @@ async function shutdown(signal: string) {
   shuttingDown = true;
 
   logger.warn({ signal }, "🛑 Shutdown signal received");
+
+  // Stop cron before draining connections
+  stopBillingCron();
 
   // 1) Dejar de aceptar nuevas conexiones
   server.close(async (err) => {

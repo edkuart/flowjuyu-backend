@@ -1,29 +1,40 @@
 // src/controllers/review.controller.ts
-//
-// Real reviews table schema (confirmed from live DB):
-//   id          UUID  PK
-//   producto_id UUID  NOT NULL  → referencias productos.id
-//   buyer_id    INT   NOT NULL
-//   rating      INT   NOT NULL  (1–5)
-//   comentario  TEXT
-//   created_at  TIMESTAMP
-//
-// There is NO seller_id column. Reviews are linked to sellers
-// through the chain: reviews.producto_id → productos.id → productos.vendedor_id
 
 import { RequestHandler } from "express";
-import { sequelize } from "../config/db";
-import { QueryTypes } from "sequelize";
 import rateLimit from "express-rate-limit";
+import { QueryTypes } from "sequelize";
+import { sequelize } from "../config/db";
 import { createNotification } from "../utils/notifications";
 import { logAuditEventFromRequest } from "../services/audit.service";
 import { checkReviewAbuse } from "../services/abuseDetection.service";
 import { REVIEW_RULES } from "../config/securityRules";
+import { evaluateReviewDefense } from "../services/activeDefense.service";
+import {
+  addHelpfulVote,
+  createReviewFromPurchase,
+  getSellerReviewInsights,
+  getReviewResponse,
+  getSellerRatingSummary,
+  listSellerReviews,
+  removeHelpfulVote,
+  reportReview,
+  restoreReviewByAdmin,
+  softDeleteReview,
+  upsertSellerResponse,
+  updateReview,
+  validateReviewEligibility,
+  hideReviewByAdmin,
+  listAdminReviews,
+} from "../services/review.service";
 
-/* ============================================================
-   🌟 GET SELLER RATING SUMMARY
-   GET /api/reviews/seller/:sellerId/rating
-============================================================ */
+function isPgUniqueViolation(error: any): boolean {
+  return error?.parent?.code === "23505";
+}
+
+function getRouteParam(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value[0] : (value ?? "");
+}
+
 export const getSellerRating: RequestHandler = async (req, res) => {
   const { sellerId } = req.params;
   const safeEmpty = { success: true, data: { rating: 0, total_reviews: 0 } };
@@ -35,75 +46,25 @@ export const getSellerRating: RequestHandler = async (req, res) => {
       return;
     }
 
-    const [result] = await sequelize.query<{
-      rating: string;
-      total_reviews: string;
-    }>(
-      `
-      SELECT
-        COALESCE(ROUND(AVG(r.rating)::numeric, 1), 0) AS rating,
-        COUNT(r.id)                                    AS total_reviews
-      FROM reviews r
-      JOIN productos p ON p.id = r.producto_id
-      WHERE p.vendedor_id = :sellerId
-      `,
-      { replacements: { sellerId: id }, type: QueryTypes.SELECT }
-    );
-
-    res.json({
-      success: true,
-      data: {
-        rating:        Number(result?.rating        ?? 0),
-        total_reviews: Number(result?.total_reviews ?? 0),
-      },
-    });
+    res.json({ success: true, data: await getSellerRatingSummary(id) });
   } catch (err) {
     console.error("SELLER RATING ERROR:", (err as any)?.message);
-    console.error("PG ERROR:", (err as any)?.parent?.message);
     res.json(safeEmpty);
   }
 };
 
-/* ============================================================
-   📋 GET SELLER REVIEWS LIST
-   GET /api/reviews/seller/:sellerId
-============================================================ */
 export const getSellerReviews: RequestHandler = async (req, res) => {
   try {
-    const { sellerId } = req.params;
+    const sellerId = Number(req.params.sellerId);
     const limit  = Math.min(Number(req.query.limit)  || 20, 50);
-    const offset = Math.max(Number(req.query.offset) || 0,  0);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
 
-    const reviews = await sequelize.query<{
-      id: string;
-      rating: number;
-      comment: string | null;
-      buyer_name: string;
-      product_id: string;
-      product_nombre: string | null;
-      created_at: string;
-    }>(
-      `
-      SELECT
-        r.id,
-        r.rating,
-        r.comentario             AS comment,
-        'Comprador'              AS buyer_name,
-        r.producto_id::text      AS product_id,
-        p.nombre                 AS product_nombre,
-        r.created_at
-      FROM reviews r
-      JOIN productos p ON p.id = r.producto_id
-      WHERE p.vendedor_id = :sellerId
-      ORDER BY r.created_at DESC
-      LIMIT :limit OFFSET :offset
-      `,
-      {
-        replacements: { sellerId: Number(sellerId), limit, offset },
-        type: QueryTypes.SELECT,
-      }
-    );
+    if (!Number.isFinite(sellerId) || sellerId <= 0) {
+      res.json({ success: true, data: [] });
+      return;
+    }
 
+    const reviews = await listSellerReviews(sellerId, limit, offset);
     res.json({ success: true, data: reviews });
   } catch (err) {
     console.error("getSellerReviews error:", err);
@@ -111,30 +72,39 @@ export const getSellerReviews: RequestHandler = async (req, res) => {
   }
 };
 
-/* ============================================================
-   ✍️ CREATE REVIEW
-   POST /api/reviews/seller/:sellerId
-   Requires: authenticated buyer (requireRole("buyer") in route)
-   Body: { rating, comment?, product_id? }
-   Notes:
-   - product_id (UUID) must belong to the seller.
-   - If omitted, the first active product of the seller is used.
-   - buyer_id is always taken from req.user — never trusted from body.
-============================================================ */
+export const getProductReviewEligibility: RequestHandler = async (req, res) => {
+  try {
+    const buyer_id = req.user?.id;
+    const productId = getRouteParam(req.params.id);
+
+    if (!buyer_id) {
+      res.status(401).json({ eligible: false, reason: "not_authenticated" });
+      return;
+    }
+
+    const result = await validateReviewEligibility(Number(buyer_id), productId);
+
+    res.json({
+      eligible: result.eligible,
+      ...(result.reason ? { reason: result.reason } : {}),
+    });
+  } catch (err) {
+    console.error("getProductReviewEligibility error:", err);
+    res.json({ eligible: false, reason: "error" });
+  }
+};
+
 export const createReview: RequestHandler = async (req, res) => {
   try {
     const { sellerId } = req.params;
     const { rating, comment, product_id } = req.body;
 
-    // Validate sellerId before any DB query — Number("abc") is NaN which
-    // causes a PostgreSQL type error and a misleading 500 response.
     const sellerIdNum = Number(sellerId);
     if (!Number.isFinite(sellerIdNum) || sellerIdNum <= 0) {
       res.status(400).json({ message: "sellerId inválido" });
       return;
     }
 
-    // req.user is guaranteed to exist — requireRole("buyer") enforces this.
     const buyer_id = req.user!.id;
     const abuseCheck = await checkReviewAbuse({
       userId: buyer_id,
@@ -166,28 +136,56 @@ export const createReview: RequestHandler = async (req, res) => {
       return;
     }
 
-    if (!rating || rating < 1 || rating > 5) {
+    const defense = await evaluateReviewDefense({
+      userId: buyer_id,
+      ip:     req.ip ?? req.socket?.remoteAddress ?? "unknown",
+    });
+
+    if (defense.decision === "cooldown" || defense.decision === "deny") {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: buyer_id,
+        actor_role:    "buyer",
+        action:        "defense.review.block_applied",
+        entity_type:   "seller",
+        entity_id:     String(sellerIdNum),
+        status:        "blocked",
+        severity:      defense.decision === "deny" ? "critical" : "high",
+        metadata: {
+          reason:             defense.reason,
+          retryAfter:         defense.retryAfter,
+          restrictionCreated: defense.restrictionCreated ?? false,
+        },
+      });
+      if (defense.retryAfter) {
+        res.setHeader("Retry-After", String(defense.retryAfter));
+      }
+      res.status(429).json({
+        ok:      false,
+        code:    "ACTIVE_DEFENSE_TRIGGERED",
+        message: "Action temporarily restricted. Please try again later.",
+      });
+      return;
+    }
+
+    const ratingNumber = Number(rating);
+    if (!Number.isInteger(ratingNumber) || ratingNumber < 1 || ratingNumber > 5) {
       res.status(400).json({ message: "rating debe ser entre 1 y 5" });
       return;
     }
 
-    // Resolve producto_id: use provided or fall back to first seller product.
-    // When product_id is provided by the client, validate it belongs to :sellerId
-    // to prevent a buyer from posting reviews to a seller via a foreign product.
     let producto_id: string | null = null;
 
     if (product_id) {
       const [owned] = await sequelize.query<{ id: string }>(
-        `SELECT id FROM productos
-         WHERE id = :productId
-           AND vendedor_id = :sellerId
-           AND activo = true
-         LIMIT 1`,
+        `
+        SELECT id FROM productos
+        WHERE id = :productId
+          AND vendedor_id = :sellerId
+          AND activo = true
+        LIMIT 1
+        `,
         {
-          replacements: {
-            productId: product_id,
-            sellerId:  sellerIdNum,
-          },
+          replacements: { productId: product_id, sellerId: sellerIdNum },
           type: QueryTypes.SELECT,
         }
       );
@@ -224,80 +222,472 @@ export const createReview: RequestHandler = async (req, res) => {
       return;
     }
 
-    // Prevent duplicate review by same buyer for the same product
-    const [existing] = await sequelize.query<{ id: string }>(
-      `SELECT id FROM reviews WHERE producto_id = :productoId AND buyer_id = :buyerId LIMIT 1`,
-      {
-        replacements: { productoId: producto_id, buyerId: buyer_id },
-        type: QueryTypes.SELECT,
-      }
-    );
-    if (existing) {
-      void logAuditEventFromRequest(req, {
-        actor_user_id: buyer_id,
-        actor_role:    "buyer",
-        action:        "review.create.duplicate_blocked",
-        entity_type:   "product",
-        entity_id:     producto_id,
-        status:        "blocked",
-        severity:      "low",
-        metadata:      { seller_id: sellerIdNum, product_id: producto_id },
+    try {
+      const created = await createReviewFromPurchase({
+        buyerId:   buyer_id,
+        productId: producto_id,
+        rating:    ratingNumber,
+        comentario: comment ?? null,
       });
-      res.status(409).json({ message: "Ya dejaste una reseña para este producto" });
-      return;
-    }
 
-    const [result] = await sequelize.query<{ id: string }>(
-      `
-      INSERT INTO reviews (producto_id, buyer_id, rating, comentario)
-      VALUES (:productoId, :buyerId, :rating, :comentario)
-      RETURNING id
-      `,
-      {
-        replacements: {
-          productoId:  producto_id,
-          buyerId:     buyer_id,
-          rating:      Number(rating),
-          comentario:  comment || null,
+      createNotification(
+        buyer_id,
+        "review",
+        "Dejaste una reseña",
+        "Tu opinión ayuda a otros compradores.",
+        `/product/${producto_id}`
+      ).catch(() => {});
+
+      void logAuditEventFromRequest(req, {
+        actor_user_id:  buyer_id,
+        actor_role:     "buyer",
+        action:         "review.create.success",
+        entity_type:    "product",
+        entity_id:      producto_id,
+        target_user_id: sellerIdNum,
+        status:         "success",
+        severity:       "low",
+        metadata: {
+          review_id:     created.review_id,
+          rating:        ratingNumber,
+          seller_id:     sellerIdNum,
+          order_item_id: created.order_item_id,
         },
-        type: QueryTypes.SELECT,
+      });
+
+      res.status(201).json({ success: true, id: created.review_id });
+    } catch (error: any) {
+      if (error?.message === "ALREADY_REVIEWED") {
+        void logAuditEventFromRequest(req, {
+          actor_user_id: buyer_id,
+          actor_role:    "buyer",
+          action:        "review.create.duplicate_blocked",
+          entity_type:   "product",
+          entity_id:     producto_id,
+          status:        "blocked",
+          severity:      "low",
+          metadata:      { seller_id: sellerIdNum, product_id: producto_id },
+        });
+        res.status(409).json({ message: "Ya dejaste una reseña para este producto" });
+        return;
       }
-    );
 
-    createNotification(
-      buyer_id,
-      "review",
-      "Dejaste una reseña",
-      "Tu opinión ayuda a otros compradores.",
-      `/product/${producto_id}`
-    ).catch(() => {/* non-critical */});
+      if (error?.message === "PURCHASE_REQUIRED") {
+        void logAuditEventFromRequest(req, {
+          actor_user_id: buyer_id,
+          actor_role:    "buyer",
+          action:        "review.create.no_purchase_blocked",
+          entity_type:   "product",
+          entity_id:     producto_id,
+          status:        "blocked",
+          severity:      "low",
+          metadata:      { seller_id: sellerIdNum, product_id: producto_id },
+        });
+        res.status(403).json({
+          message: "Solo puedes reseñar productos que hayas comprado y recibido",
+          code:    "PURCHASE_REQUIRED",
+        });
+        return;
+      }
 
-    void logAuditEventFromRequest(req, {
-      actor_user_id: buyer_id,
-      actor_role:    "buyer",
-      action:        "review.create.success",
-      entity_type:   "product",
-      entity_id:     producto_id,
-      target_user_id: sellerIdNum,
-      status:        "success",
-      severity:      "low",
-      metadata:      { review_id: result.id, rating: Number(rating), seller_id: sellerIdNum },
-    });
+      if (error?.message === "PRODUCT_NOT_REVIEWABLE") {
+        res.status(404).json({ message: "Producto no disponible para reseñas" });
+        return;
+      }
 
-    res.status(201).json({ success: true, id: result.id });
+      throw error;
+    }
   } catch (err) {
     console.error("createReview error:", err);
     res.status(500).json({ message: "Error interno" });
   }
 };
 
-/* ============================================================
-   🚦 Rate limiter for review submissions
-============================================================ */
+export const putReview: RequestHandler = async (req, res) => {
+  try {
+    const buyerId = Number(req.user?.id);
+    const rating = Number(req.body.rating);
+
+    if (!buyerId) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      res.status(400).json({ message: "rating debe ser entre 1 y 5" });
+      return;
+    }
+
+    const result = await updateReview({
+      reviewId:   getRouteParam(req.params.id),
+      buyerId,
+      rating,
+      comentario: req.body.comment ?? req.body.comentario ?? null,
+    });
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: buyerId,
+      actor_role:    "buyer",
+      action:        "review.edit.success",
+      entity_type:   "review",
+      entity_id:     getRouteParam(req.params.id),
+      status:        "success",
+      severity:      "low",
+      metadata:      { rating, product_id: result.review.producto_id },
+    });
+
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    if (error?.message === "REVIEW_NOT_FOUND") {
+      res.status(404).json({ message: "Reseña no encontrada" });
+      return;
+    }
+    if (error?.message === "REVIEW_NOT_OWNER") {
+      res.status(403).json({ message: "No puedes editar esta reseña" });
+      return;
+    }
+    if (error?.message === "REVIEW_NOT_EDITABLE" || error?.message === "REVIEW_EDIT_WINDOW_EXPIRED") {
+      res.status(409).json({
+        message: "La reseña ya no se puede editar",
+        code:    "REVIEW_EDIT_WINDOW_EXPIRED",
+      });
+      return;
+    }
+    console.error("putReview error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const deleteReview: RequestHandler = async (req, res) => {
+  try {
+    const buyerId = Number(req.user?.id);
+    if (!buyerId) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const reviewId = getRouteParam(req.params.id);
+    const stats = await softDeleteReview(reviewId, buyerId);
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: buyerId,
+      actor_role:    "buyer",
+      action:        "review.delete.success",
+      entity_type:   "review",
+      entity_id:     reviewId,
+      status:        "success",
+      severity:      "low",
+    });
+
+    res.json({ success: true, ...stats });
+  } catch (error: any) {
+    if (error?.message === "REVIEW_NOT_FOUND") {
+      res.status(404).json({ message: "Reseña no encontrada" });
+      return;
+    }
+    if (error?.message === "REVIEW_NOT_OWNER") {
+      res.status(403).json({ message: "No puedes eliminar esta reseña" });
+      return;
+    }
+    if (error?.message === "REVIEW_ALREADY_DELETED") {
+      res.status(409).json({ message: "La reseña ya fue eliminada" });
+      return;
+    }
+    console.error("deleteReview error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const respondToReview: RequestHandler = async (req, res) => {
+  try {
+    const sellerId = Number(req.user?.id);
+    if (!sellerId) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const response = await upsertSellerResponse({
+      reviewId:  getRouteParam(req.params.id),
+      sellerId,
+      respuesta: req.body.respuesta ?? req.body.response ?? "",
+    });
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: sellerId,
+      actor_role:    "seller",
+      action:        "review.response.upsert.success",
+      entity_type:   "review",
+      entity_id:     getRouteParam(req.params.id),
+      status:        "success",
+      severity:      "low",
+    });
+
+    res.status(201).json({ success: true, data: response });
+  } catch (error: any) {
+    if (error?.message === "REVIEW_NOT_FOUND") {
+      res.status(404).json({ message: "Reseña no encontrada" });
+      return;
+    }
+    if (error?.message === "SELLER_NOT_OWNER") {
+      res.status(403).json({ message: "No puedes responder esta reseña" });
+      return;
+    }
+    if (error?.message === "RESPONSE_REQUIRED") {
+      res.status(400).json({ message: "La respuesta es obligatoria" });
+      return;
+    }
+    console.error("respondToReview error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const getReviewResponseById: RequestHandler = async (req, res) => {
+  try {
+    const response = await getReviewResponse(getRouteParam(req.params.id));
+    res.json({ success: true, data: response });
+  } catch (error) {
+    console.error("getReviewResponseById error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const reportReviewHandler: RequestHandler = async (req, res) => {
+  try {
+    const userId = Number(req.user?.id);
+    const role = req.user?.role;
+
+    if (!userId || !role) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    await reportReview({
+      reviewId: getRouteParam(req.params.id),
+      userId,
+      motivo:   req.body.motivo ?? req.body.reason ?? "",
+    });
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: userId,
+      actor_role:    role,
+      action:        "review.report.success",
+      entity_type:   "review",
+      entity_id:     getRouteParam(req.params.id),
+      status:        "success",
+      severity:      "medium",
+      metadata:      { motivo: req.body.motivo ?? req.body.reason ?? null },
+    });
+
+    res.status(201).json({ success: true });
+  } catch (error: any) {
+    if (error?.message === "REVIEW_NOT_FOUND") {
+      res.status(404).json({ message: "Reseña no encontrada" });
+      return;
+    }
+    if (error?.message === "REPORT_NOT_ALLOWED") {
+      res.status(403).json({ message: "No puedes reportar esta reseña" });
+      return;
+    }
+    if (error?.message === "REPORT_REASON_REQUIRED") {
+      res.status(400).json({ message: "El motivo es obligatorio" });
+      return;
+    }
+    if (error?.message === "REVIEW_ALREADY_REPORTED" || isPgUniqueViolation(error)) {
+      res.status(409).json({ message: "Ya reportaste esta reseña" });
+      return;
+    }
+    console.error("reportReviewHandler error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const getAdminReviews: RequestHandler = async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const estado = typeof req.query.estado === "string" ? req.query.estado : undefined;
+    const highRisk = String(req.query.high_risk ?? "").toLowerCase() === "true";
+    const minReports = Number(req.query.min_reports);
+
+    const data = await listAdminReviews({
+      limit,
+      offset,
+      ...(estado ? { estado: estado as any } : {}),
+      ...(highRisk ? { highRisk: true } : {}),
+      ...(Number.isFinite(minReports) && minReports > 0 ? { minReports } : {}),
+    });
+
+    res.json({ success: true, ...data });
+  } catch (error) {
+    console.error("getAdminReviews error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const hideAdminReview: RequestHandler = async (req, res) => {
+  try {
+    const reviewId = getRouteParam(req.params.id);
+    const stats = await hideReviewByAdmin(reviewId);
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: Number(req.user?.id),
+      actor_role:    "admin",
+      action:        "admin.review.hide.success",
+      entity_type:   "review",
+      entity_id:     reviewId,
+      status:        "success",
+      severity:      "medium",
+    });
+
+    res.json({ success: true, ...stats });
+  } catch (error: any) {
+    if (error?.message === "REVIEW_NOT_FOUND") {
+      res.status(404).json({ message: "Reseña no encontrada" });
+      return;
+    }
+    console.error("hideAdminReview error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const restoreAdminReview: RequestHandler = async (req, res) => {
+  try {
+    const reviewId = getRouteParam(req.params.id);
+    const stats = await restoreReviewByAdmin(reviewId);
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: Number(req.user?.id),
+      actor_role:    "admin",
+      action:        "admin.review.restore.success",
+      entity_type:   "review",
+      entity_id:     reviewId,
+      status:        "success",
+      severity:      "medium",
+    });
+
+    res.json({ success: true, ...stats });
+  } catch (error: any) {
+    if (error?.message === "REVIEW_NOT_FOUND") {
+      res.status(404).json({ message: "Reseña no encontrada" });
+      return;
+    }
+    console.error("restoreAdminReview error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const voteReviewHandler: RequestHandler = async (req, res) => {
+  try {
+    const userId = Number(req.user?.id);
+    if (!userId) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const data = await addHelpfulVote({
+      reviewId: getRouteParam(req.params.id),
+      userId,
+    });
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: userId,
+      actor_role:    req.user?.role ?? "buyer",
+      action:        "review.vote.success",
+      entity_type:   "review",
+      entity_id:     getRouteParam(req.params.id),
+      status:        "success",
+      severity:      "low",
+    });
+
+    res.status(201).json({ success: true, ...data });
+  } catch (error: any) {
+    if (error?.message === "REVIEW_NOT_FOUND") {
+      res.status(404).json({ message: "Reseña no encontrada" });
+      return;
+    }
+    if (error?.message === "REVIEW_NOT_VOTABLE") {
+      res.status(409).json({ message: "La reseña no puede recibir votos" });
+      return;
+    }
+    if (error?.message === "REVIEW_SELF_VOTE_NOT_ALLOWED") {
+      res.status(403).json({ message: "No puedes votar tu propia reseña" });
+      return;
+    }
+    if (error?.message === "REVIEW_ALREADY_VOTED") {
+      res.status(409).json({ message: "Ya votaste esta reseña" });
+      return;
+    }
+    console.error("voteReviewHandler error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const unvoteReviewHandler: RequestHandler = async (req, res) => {
+  try {
+    const userId = Number(req.user?.id);
+    if (!userId) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const data = await removeHelpfulVote({
+      reviewId: getRouteParam(req.params.id),
+      userId,
+    });
+
+    void logAuditEventFromRequest(req, {
+      actor_user_id: userId,
+      actor_role:    req.user?.role ?? "buyer",
+      action:        "review.vote.remove.success",
+      entity_type:   "review",
+      entity_id:     getRouteParam(req.params.id),
+      status:        "success",
+      severity:      "low",
+    });
+
+    res.json({ success: true, ...data });
+  } catch (error: any) {
+    if (error?.message === "REVIEW_NOT_FOUND") {
+      res.status(404).json({ message: "Reseña no encontrada" });
+      return;
+    }
+    if (error?.message === "REVIEW_VOTE_NOT_FOUND") {
+      res.status(404).json({ message: "No habías votado esta reseña" });
+      return;
+    }
+    console.error("unvoteReviewHandler error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const getSellerReviewInsightsHandler: RequestHandler = async (req, res) => {
+  try {
+    const sellerId = Number(req.user?.id);
+    if (!sellerId) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const data = await getSellerReviewInsights(sellerId);
+    res.json({ success: true, ...data });
+  } catch (error) {
+    console.error("getSellerReviewInsightsHandler error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
 export const reviewLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
+  windowMs: 60 * 60 * 1000,
   max: 5,
   message: "Demasiados intentos. Intenta de nuevo en 1 hora.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+export const reviewVoteLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  message: "Demasiados votos. Intenta de nuevo en 1 hora.",
   standardHeaders: true,
   legacyHeaders: false,
 });

@@ -23,6 +23,7 @@ import {
   rejectSeller,
   suspendSeller,
   reactivateSeller,
+  eliminateSeller,
   reviewSellerKYC,
   requestKycDocuments,
   flagSellerManually,
@@ -40,6 +41,25 @@ import {
   resolveAlert,
   triggerAlertGeneration,
 } from "../controllers/admin.security.controller";
+import {
+  getSecurityRestrictions,
+  revokeSecurityRestriction,
+  getDefenseSummary,
+} from "../controllers/admin.securityRestrictions.controller";
+import {
+  getSecurityProfiles,
+  getSecurityProfile,
+  getManualReviewCases,
+  approveManualReviewCase,
+  rejectManualReviewCase,
+  triggerFraudGeneration,
+  getFraudSummary,
+} from "../controllers/admin.fraud.controller";
+import {
+  getAdminReviews,
+  hideAdminReview,
+  restoreAdminReview,
+} from "../controllers/review.controller";
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -294,6 +314,12 @@ router.patch(
   asyncHandler(reactivateSeller)
 );
 
+// eliminar (logical deletion — irreversible)
+router.patch(
+  "/sellers/:id/eliminate",
+  asyncHandler(eliminateSeller)
+);
+
 // 🔥 KYC REVIEW
 router.patch(
   "/sellers/:id/kyc-review",
@@ -350,6 +376,25 @@ router.patch(
 );
 
 /* ===============================
+   📝 REVIEWS MODERATION
+=============================== */
+
+router.get(
+  "/reviews",
+  asyncHandler(getAdminReviews)
+);
+
+router.patch(
+  "/reviews/:id/hide",
+  asyncHandler(hideAdminReview)
+);
+
+router.patch(
+  "/reviews/:id/restore",
+  asyncHandler(restoreAdminReview)
+);
+
+/* ===============================
    🔎 AUDIT EVENTS
 =============================== */
 
@@ -396,6 +441,70 @@ router.get(
 router.get(
   "/security/risk/ip/:ip",
   asyncHandler(getIpRisk)
+);
+
+// Active defense restrictions
+router.get(
+  "/security/restrictions",
+  asyncHandler(getSecurityRestrictions)
+);
+
+router.post(
+  "/security/restrictions/:id/revoke",
+  asyncHandler(revokeSecurityRestriction)
+);
+
+// Defense summary
+router.get(
+  "/security/defense/summary",
+  asyncHandler(getDefenseSummary)
+);
+
+/* ===============================
+   🔬 FRAUD INTELLIGENCE (Phase 6)
+=============================== */
+
+// Security profiles
+router.get(
+  "/security/profiles",
+  asyncHandler(getSecurityProfiles)
+);
+
+router.get(
+  "/security/profiles/:subjectType/:subjectKey",
+  asyncHandler(getSecurityProfile)
+);
+
+// Trigger fraud scan
+router.post(
+  "/security/fraud/generate",
+  asyncHandler(triggerFraudGeneration)
+);
+
+// Fraud summary
+router.get(
+  "/security/fraud/summary",
+  asyncHandler(getFraudSummary)
+);
+
+/* ===============================
+   📋 MANUAL REVIEW CASES
+=============================== */
+
+router.get(
+  "/manual-review/cases",
+  asyncHandler(getManualReviewCases)
+);
+
+// ⚠️ static routes must come before /:id to avoid Express matching "approve"/"reject" as an id
+router.post(
+  "/manual-review/cases/:id/approve",
+  asyncHandler(approveManualReviewCase)
+);
+
+router.post(
+  "/manual-review/cases/:id/reject",
+  asyncHandler(rejectManualReviewCase)
 );
 
 export default router;

@@ -685,6 +685,12 @@ export const reactivateSeller: RequestHandler = async (req, res) => {
       return;
     }
 
+    if (seller.estado_admin === "eliminado") {
+      res.status(403).json({
+        message: "Este vendedor ha sido eliminado y no puede ser reactivado",
+      });
+      return;
+    }
 
     const before = {
       estado_admin: seller.estado_admin,
@@ -717,6 +723,108 @@ export const reactivateSeller: RequestHandler = async (req, res) => {
 
   } catch (error) {
     console.error("reactivateSeller error:", error);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+
+/* ======================================================
+   🔹 ELIMINATE SELLER
+   Logical deletion — sets estado_admin = 'eliminado',
+   deactivates all products. Irreversible via normal flow.
+====================================================== */
+export const eliminateSeller: RequestHandler = async (req, res) => {
+  const t = await sequelize.transaction();
+
+  try {
+    const userId  = Number(req.params.id);
+    const adminId = Number(req.user!.id);
+    const { reason } = req.body;
+
+    if (!reason || String(reason).trim() === "") {
+      await t.rollback();
+      res.status(400).json({
+        message: "Debe especificar el motivo de la eliminación",
+      });
+      return;
+    }
+
+    const seller = await VendedorPerfil.findOne({
+      where: { user_id: userId },
+      transaction: t,
+    });
+
+    if (!seller) {
+      await t.rollback();
+      res.status(404).json({ message: "Vendedor no encontrado" });
+      return;
+    }
+
+    // Idempotent — already eliminated, return success without re-running
+    if (seller.estado_admin === "eliminado") {
+      await t.rollback();
+      res.json({
+        ok: true,
+        message: "El vendedor ya estaba eliminado",
+      });
+      return;
+    }
+
+    const before = {
+      estado_admin:      seller.estado_admin,
+      estado_validacion: seller.estado_validacion,
+    };
+
+    // 1. Mark seller as eliminated
+    seller.estado_admin = "eliminado";
+    await seller.save({ transaction: t });
+
+    // 2. Deactivate all products atomically in the same transaction
+    await sequelize.query(
+      `UPDATE productos SET activo = false WHERE vendedor_id = :userId`,
+      {
+        replacements: { userId },
+        transaction:  t,
+      }
+    );
+
+    await t.commit();
+
+    // 3. Admin audit trail
+    await logAdminEvent({
+      entityType: "seller",
+      entityId:   seller.id,
+      action:     "SELLER_ELIMINATED",
+      performedBy: adminId,
+      comment:    String(reason).trim(),
+      metadata: {
+        before,
+        after: { estado_admin: "eliminado" },
+        reason: String(reason).trim(),
+      },
+    });
+
+    // 4. Comprehensive audit event
+    void logAuditEventFromRequest(req, {
+      actor_user_id:  adminId,
+      actor_role:     "admin",
+      action:         "admin.seller.eliminate.success",
+      entity_type:    "seller",
+      entity_id:      String(seller.user_id),
+      target_user_id: seller.user_id,
+      status:         "success",
+      severity:       "critical",
+      metadata:       { before, reason: String(reason).trim() },
+    });
+
+    res.json({
+      ok:      true,
+      message: "Vendedor eliminado correctamente",
+    });
+
+  } catch (error) {
+    await t.rollback();
+    console.error("eliminateSeller error:", error);
     res.status(500).json({ message: "Error interno" });
   }
 };

@@ -21,7 +21,8 @@ export type EstadoValidacion =
 export type EstadoAdmin =
   | "activo"
   | "inactivo"
-  | "suspendido";
+  | "suspendido"
+  | "eliminado";
 
 export type KycRiesgo =
   | "bajo"

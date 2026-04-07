@@ -27,6 +27,32 @@ import AuditEvent from "./AuditEvent.model";
 // Security: Intelligence Alerts
 import SecurityAlert from "./SecurityAlert.model";
 
+// Security: Active Defense Restrictions
+import SecurityRestriction from "./SecurityRestriction.model";
+
+// Phase 5: Payment Security
+import Order            from "./Order.model";
+import OrderItem        from "./OrderItem.model";
+import PaymentAttempt   from "./PaymentAttempt.model";
+import ProcessedWebhook from "./ProcessedWebhook.model";
+import ReviewResponse   from "./ReviewResponse.model";
+import ReviewReport     from "./ReviewReport.model";
+import ReviewSignal     from "./ReviewSignal.model";
+import ReviewVote       from "./ReviewVote.model";
+
+// Phase 6: Financial Fraud + Control
+import SecurityProfile  from "./SecurityProfile.model";
+import ManualReviewCase from "./ManualReviewCase.model";
+
+// Seller Billing
+import SellerPlan           from "./SellerPlan.model";
+import SellerPlanFeature    from "./SellerPlanFeature.model";
+import SellerSubscription   from "./SellerSubscription.model";
+import SellerInvoice        from "./SellerInvoice.model";
+import SellerInvoiceItem    from "./SellerInvoiceItem.model";
+import SellerBillingPayment from "./SellerBillingPayment.model";
+import SellerManualPaymentReport from "./SellerManualPaymentReport.model";
+
 /**
  * ============================================
  * 🧠 Asociaciones centralizadas
@@ -178,6 +204,224 @@ function setupAssociations() {
       as: "variant",
     });
   }
+
+  /* ============================
+     💳 Order ↔ OrderItem
+  ============================ */
+
+  if (!Order.associations.items) {
+    Order.hasMany(OrderItem, {
+      foreignKey: "order_id",
+      as:         "items",
+      onDelete:   "CASCADE",
+    });
+  }
+
+  if (!OrderItem.associations.order) {
+    OrderItem.belongsTo(Order, {
+      foreignKey: "order_id",
+      as:         "order",
+    });
+  }
+
+  /* ============================
+     💳 Order ↔ PaymentAttempt
+  ============================ */
+
+  /* ============================
+     🧾 Seller Billing associations
+  ============================ */
+
+  if (!SellerPlan.associations.features) {
+    SellerPlan.hasMany(SellerPlanFeature, {
+      foreignKey: "plan_id",
+      as:         "features",
+      onDelete:   "RESTRICT",
+    });
+  }
+  if (!SellerPlanFeature.associations.plan) {
+    SellerPlanFeature.belongsTo(SellerPlan, {
+      foreignKey: "plan_id",
+      as:         "plan",
+    });
+  }
+
+  if (!SellerPlan.associations.subscriptions) {
+    SellerPlan.hasMany(SellerSubscription, {
+      foreignKey: "plan_id",
+      as:         "subscriptions",
+      onDelete:   "RESTRICT",
+    });
+  }
+  if (!SellerSubscription.associations.plan) {
+    SellerSubscription.belongsTo(SellerPlan, {
+      foreignKey: "plan_id",
+      as:         "plan",
+    });
+  }
+
+  if (!User.associations.sellerSubscriptions) {
+    User.hasMany(SellerSubscription, {
+      foreignKey: "seller_id",
+      as:         "sellerSubscriptions",
+      onDelete:   "RESTRICT",
+    });
+  }
+  if (!SellerSubscription.associations.seller) {
+    SellerSubscription.belongsTo(User, {
+      foreignKey: "seller_id",
+      as:         "seller",
+    });
+  }
+
+  if (!User.associations.sellerInvoices) {
+    User.hasMany(SellerInvoice, {
+      foreignKey: "seller_id",
+      as:         "sellerInvoices",
+      onDelete:   "RESTRICT",
+    });
+  }
+  if (!SellerInvoice.associations.seller) {
+    SellerInvoice.belongsTo(User, {
+      foreignKey: "seller_id",
+      as:         "seller",
+    });
+  }
+
+  if (!SellerSubscription.associations.invoices) {
+    SellerSubscription.hasMany(SellerInvoice, {
+      foreignKey: "subscription_id",
+      as:         "invoices",
+      onDelete:   "RESTRICT",
+    });
+  }
+  if (!SellerInvoice.associations.subscription) {
+    SellerInvoice.belongsTo(SellerSubscription, {
+      foreignKey: "subscription_id",
+      as:         "subscription",
+    });
+  }
+
+  if (!SellerInvoice.associations.items) {
+    SellerInvoice.hasMany(SellerInvoiceItem, {
+      foreignKey: "invoice_id",
+      as:         "items",
+      onDelete:   "RESTRICT",
+    });
+  }
+  if (!SellerInvoiceItem.associations.invoice) {
+    SellerInvoiceItem.belongsTo(SellerInvoice, {
+      foreignKey: "invoice_id",
+      as:         "invoice",
+    });
+  }
+
+  if (!SellerInvoice.associations.payments) {
+    SellerInvoice.hasMany(SellerBillingPayment, {
+      foreignKey: "invoice_id",
+      as:         "payments",
+      onDelete:   "RESTRICT",
+    });
+  }
+  if (!SellerBillingPayment.associations.invoice) {
+    SellerBillingPayment.belongsTo(SellerInvoice, {
+      foreignKey: "invoice_id",
+      as:         "invoice",
+    });
+  }
+
+  if (!User.associations.sellerBillingPayments) {
+    User.hasMany(SellerBillingPayment, {
+      foreignKey: "seller_id",
+      as:         "sellerBillingPayments",
+      onDelete:   "RESTRICT",
+    });
+  }
+  if (!SellerBillingPayment.associations.seller) {
+    SellerBillingPayment.belongsTo(User, {
+      foreignKey: "seller_id",
+      as:         "seller",
+    });
+  }
+
+  if (!SellerBillingPayment.associations.manualReports) {
+    SellerBillingPayment.hasMany(SellerManualPaymentReport, {
+      foreignKey: "payment_id",
+      as:         "manualReports",
+      onDelete:   "RESTRICT",
+    });
+  }
+  if (!SellerManualPaymentReport.associations.payment) {
+    SellerManualPaymentReport.belongsTo(SellerBillingPayment, {
+      foreignKey: "payment_id",
+      as:         "payment",
+    });
+  }
+
+  if (!SellerInvoice.associations.manualPaymentReports) {
+    SellerInvoice.hasMany(SellerManualPaymentReport, {
+      foreignKey: "invoice_id",
+      as:         "manualPaymentReports",
+      onDelete:   "RESTRICT",
+    });
+  }
+  if (!SellerManualPaymentReport.associations.invoice) {
+    SellerManualPaymentReport.belongsTo(SellerInvoice, {
+      foreignKey: "invoice_id",
+      as:         "invoice",
+    });
+  }
+
+  if (!User.associations.sellerManualPaymentReports) {
+    User.hasMany(SellerManualPaymentReport, {
+      foreignKey: "seller_id",
+      as:         "sellerManualPaymentReports",
+      onDelete:   "RESTRICT",
+    });
+  }
+  if (!SellerManualPaymentReport.associations.seller) {
+    SellerManualPaymentReport.belongsTo(User, {
+      foreignKey: "seller_id",
+      as:         "seller",
+    });
+  }
+
+  if (!User.associations.reviewedManualPaymentReports) {
+    User.hasMany(SellerManualPaymentReport, {
+      foreignKey: "reviewed_by",
+      as:         "reviewedManualPaymentReports",
+      onDelete:   "SET NULL",
+    });
+  }
+  if (!SellerManualPaymentReport.associations.reviewer) {
+    SellerManualPaymentReport.belongsTo(User, {
+      foreignKey: "reviewed_by",
+      as:         "reviewer",
+    });
+  }
+
+  // last_payment_id circular FK (added in migration 000007)
+  if (!SellerSubscription.associations.lastPayment) {
+    SellerSubscription.belongsTo(SellerBillingPayment, {
+      foreignKey: "last_payment_id",
+      as:         "lastPayment",
+    });
+  }
+
+  if (!Order.associations.paymentAttempts) {
+    Order.hasMany(PaymentAttempt, {
+      foreignKey: "order_id",
+      as:         "paymentAttempts",
+      onDelete:   "RESTRICT",
+    });
+  }
+
+  if (!PaymentAttempt.associations.order) {
+    PaymentAttempt.belongsTo(Order, {
+      foreignKey: "order_id",
+      as:         "order",
+    });
+  }
 }
 
 setupAssociations();
@@ -207,6 +451,27 @@ export {
   // Security
   AuditEvent,
   SecurityAlert,
+  SecurityRestriction,
+  // Phase 5: Payment Security
+  Order,
+  OrderItem,
+  PaymentAttempt,
+  ProcessedWebhook,
+  ReviewResponse,
+  ReviewReport,
+  ReviewSignal,
+  ReviewVote,
+  // Phase 6: Financial Fraud + Control
+  SecurityProfile,
+  ManualReviewCase,
+  // Seller Billing
+  SellerPlan,
+  SellerPlanFeature,
+  SellerSubscription,
+  SellerInvoice,
+  SellerInvoiceItem,
+  SellerBillingPayment,
+  SellerManualPaymentReport,
 };
 
 export const models = {
@@ -222,9 +487,30 @@ export const models = {
   AiContentPerformanceDaily,
   // Phase 5
   AiContentTemplate,
-  // Phase 6
+  // Phase 6 (AI)
   AiContentUsage,
   // Security
   AuditEvent,
   SecurityAlert,
+  SecurityRestriction,
+  // Phase 5: Payment Security
+  Order,
+  OrderItem,
+  PaymentAttempt,
+  ProcessedWebhook,
+  ReviewResponse,
+  ReviewReport,
+  ReviewSignal,
+  ReviewVote,
+  // Phase 6: Financial Fraud + Control
+  SecurityProfile,
+  ManualReviewCase,
+  // Seller Billing
+  SellerPlan,
+  SellerPlanFeature,
+  SellerSubscription,
+  SellerInvoice,
+  SellerInvoiceItem,
+  SellerBillingPayment,
+  SellerManualPaymentReport,
 };

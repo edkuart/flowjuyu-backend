@@ -26,6 +26,7 @@ import {
 import { logAuditEventFromRequest } from "../services/audit.service";
 import { checkLoginAbuse } from "../services/abuseDetection.service";
 import { LOGIN_RULES } from "../config/securityRules";
+import { evaluateLoginDefense } from "../services/activeDefense.service";
 
 // ────────────────────────────────────────────────────────────
 // User DTO — canonical response shape
@@ -395,6 +396,42 @@ export const login = async (
 
     const user = await User.findOne({ where: { correo: email } });
 
+    if (user?.rol !== "admin") {
+      const defense = await evaluateLoginDefense({
+        ip:     req.ip ?? req.socket?.remoteAddress ?? "unknown",
+        email,
+        userId: user?.id,
+      });
+
+      if (defense.decision === "cooldown" || defense.decision === "deny") {
+        void logAuditEventFromRequest(req, {
+          actor_user_id: user?.id ?? null,
+          actor_role:    user?.rol ?? "anonymous",
+          action:        defense.decision === "cooldown"
+            ? "defense.login.cooldown_applied"
+            : "defense.login.deny_applied",
+          entity_type:   user ? "user" : null,
+          entity_id:     user ? String(user.id) : null,
+          status:        "blocked",
+          severity:      defense.decision === "deny" ? "critical" : "high",
+          metadata: {
+            reason:              defense.reason,
+            retryAfter:          defense.retryAfter,
+            restrictionCreated:  defense.restrictionCreated ?? false,
+          },
+        });
+        if (defense.retryAfter) {
+          res.setHeader("Retry-After", String(defense.retryAfter));
+        }
+        res.status(429).json({
+          ok:      false,
+          code:    "ACTIVE_DEFENSE_TRIGGERED",
+          message: "Action temporarily restricted. Please try again later.",
+        });
+        return;
+      }
+    }
+
     if (!user) {
       void logAuditEventFromRequest(req, {
         actor_user_id: null,
@@ -437,6 +474,24 @@ export const login = async (
       });
 
       if (perfil) {
+        if (perfil.estado_admin === "eliminado") {
+          void logAuditEventFromRequest(req, {
+            actor_user_id: user.id,
+            actor_role:    user.rol,
+            action:        "auth.login.failed",
+            entity_type:   "user",
+            entity_id:     String(user.id),
+            status:        "blocked",
+            severity:      "critical",
+            metadata:      { reason: "account_eliminated" },
+          });
+          res.status(403).json({
+            ok:      false,
+            message: "Esta cuenta ha sido eliminada",
+          });
+          return;
+        }
+
         if (perfil.estado_admin === "suspendido") {
           void logAuditEventFromRequest(req, {
             actor_user_id: user.id,

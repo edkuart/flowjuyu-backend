@@ -37,6 +37,13 @@ export const requireActiveSeller: RequestHandler = async (
     const estado = perfil[0];
 
     // 🔒 Validación administrativa (operativa)
+    if (estado.estado_admin === "eliminado") {
+      res.status(403).json({
+        message: "Esta cuenta ha sido eliminada",
+      });
+      return;
+    }
+
     if (estado.estado_admin !== "activo") {
       res.status(403).json({
         message: "Tu comercio no está activo",

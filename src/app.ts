@@ -30,6 +30,10 @@ import reviewRoutes from "./routes/review.routes";
 import favoritesRoutes from "./routes/favorites.routes";
 import notificationsRoutes from "./routes/notifications.routes";
 import recommendationsRoutes from "./routes/recommendations.routes";
+import orderRoutes         from "./routes/order.routes";
+import paymentRoutes       from "./routes/payment.routes";
+import sellerBillingRoutes from "./routes/sellerBilling.routes";
+import adminBillingRoutes  from "./routes/adminBilling.routes";
 
 // Phase 2 table setup
 import { setupPhase2Tables } from "./utils/setupTables";
@@ -132,6 +136,7 @@ app.options(/.*/, cors(corsOptions));
 // ===========================
 // Parsers
 // ===========================
+app.use("/api/payments/webhooks/:provider", express.raw({ type: "*/*", limit: "1mb" }));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -243,15 +248,23 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminTicketRoutes);
 app.use("/api/admin/ai", adminAiRoutes);
 app.use("/api/admin/ai/content", adminContentRoutes); // Phase 2: AI Content Intelligence
+app.use("/api/admin/billing", adminBillingRoutes);    // Phase 3: Seller Billing admin review
 
 // ===========================
 // Dominio
 // ===========================
 app.use("/api/buyer", buyerRoutes);
 app.use("/api/seller", sellerRoutes);
+app.use("/api/seller/billing", sellerBillingRoutes); // Phase 3: Seller Billing self-service
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/favorites", favoritesRoutes);
 app.use("/api/notifications", notificationsRoutes);
+
+// Phase 5: Payment Security
+// IMPORTANT: /api/payments must be mounted BEFORE express.json() would affect
+// the raw webhook body. The route file applies express.raw() on /webhooks/:provider.
+app.use("/api/orders",   orderRoutes);
+app.use("/api/payments", paymentRoutes);
 
 // ===========================
 // Analytics

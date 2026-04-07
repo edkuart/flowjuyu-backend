@@ -20,6 +20,7 @@ import {
 
   // Reviews
   getReviews,
+  getPendingReviews,
   createReview,
   deleteReview,
 
@@ -74,6 +75,7 @@ router.delete("/favorites/:id", requireRole("buyer"), removeFavorite);
 // Reviews
 // ===========================
 router.get("/reviews", requireRole("buyer"), getReviews);
+router.get("/reviews/pending", requireRole("buyer"), getPendingReviews);
 router.post("/reviews", requireRole("buyer"), createReview);
 router.delete("/reviews/:id", requireRole("buyer"), deleteReview);
 

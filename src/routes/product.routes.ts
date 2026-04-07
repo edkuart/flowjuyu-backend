@@ -40,6 +40,10 @@ import {
   createProductReview,
   getProductByCode,
 } from "../controllers/product.controller";
+import {
+  reviewLimiter,
+  getProductReviewEligibility,
+} from "../controllers/review.controller";
 
 const router: Router = Router();
 
@@ -82,10 +86,21 @@ router.get("/products/:id", asyncHandler(getProductById));
 router.get("/productos/:id", asyncHandler(getProductById)); // legacy
 router.get("/products/:id/reviews", asyncHandler(getProductReviews));
 
+// Eligibility check — tells the frontend whether the authenticated buyer
+// may submit a review for this product (purchase verification, duplicate check).
+// Returns { eligible: boolean, reason?: string }
+router.get(
+  "/products/:id/reviews/eligibility",
+  verifyToken(["buyer"]),
+  requireRole("buyer"),
+  asyncHandler(getProductReviewEligibility),
+);
+
 router.post(
   "/products/:id/reviews",
   verifyToken(["buyer"]),
   requireRole("buyer"),
+  reviewLimiter,              // rate-limit: 5 per hour (same as seller endpoint)
   asyncHandler(createProductReview)
 );
 

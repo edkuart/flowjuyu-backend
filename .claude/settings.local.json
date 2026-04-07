@@ -11,7 +11,13 @@
       "Bash(npx sequelize-cli:*)",
       "Bash(find c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend/src -path */product-edit* -o -path */useProductEdit* -o -path */product-edit.ts -o -path */productos*editar*)",
       "Bash(find c:UsersDellProjectsFlowjuyu-1.0flowjuyu-frontendsrcapp -type d -name [*)",
-      "Bash(grep -A 50 \"const productQuery = \\\\`\" /c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-backend/src/controllers/product.controller.ts)"
+      "Bash(grep -A 50 \"const productQuery = \\\\`\" /c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-backend/src/controllers/product.controller.ts)",
+      "Bash(find /c/Users/Dell/Projects/Flowjuyu-1.0 -type f \\\\\\( -name \"*.sql\" -o -name \"*.ts\" -o -name \"*.js\" \\\\\\) -exec grep -l \"CREATE TABLE.*reviews\\\\|reviews.*product\" {} \\\\;)",
+      "Bash(find /c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend/src -name \"useApiFetch*\" -exec head -40 {} \\\\;)",
+      "Bash(ls /c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend/src/components/home/FeaturedSeller*)",
+      "Bash(npx --prefix /c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend tsc --noEmit)",
+      "Bash(xargs grep:*)",
+      "Bash(./node_modules/.bin/tsc --noEmit)"
     ]
   }
 }

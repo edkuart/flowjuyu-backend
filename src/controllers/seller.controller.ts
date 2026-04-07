@@ -14,6 +14,7 @@ import { REFRESH_TOKEN_COOKIE } from "../lib/cookies";
 import { logAuditEventFromRequest } from "../services/audit.service";
 import { checkKycAbuse } from "../services/abuseDetection.service";
 import { KYC_RULES } from "../config/securityRules";
+import { evaluateKycDefense } from "../services/activeDefense.service";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/seller/entry-point
@@ -607,6 +608,86 @@ export const validateSellerBusiness: RequestHandler = async (req, res) => {
       return;
     }
 
+    const defense = await evaluateKycDefense({
+      userId: user.id,
+      ip:     req.ip ?? req.socket?.remoteAddress ?? "unknown",
+    });
+
+    if (defense.decision === "cooldown") {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: user.id,
+        actor_role:    user.role ?? "seller",
+        action:        "defense.kyc.cooldown_applied",
+        entity_type:   "seller",
+        entity_id:     String(user.id),
+        status:        "blocked",
+        severity:      "high",
+        metadata: {
+          reason:             defense.reason,
+          retryAfter:         defense.retryAfter,
+          restrictionCreated: defense.restrictionCreated ?? false,
+        },
+      });
+      if (defense.retryAfter) {
+        res.setHeader("Retry-After", String(defense.retryAfter));
+      }
+      res.status(429).json({
+        ok:      false,
+        code:    "ACTIVE_DEFENSE_TRIGGERED",
+        message: "Action temporarily restricted. Please try again later.",
+      });
+      return;
+    }
+
+    if (defense.decision === "manual_review") {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: user.id,
+        actor_role:    user.role ?? "seller",
+        action:        "defense.kyc.manual_review_required",
+        entity_type:   "seller",
+        entity_id:     String(user.id),
+        status:        "blocked",
+        severity:      "critical",
+        metadata: {
+          reason:             defense.reason,
+          retryAfter:         defense.retryAfter,
+          restrictionCreated: defense.restrictionCreated ?? false,
+        },
+      });
+      res.status(403).json({
+        ok:      false,
+        code:    "MANUAL_REVIEW_REQUIRED",
+        message: "This action requires manual review before continuing.",
+      });
+      return;
+    }
+
+    if (defense.decision === "deny") {
+      void logAuditEventFromRequest(req, {
+        actor_user_id: user.id,
+        actor_role:    user.role ?? "seller",
+        action:        "defense.kyc.block_applied",
+        entity_type:   "seller",
+        entity_id:     String(user.id),
+        status:        "blocked",
+        severity:      "critical",
+        metadata: {
+          reason:             defense.reason,
+          retryAfter:         defense.retryAfter,
+          restrictionCreated: defense.restrictionCreated ?? false,
+        },
+      });
+      if (defense.retryAfter) {
+        res.setHeader("Retry-After", String(defense.retryAfter));
+      }
+      res.status(403).json({
+        ok:      false,
+        code:    "ACTIVE_DEFENSE_TRIGGERED",
+        message: "Action temporarily restricted. Please try again later.",
+      });
+      return;
+    }
+
     const perfil = await VendedorPerfil.findOne({
       where: { user_id: user.id },
     });
@@ -796,6 +877,7 @@ export const getTopSellers = async (req: Request, res: Response) => {
         vp.user_id     AS vendedor_id,
         vp.nombre_comercio,
         vp.logo,
+        vp.banner_url,
         vp.departamento,
         vp.municipio,
         COUNT(r.id)    AS total_reviews,
@@ -810,7 +892,7 @@ export const getTopSellers = async (req: Request, res: Response) => {
       LEFT JOIN reviews r ON r.producto_id = p.id
       WHERE vp.estado_validacion = 'aprobado'
         AND vp.estado_admin      = 'activo'
-      GROUP BY vp.user_id, vp.nombre_comercio, vp.logo, vp.departamento, vp.municipio
+      GROUP BY vp.user_id, vp.nombre_comercio, vp.logo, vp.banner_url, vp.departamento, vp.municipio
       ORDER BY weighted_score DESC NULLS LAST
       LIMIT 10
       `,
@@ -821,6 +903,7 @@ export const getTopSellers = async (req: Request, res: Response) => {
       id: Number(s.vendedor_id),
       nombre_comercio: s.nombre_comercio ?? null,
       logo_url: s.logo ?? null,
+      banner_url: s.banner_url ?? null,
       departamento: s.departamento ?? null,
       municipio: s.municipio ?? null,
       total_reviews: Number(s.total_reviews),

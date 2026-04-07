@@ -8,6 +8,7 @@ import { requireActiveSeller } from "../middleware/requireActiveSeller";
 import { validateUploadedFiles } from "../middleware/upload.middleware";
 import * as SellerController from "../controllers/seller.controller";
 import * as SellerTicketController from "../controllers/sellerTicket.controller";
+import { getSellerReviewInsightsHandler } from "../controllers/review.controller";
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -174,6 +175,12 @@ router.get(
   "/analytics/growth",
   requireActiveSeller,
   asyncHandler(SellerController.getSellerGrowthAnalytics)
+);
+
+router.get(
+  "/reviews/insights",
+  requireActiveSeller,
+  asyncHandler(getSellerReviewInsightsHandler)
 );
 
 // ==============================

@@ -15,6 +15,7 @@ import { can } from "../services/authorization.service";
 import { createNotification } from "../utils/notifications";
 import { notifyNewProductInCategory } from "../services/suggestions.service";
 import { generateProductCode } from "../services/productCode.service";
+import { createReviewFromPurchase, listProductReviews } from "../services/review.service";
 
 
 // ===========================
@@ -2056,54 +2057,32 @@ export const getProductReviews = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const sortParam = Array.isArray(req.query.sort) ? req.query.sort[0] : req.query.sort;
+    const sort =
+      sortParam === "highest_rating" ||
+      sortParam === "lowest_rating" ||
+      sortParam === "most_helpful" ||
+      sortParam === "newest"
+        ? sortParam
+        : "newest";
 
     if (!id) {
       res.status(400).json({ message: "ID de producto requerido" });
       return;
     }
 
-    const rows: any = await sequelize.query(
-      `
-      SELECT
-        r.id,
-        r.rating,
-        r.comentario  AS comment,
-        'Comprador'   AS buyer_name,
-        r.created_at
-      FROM reviews r
-      JOIN productos p ON p.id = r.producto_id
-      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
-      WHERE
-        r.producto_id = :id
-        AND p.activo = true
-        AND v.estado_validacion = 'aprobado'
-        AND v.estado_admin = 'activo'
-      ORDER BY r.created_at DESC
-      `,
-      {
-        replacements: { id },
-        type: QueryTypes.SELECT,
-      }
-    );
-
-    const rating_count = rows.length;
-    const rating_avg =
-      rating_count > 0
-        ? Number(
-            (
-              rows.reduce((sum: number, r: any) => sum + r.rating, 0) /
-              rating_count
-            ).toFixed(1)
-          )
-        : 0;
+    const { rating_count, rating_avg, breakdown, reviews } = await listProductReviews(id, sort);
 
     res.json({
       success: true,
       total: rating_count,
       rating_count,
       rating_avg,
-      reviews: rows,
+      breakdown,
+      sort,
+      reviews,
     });
 
   } catch (error) {
@@ -2119,224 +2098,84 @@ export const createProductReview = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const t = await sequelize.transaction();
-
   try {
-    // =====================================================
-    // 🔐 VALIDACIÓN DE USUARIO
-    // =====================================================
     if (!req.user?.id) {
-      await t.rollback();
       res.status(401).json({ message: "No autenticado" });
       return;
     }
 
     const userId = Number(req.user.id);
 
-    // 🔐 Validar rol (alineado a tu arquitectura actual)
     if (req.user.role !== "buyer") {
-      await t.rollback();
-      res.status(403).json({
-        message: "Solo compradores pueden dejar reseñas",
-      });
+      res.status(403).json({ message: "Solo compradores pueden dejar reseñas" });
       return;
     }
 
-    // =====================================================
-    // 🔒 VALIDACIÓN DE ID ROBUSTA
-    // =====================================================
+    // ── Product ID ──────────────────────────────────────────────────────────
     const idParam = req.params.id;
-    const idRaw = Array.isArray(idParam) ? idParam[0] : idParam;
+    const idRaw   = Array.isArray(idParam) ? idParam[0] : idParam;
 
     if (!idRaw || !isUUID(idRaw)) {
-      await t.rollback();
       res.status(400).json({ message: "ID de producto inválido" });
       return;
     }
 
     const productId = idRaw;
 
-    // =====================================================
-    // ⭐ VALIDACIÓN DE RATING
-    // =====================================================
+    // ── Rating ──────────────────────────────────────────────────────────────
     const ratingNumber = Number(req.body.rating);
 
-    if (
-      !Number.isInteger(ratingNumber) ||
-      ratingNumber < 1 ||
-      ratingNumber > 5
-    ) {
-      await t.rollback();
-      res.status(400).json({
-        message: "Rating debe ser un número entero entre 1 y 5",
-      });
+    if (!Number.isInteger(ratingNumber) || ratingNumber < 1 || ratingNumber > 5) {
+      res.status(400).json({ message: "Rating debe ser un número entero entre 1 y 5" });
       return;
     }
-
-    // =====================================================
-    // 🔎 VALIDAR PRODUCTO DISPONIBLE
-    // =====================================================
-    const productCheck: any = await sequelize.query(
-      `
-      SELECT p.id, p.vendedor_id
-      FROM productos p
-      JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
-      WHERE 
-        p.id = :id
-        AND p.activo = true
-        AND v.estado_validacion = 'aprobado'
-        AND v.estado_admin = 'activo'
-      LIMIT 1
-      `,
-      {
-        replacements: { id: productId },
-        type: QueryTypes.SELECT,
-        transaction: t,
-      }
-    );
-
-    if (!productCheck.length) {
-      await t.rollback();
-      res.status(404).json({
-        message: "Producto no disponible para reseñas",
-      });
-      return;
-    }
-
-    // =====================================================
-    // 🔒 PREVENIR RESEÑA DUPLICADA
-    // =====================================================
-    const existingReview: any = await sequelize.query(
-      `
-      SELECT id
-      FROM reviews
-      WHERE producto_id = :producto_id
-      AND buyer_id = :buyer_id
-      LIMIT 1
-      `,
-      {
-        replacements: {
-          producto_id: productId,
-          buyer_id: userId,
-        },
-        type: QueryTypes.SELECT,
-        transaction: t,
-      }
-    );
-
-    if (existingReview.length > 0) {
-      await t.rollback();
-      res.status(400).json({
-        message: "Ya has dejado una reseña para este producto",
-      });
-      return;
-    }
-
-    // =====================================================
-    // ✅ INSERTAR RESEÑA
-    // =====================================================
-    await sequelize.query(
-      `
-      INSERT INTO reviews (producto_id, buyer_id, rating, comentario)
-      VALUES (:producto_id, :buyer_id, :rating, :comentario)
-      `,
-      {
-        replacements: {
-          producto_id: productId,
-          buyer_id: userId,
-          rating: ratingNumber,
-          comentario: req.body.comentario ?? null,
-        },
-        transaction: t,
-      }
-    );
-
-    // =====================================================
-    // 📊 RECALCULAR RATING
-    // =====================================================
-    const ratingStats: any = await sequelize.query(
-      `
-      SELECT 
-        COUNT(*)::int AS total,
-        ROUND(AVG(rating)::numeric, 2) AS promedio
-      FROM reviews
-      WHERE producto_id = :id
-      `,
-      {
-        replacements: { id: productId },
-        type: QueryTypes.SELECT,
-        transaction: t,
-      }
-    );
-
-    const totalReviews = ratingStats[0]?.total ?? 0;
-    const promedio = ratingStats[0]?.promedio ?? 0;
-
-    // =====================================================
-    // 🔄 ACTUALIZAR PRODUCTO
-    // =====================================================
-    await sequelize.query(
-      `
-      UPDATE productos
-      SET 
-        rating_avg = :rating_avg,
-        rating_count = :rating_count,
-        updated_at = now()
-      WHERE id = :id
-      `,
-      {
-        replacements: {
-          id: productId,
-          rating_avg: promedio,
-          rating_count: totalReviews,
-        },
-        transaction: t,
-      }
-    );
-
-    await t.commit();
-
-    // =====================================================
-    // 📈 EVENTO ANALÍTICO
-    // =====================================================
-    await logEvent({
-      type: "review_created",
-      user_id: userId,
-      product_id: productId,
+    const created = await createReviewFromPurchase({
+      buyerId:    userId,
+      productId,
+      rating:     ratingNumber,
+      comentario: req.body.comentario ?? req.body.comment ?? null,
     });
 
-    // =====================================================
-    // 🔔 NOTIFICAR AL VENDEDOR
-    // =====================================================
-    const sellerUserId = productCheck[0]?.vendedor_id;
-    if (sellerUserId) {
-      await createNotification(
-        Number(sellerUserId),
+    // ── Analytics (non-blocking) ─────────────────────────────────────────────
+    logEvent({ type: "review_created", user_id: userId, product_id: productId }).catch(() => {});
+
+    // ── Seller notification (non-blocking) ───────────────────────────────────
+    if (created.seller_id) {
+      createNotification(
+        Number(created.seller_id),
         "review",
         "Nueva reseña en tu producto",
         `Un comprador calificó tu pieza con ${ratingNumber} ${ratingNumber === 1 ? "estrella" : "estrellas"}.`,
         `/seller/products`
-      );
+      ).catch(() => {});
     }
 
-    // =====================================================
-    // 📦 RESPUESTA
-    // =====================================================
     res.status(201).json({
-      success: true,
-      message: "Reseña creada correctamente",
-      rating_avg: promedio,
-      rating_count: totalReviews,
+      success:      true,
+      message:      "Reseña creada correctamente",
+      rating_avg:   created.rating_avg,
+      rating_count: created.rating_count,
+      review_id:    created.review_id,
     });
 
-  } catch (error) {
-    await t.rollback();
+  } catch (error: any) {
+    if (error?.message === "PRODUCT_NOT_REVIEWABLE") {
+      res.status(404).json({ message: "Producto no disponible para reseñas" });
+      return;
+    }
+    if (error?.message === "ALREADY_REVIEWED") {
+      res.status(409).json({ message: "Ya has dejado una reseña para este producto" });
+      return;
+    }
+    if (error?.message === "PURCHASE_REQUIRED") {
+      res.status(403).json({
+        message: "Solo puedes reseñar productos que hayas comprado y recibido",
+        code:    "PURCHASE_REQUIRED",
+      });
+      return;
+    }
     console.error("❌ Error createProductReview:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Error al crear reseña",
-    });
+    res.status(500).json({ success: false, message: "Error al crear reseña" });
   }
 };
 
