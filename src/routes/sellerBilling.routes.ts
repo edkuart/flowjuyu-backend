@@ -8,7 +8,7 @@
 //   • GET /invoices/:invoiceId    MUST come after  GET /invoices  (Express matches top-down)
 //   • GET /payments/:paymentId    MUST come after  GET /payments
 
-import { Router } from "express";
+import { Router, type IRouter } from "express";
 import { verifyToken } from "../middleware/auth";
 import asyncHandler from "../middleware/asyncHandler";
 import {
@@ -27,7 +27,7 @@ import {
   getSellerManualPaymentReportDetail,
 } from "../controllers/sellerBilling.controller";
 
-const router = Router();
+const router: IRouter = Router();
 
 // ─── Subscriptions ────────────────────────────────────────────────────────────
 

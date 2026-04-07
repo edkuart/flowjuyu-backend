@@ -3,7 +3,7 @@
 // Mounted at: /api/admin/billing
 // All routes require role=admin.
 
-import { Router } from "express";
+import { Router, type IRouter } from "express";
 import { verifyToken } from "../middleware/auth";
 import asyncHandler from "../middleware/asyncHandler";
 import {
@@ -14,7 +14,7 @@ import {
   adminRejectManualPayment,
 } from "../controllers/adminBilling.controller";
 
-const router = Router();
+const router: IRouter = Router();
 
 // ─── Manual payment reports queue ─────────────────────────────────────────────
 
