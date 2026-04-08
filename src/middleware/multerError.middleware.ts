@@ -10,8 +10,12 @@ export function multerErrorHandler(
 ) {
   if (err instanceof multer.MulterError) {
     console.error("❌ MulterError:", err);
+    const message =
+      err.code === "LIMIT_FILE_SIZE"
+        ? "Cada imagen puede pesar máximo 8MB."
+        : err.message;
     return res.status(400).json({
-      message: err.message,
+      message,
       code: err.code,
     });
   }

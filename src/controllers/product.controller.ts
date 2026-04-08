@@ -16,6 +16,7 @@ import { createNotification } from "../utils/notifications";
 import { notifyNewProductInCategory } from "../services/suggestions.service";
 import { generateProductCode } from "../services/productCode.service";
 import { createReviewFromPurchase, listProductReviews } from "../services/review.service";
+import { buildHomeCatalog } from "../services/homeCatalog.service";
 
 
 // ===========================
@@ -37,7 +38,7 @@ const fileFilter: multer.Options["fileFilter"] = (_req, file, cb) =>
 
 export const uploadProductImages = multer({
   storage,
-  limits: { files: 5, fileSize: 3 * 1024 * 1024 },
+  limits: { files: 5, fileSize: 8 * 1024 * 1024 },
   fileFilter,
 });
 
@@ -2179,6 +2180,49 @@ export const createProductReview = async (
   }
 };
 
+export const getHomeCatalog = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const seedParam = Array.isArray(req.query.seed) ? req.query.seed[0] : req.query.seed;
+    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const categoryParam = Array.isArray(req.query.featuredCategoryId)
+      ? req.query.featuredCategoryId[0]
+      : req.query.featuredCategoryId;
+
+    const featuredCategoryId = toIntOrNull(categoryParam);
+    const sectionSize = toIntOrNull(limitParam) ?? undefined;
+
+    const result = await buildHomeCatalog({
+      options: {
+        seed: typeof seedParam === "string" ? seedParam : undefined,
+        featuredCategoryId,
+        sectionSize,
+      },
+      mapProduct: buildPublicProductCardDTO,
+    });
+
+    console.log({
+      featured: result.sections.featured.items.map((p: any) => p.id),
+      newArrivals: result.sections.new_arrivals.items.map((p: any) => p.id),
+      trending: result.sections.trending.items.map((p: any) => p.id),
+    });
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("[getHomeCatalog] ERROR:", (error as any)?.message);
+    console.error("[getHomeCatalog] SQL:", (error as any)?.parent?.message);
+    res.status(500).json({
+      success: false,
+      message: "Error al obtener catálogo de inicio",
+    });
+  }
+};
+
 export const getTopProductsByCategory = async (
   req: Request,
   res: Response
@@ -2208,13 +2252,17 @@ export const getTopProductsByCategory = async (
       JOIN vendedor_perfil v ON v.user_id = p.vendedor_id
       LEFT JOIN reviews r ON r.producto_id = p.id
       WHERE p.activo = true
+      AND p.categoria_id = :categoriaId
       AND v.estado_validacion = 'aprobado'
       AND v.estado_admin = 'activo'
       GROUP BY p.id
       ORDER BY weighted_score DESC NULLS LAST
       LIMIT 8
       `,
-      { type: QueryTypes.SELECT }
+      {
+        replacements: { categoriaId },
+        type: QueryTypes.SELECT,
+      }
     );    
 
     const normalized = (products as any[]).map((p) => ({

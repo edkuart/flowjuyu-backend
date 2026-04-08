@@ -24,7 +24,7 @@ const ALLOWED_SELLER_MIME = ["image/jpeg", "image/jpg", "image/png", "image/webp
 
 const upload = multer({
   storage,
-  limits: { fileSize: 3 * 1024 * 1024 },
+  limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!ALLOWED_SELLER_MIME.includes(file.mimetype)) {
       return cb(

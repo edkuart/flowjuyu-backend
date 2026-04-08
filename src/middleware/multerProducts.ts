@@ -15,7 +15,7 @@ export const uploadProductImages = multer({
   storage,
   limits: {
     files: 5, // 🔥 CAMBIADO DE 9 → 5
-    fileSize: 3 * 1024 * 1024, // 3 MB hard limit — client should compress before this
+    fileSize: 8 * 1024 * 1024, // 8 MB hard limit — client should compress before this
   },
   fileFilter,
 });

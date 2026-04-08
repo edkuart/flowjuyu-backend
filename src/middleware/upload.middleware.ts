@@ -12,7 +12,7 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
-    fileSize: 3 * 1024 * 1024, // 3 MB
+    fileSize: 8 * 1024 * 1024, // 8 MB
   },
   fileFilter: (_req, file, cb) => {
     // 1. MIME type allowlist — application/octet-stream is intentionally excluded

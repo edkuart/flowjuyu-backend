@@ -34,6 +34,7 @@ import {
   getFilters,
   getProductsByCategory,
   getNewProducts,
+  getHomeCatalog,
   getTrendingProducts,
   getTopProductsByCategory,
   getProductReviews,
@@ -67,6 +68,7 @@ router.get("/accesorio-materiales", asyncHandler(getAccesorioMateriales));
 ========================================================= */
 router.get("/products", asyncHandler(getFilteredProducts));
 router.get("/productos", asyncHandler(getFilteredProducts)); // legacy
+router.get("/home/products", asyncHandler(getHomeCatalog));
 router.get("/filters/:tipo", asyncHandler(getFilters));
 router.get("/categorias/:slug/productos", asyncHandler(getProductsByCategory));
 router.get("/productos/nuevos", asyncHandler(getNewProducts));
