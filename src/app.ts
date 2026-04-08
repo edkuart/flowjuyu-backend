@@ -34,6 +34,7 @@ import orderRoutes         from "./routes/order.routes";
 import paymentRoutes       from "./routes/payment.routes";
 import sellerBillingRoutes from "./routes/sellerBilling.routes";
 import adminBillingRoutes  from "./routes/adminBilling.routes";
+import whatsappIntegrationRoutes from "./routes/whatsappIntegration.routes";
 
 // Phase 2 table setup
 import { setupPhase2Tables } from "./utils/setupTables";
@@ -265,6 +266,7 @@ app.use("/api/notifications", notificationsRoutes);
 // the raw webhook body. The route file applies express.raw() on /webhooks/:provider.
 app.use("/api/orders",   orderRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/integrations/whatsapp", whatsappIntegrationRoutes);
 
 // ===========================
 // Analytics

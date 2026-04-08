@@ -52,6 +52,9 @@ import SellerInvoice        from "./SellerInvoice.model";
 import SellerInvoiceItem    from "./SellerInvoiceItem.model";
 import SellerBillingPayment from "./SellerBillingPayment.model";
 import SellerManualPaymentReport from "./SellerManualPaymentReport.model";
+import ConversationSession  from "./ConversationSession.model";
+import ConversationMessage  from "./ConversationMessage.model";
+import ListingDraft         from "./ListingDraft.model";
 
 /**
  * ============================================
@@ -123,6 +126,70 @@ function setupAssociations() {
     Ticket.belongsTo(User, {
       foreignKey: "user_id",
       as: "user",
+    });
+  }
+
+  /* ============================
+     💬 ConversationSession ↔ ConversationMessage
+  ============================ */
+
+  if (!(ConversationSession as any).associations?.messages) {
+    ConversationSession.hasMany(ConversationMessage, {
+      foreignKey: "session_id",
+      as: "messages",
+      onDelete: "CASCADE",
+    });
+  }
+
+  if (!(ConversationMessage as any).associations?.session) {
+    ConversationMessage.belongsTo(ConversationSession, {
+      foreignKey: "session_id",
+      as: "session",
+    });
+  }
+
+  if (!(ConversationSession as any).associations?.draft) {
+    ConversationSession.hasOne(ListingDraft, {
+      foreignKey: "session_id",
+      as: "draft",
+      onDelete: "CASCADE",
+    });
+  }
+
+  if (!(ListingDraft as any).associations?.session) {
+    ListingDraft.belongsTo(ConversationSession, {
+      foreignKey: "session_id",
+      as: "session",
+    });
+  }
+
+  if (!(User as any).associations?.conversationSessions) {
+    User.hasMany(ConversationSession, {
+      foreignKey: "linked_seller_user_id",
+      as: "conversationSessions",
+      onDelete: "SET NULL",
+    });
+  }
+
+  if (!(ConversationSession as any).associations?.seller) {
+    ConversationSession.belongsTo(User, {
+      foreignKey: "linked_seller_user_id",
+      as: "seller",
+    });
+  }
+
+  if (!(User as any).associations?.listingDrafts) {
+    User.hasMany(ListingDraft, {
+      foreignKey: "seller_user_id",
+      as: "listingDrafts",
+      onDelete: "SET NULL",
+    });
+  }
+
+  if (!(ListingDraft as any).associations?.seller) {
+    ListingDraft.belongsTo(User, {
+      foreignKey: "seller_user_id",
+      as: "seller",
     });
   }
 
@@ -472,6 +539,9 @@ export {
   SellerInvoiceItem,
   SellerBillingPayment,
   SellerManualPaymentReport,
+  ConversationSession,
+  ConversationMessage,
+  ListingDraft,
 };
 
 export const models = {
@@ -513,4 +583,7 @@ export const models = {
   SellerInvoiceItem,
   SellerBillingPayment,
   SellerManualPaymentReport,
+  ConversationSession,
+  ConversationMessage,
+  ListingDraft,
 };
