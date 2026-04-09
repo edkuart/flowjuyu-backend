@@ -9,6 +9,7 @@ import { logAuditEventFromRequest } from "../services/audit.service";
 export const getWhatsappLinkStatus: RequestHandler = async (req, res) => {
   const sellerUserId = Number(req.user!.id);
   const status = await getSellerWhatsappLinkStatus(sellerUserId);
+  res.set("Cache-Control", "no-store");
 
   res.json({
     ok: true,

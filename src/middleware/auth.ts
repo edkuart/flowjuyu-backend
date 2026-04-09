@@ -62,6 +62,9 @@ export const verifyToken = (
       const token = getBearerToken(req);
 
       if (!token) {
+        console.warn(
+          `[auth][verifyToken] missing_token method=${req.method} path=${req.originalUrl} has_auth_header=${Boolean(req.headers.authorization)}`
+        );
         res.status(401).json({ message: "Token no proporcionado" });
         return;
       }
@@ -89,6 +92,9 @@ export const verifyToken = (
       const user = await User.findByPk(decoded.sub);
 
       if (!user) {
+        console.warn(
+          `[auth][verifyToken] user_not_found method=${req.method} path=${req.originalUrl} sub=${decoded.sub}`
+        );
         res.status(401).json({ message: "Usuario no existe" });
         return;
       }
@@ -97,6 +103,9 @@ export const verifyToken = (
       // Rejects tokens issued before the last logoutAll / password change.
       // Also rejects legacy tokens that omit token_version (undefined !== number).
       if (decoded.token_version !== user.token_version) {
+        console.warn(
+          `[auth][verifyToken] token_version_mismatch method=${req.method} path=${req.originalUrl} sub=${decoded.sub}`
+        );
         res.status(401).json({
           message: "Sesión inválida. Inicia sesión nuevamente.",
         });
@@ -130,6 +139,9 @@ export const verifyToken = (
       next();
     } catch (error: any) {
       if (error?.name === "TokenExpiredError") {
+        console.warn(
+          `[auth][verifyToken] token_expired method=${req.method} path=${req.originalUrl}`
+        );
         res.status(401).json({
           message: "Token expirado",
           code:    "TOKEN_EXPIRED",
