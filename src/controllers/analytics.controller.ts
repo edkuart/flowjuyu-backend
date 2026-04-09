@@ -6,6 +6,7 @@ import {
   getSellerAnalyticsData,
   SellerAnalyticsData,
 } from "../services/analytics.service"
+import { trackEvent } from "../services/analytics/analytics.service";
 
 /* ============================================
    Helper: asegurar creación de sesión
@@ -342,6 +343,34 @@ export const trackWhatsappClick: RequestHandler = async (req, res) => {
     console.error("Error trackWhatsappClick:", error);
     res.status(500).json({ message: "Error interno" });
   }
+};
+
+export const trackAnalyticsEvent: RequestHandler = async (req, res) => {
+  try {
+    const { event, payload } = req.body ?? {};
+    const sellerId =
+      Number.isFinite(Number(req.body?.seller_id))
+        ? Number(req.body.seller_id)
+        : Number.isFinite(Number(payload?.seller_id))
+          ? Number(payload.seller_id)
+          : null;
+
+    void trackEvent({
+      event: String(event || ""),
+      sellerId,
+      payload:
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? payload
+          : null,
+    });
+  } catch (error) {
+    console.warn(
+      "[analytics-events] ingest failed:",
+      error instanceof Error ? error.message : error
+    );
+  }
+
+  res.status(200).json({ ok: true });
 };
 
 export const getSellerAnalyticsOverview: RequestHandler = async (req, res) => {

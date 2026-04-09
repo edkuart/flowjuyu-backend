@@ -56,6 +56,20 @@ export async function getOrCreateDraft(
   return draft;
 }
 
+export async function deleteListingDraftBySession(
+  sessionId: string
+): Promise<number> {
+  const deleted = await ListingDraft.destroy({
+    where: { session_id: sessionId },
+  });
+
+  console.log(
+    `[conversation][draft.delete] session=${sessionId} deleted=${deleted}`
+  );
+
+  return deleted;
+}
+
 export async function updateDraft(
   draft: ListingDraft,
   partialData: DraftPatch,
@@ -109,6 +123,10 @@ export async function updateDraftById(
   });
 }
 
+export function isDraftAbandoned(draft: ListingDraft): boolean {
+  return draft.status === "abandoned";
+}
+
 export async function appendImageToDraft(
   draftId: string,
   image: ListingDraftImage,
@@ -131,6 +149,55 @@ export async function appendImageToDraft(
 
     return lockedDraft;
   });
+}
+
+export function hasDraftContent(draft: ListingDraft): boolean {
+  if (isDraftAbandoned(draft)) {
+    return false;
+  }
+
+  return Boolean(
+    getDraftImages(draft).length > 0 ||
+      draft.suggested_title?.trim() ||
+      draft.suggested_description?.trim() ||
+      draft.categoria_custom?.trim() ||
+      draft.categoria_id ||
+      draft.clase_id ||
+      draft.measures_text?.trim() ||
+      draft.price != null ||
+      draft.stock != null
+  );
+}
+
+export async function abandonDraft(
+  draft: ListingDraft,
+  context?: { waMessageId?: string }
+): Promise<ListingDraft> {
+  return updateDraft(draft, { status: "abandoned" }, context);
+}
+
+export async function resetDraftForNewListing(
+  draft: ListingDraft,
+  context?: { waMessageId?: string }
+): Promise<ListingDraft> {
+  return updateDraft(
+    draft,
+    {
+      images_json: [],
+      suggested_title: null,
+      suggested_description: null,
+      price: null,
+      stock: null,
+      measures_text: null,
+      categoria_id: null,
+      categoria_custom: null,
+      clase_id: null,
+      vision_suggestions_json: null,
+      status: "collecting",
+      published_product_id: null,
+    },
+    context
+  );
 }
 
 export function getDraftImages(draft: ListingDraft): ListingDraftImage[] {

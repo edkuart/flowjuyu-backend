@@ -8,6 +8,6 @@ import {
 const router: ReturnType<typeof Router> = Router();
 
 router.get("/webhook", asyncHandler(verifyWhatsappWebhook));
-router.post("/webhook", asyncHandler(receiveWhatsappWebhook));
+router.post("/webhook", receiveWhatsappWebhook);
 
 export default router;

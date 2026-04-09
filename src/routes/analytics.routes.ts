@@ -5,6 +5,7 @@ import {
   getTopViewedProducts,
   trackProductView,
   trackSellerView,
+  trackAnalyticsEvent,
   trackWhatsappClick,
   getSellerAnalyticsOverview,
 } from "../controllers/analytics.controller";
@@ -33,6 +34,12 @@ router.get("/top-products", getTopViewedProducts);
 /* =====================================================
    👁 Tracking público
 ===================================================== */
+
+router.post(
+  "/",
+  trackingLimiter,
+  trackAnalyticsEvent
+);
 
 router.post(
   "/track/product/:productId",

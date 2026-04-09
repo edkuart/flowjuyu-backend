@@ -21,6 +21,7 @@ import productRoutes from "./routes/product.routes";
 import publicRoutes from "./routes/public.routes";
 import analyticsRoutes from "./routes/analytics.routes";
 import adminRoutes from "./routes/admin.routes";
+import adminAnalyticsRoutes from "./routes/admin.analytics.routes";
 import adminTicketRoutes from "./routes/admin.ticket.routes";
 import adminAiRoutes from "./routes/admin.ai.routes";
 import adminContentRoutes from "./routes/admin.content.routes"; // Phase 2: AI Content
@@ -246,6 +247,7 @@ app.use("/api/categories", categoriesRoutes);
 // 🏛️ ADMIN
 // ===========================
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin/analytics", adminAnalyticsRoutes);
 app.use("/api/admin", adminTicketRoutes);
 app.use("/api/admin/ai", adminAiRoutes);
 app.use("/api/admin/ai/content", adminContentRoutes); // Phase 2: AI Content Intelligence

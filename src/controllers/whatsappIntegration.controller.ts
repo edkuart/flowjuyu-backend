@@ -18,43 +18,80 @@ export const verifyWhatsappWebhook: RequestHandler = async (req, res) => {
 };
 
 export const receiveWhatsappWebhook: RequestHandler = async (req, res) => {
-  const payload = (req.body ?? {}) as WhatsAppWebhookPayload;
+  try {
+    const payload = (req.body ?? {}) as WhatsAppWebhookPayload;
+    const firstEntry = payload?.entry?.[0];
+    const firstChange = firstEntry?.changes?.[0];
+    const firstValue = firstChange?.value;
+    const firstMessage = firstValue?.messages?.[0];
 
-  console.log("[whatsapp][webhook] received", {
-    hasBody: Boolean(req.body),
-    object: (payload as any)?.object ?? null,
-    entryCount: Array.isArray(payload?.entry) ? payload.entry.length : 0,
-  });
+    console.log("📥 Incoming webhook:");
+    console.log(JSON.stringify(req.body ?? {}, null, 2));
 
-  if (!payload || typeof payload !== "object") {
-    console.warn("[whatsapp][webhook] invalid payload type");
-    res.status(200).json({ ok: true, received: 0, ignored: "invalid_payload" });
-    return;
-  }
+    console.log("[whatsapp][webhook] received", {
+      hasBody: Boolean(req.body),
+      object: (payload as any)?.object ?? null,
+      entryCount: Array.isArray(payload?.entry) ? payload.entry.length : 0,
+    });
 
-  const messages = normalizeInboundMessages(payload);
+    console.log("📞 From:", firstValue?.contacts?.[0]?.wa_id ?? firstMessage?.from ?? null);
+    console.log("📨 Raw value:", JSON.stringify(firstValue ?? {}, null, 2));
 
-  console.log("[whatsapp][webhook] parsed messages", {
-    count: messages.length,
-    types: messages.map((message) => message.type),
-    ids: messages.map((message) => message.waMessageId),
-  });
+    if (!payload || typeof payload !== "object") {
+      console.warn("[whatsapp][webhook] invalid payload type");
+      return void res.sendStatus(200);
+    }
 
-  for (const message of messages) {
+    if (!firstValue?.messages?.length) {
+      console.log("ℹ️ Non-message event received");
+      return void res.sendStatus(200);
+    }
+
+    console.log("📩 Message type:", firstMessage?.type ?? "unknown");
+    console.log("💬 Message text:", firstMessage?.text?.body ?? null);
+
+    let messages = [] as ReturnType<typeof normalizeInboundMessages>;
+
     try {
-      console.log("[whatsapp][webhook] dispatch orchestrator", {
-        waMessageId: message.waMessageId,
-        phone: message.phone,
-        type: message.type,
-      });
-      await handleInboundMessage(message);
+      messages = normalizeInboundMessages(payload);
     } catch (error: any) {
       console.error(
-        `[whatsapp][webhook] failed message=${message.waMessageId}:`,
-        error?.message ?? error
+        "❌ WEBHOOK NORMALIZER ERROR:",
+        error?.stack ?? error?.message ?? error
       );
+      return void res.sendStatus(200);
     }
-  }
 
-  res.status(200).json({ ok: true, received: messages.length });
+    console.log("[whatsapp][webhook] parsed messages", {
+      count: messages.length,
+      types: messages.map((message) => message.type),
+      ids: messages.map((message) => message.waMessageId),
+    });
+
+    if (!messages.length) {
+      console.log("⚠️ No supported messages found in payload");
+      return void res.sendStatus(200);
+    }
+
+    for (const message of messages) {
+      try {
+        console.log("[whatsapp][webhook] dispatch orchestrator", {
+          waMessageId: message.waMessageId,
+          phone: message.phone,
+          type: message.type,
+        });
+        await handleInboundMessage(message);
+      } catch (error: any) {
+        console.error(
+          `[whatsapp][webhook] failed message=${message.waMessageId}:`,
+          error?.stack ?? error?.message ?? error
+        );
+      }
+    }
+
+    return void res.sendStatus(200);
+  } catch (error: any) {
+    console.error("❌ WEBHOOK ERROR:", error?.stack ?? error?.message ?? error);
+    return void res.sendStatus(200);
+  }
 };

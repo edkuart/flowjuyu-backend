@@ -12,7 +12,8 @@ export type ListingDraftStatus =
   | "ready_to_publish"
   | "publishing"
   | "published"
-  | "cancelled";
+  | "cancelled"
+  | "abandoned";
 
 class ListingDraft extends Model<
   InferAttributes<ListingDraft>,
@@ -98,7 +99,14 @@ ListingDraft.init(
       allowNull: false,
       defaultValue: "collecting",
       validate: {
-        isIn: [["collecting", "ready_to_publish", "publishing", "published", "cancelled"]],
+        isIn: [[
+          "collecting",
+          "ready_to_publish",
+          "publishing",
+          "published",
+          "cancelled",
+          "abandoned",
+        ]],
       },
     },
     published_product_id: {

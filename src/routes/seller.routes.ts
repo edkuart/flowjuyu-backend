@@ -8,6 +8,7 @@ import { requireActiveSeller } from "../middleware/requireActiveSeller";
 import { validateUploadedFiles } from "../middleware/upload.middleware";
 import * as SellerController from "../controllers/seller.controller";
 import * as SellerTicketController from "../controllers/sellerTicket.controller";
+import * as SellerWhatsappLinkingController from "../controllers/sellerWhatsappLinking.controller";
 import { getSellerReviewInsightsHandler } from "../controllers/review.controller";
 
 const router: ReturnType<typeof Router> = Router();
@@ -189,6 +190,21 @@ router.get(
 router.get(
   "/account-status",
   asyncHandler(SellerController.getSellerAccountStatus)
+);
+
+router.get(
+  "/whatsapp-link",
+  asyncHandler(SellerWhatsappLinkingController.getWhatsappLinkStatus)
+);
+
+router.post(
+  "/whatsapp-link/token",
+  asyncHandler(SellerWhatsappLinkingController.createWhatsappLinkToken)
+);
+
+router.delete(
+  "/whatsapp-link",
+  asyncHandler(SellerWhatsappLinkingController.revokeWhatsappLink)
 );
 
 /* ==================================================

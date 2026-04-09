@@ -37,7 +37,7 @@ const EXPECTED_INPUT_TYPES: ExpectedInputType[] = [
 
 class ConversationSession extends Model<
   InferAttributes<ConversationSession>,
-  InferCreationAttributes<ConversationSession, { omit: "id" | "created_at" | "updated_at" | "last_activity_at" | "pending_confirmation_json" }>
+  InferCreationAttributes<ConversationSession, { omit: "id" | "created_at" | "updated_at" | "last_activity_at" | "pending_confirmation_json" | "command_context_json" }>
 > {
   declare id: CreationOptional<string>;
   declare phone_e164: string;
@@ -46,6 +46,7 @@ class ConversationSession extends Model<
   declare current_step: ConversationStep;
   declare expected_input_type: ExpectedInputType | null;
   declare pending_confirmation_json: object | null;
+  declare command_context_json: object | null;
   declare status: ConversationSessionStatus;
   declare last_activity_at: CreationOptional<Date>;
   declare created_at: CreationOptional<Date>;
@@ -91,6 +92,10 @@ ConversationSession.init(
       },
     },
     pending_confirmation_json: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+    },
+    command_context_json: {
       type: DataTypes.JSONB,
       allowNull: true,
     },

@@ -14,14 +14,19 @@ export function normalizeInboundMessages(
 ): NormalizedInboundMessage[] {
   const messages: NormalizedInboundMessage[] = [];
 
-  for (const entry of payload.entry ?? []) {
-    for (const change of entry.changes ?? []) {
-      const value = change.value;
-      if (!value?.messages?.length) continue;
+  const entries = Array.isArray(payload?.entry) ? payload.entry : [];
 
-      for (const message of value.messages) {
+  for (const entry of entries) {
+    const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+
+    for (const change of changes) {
+      const value = change.value;
+      const inboundMessages = Array.isArray(value?.messages) ? value.messages : [];
+      if (!inboundMessages.length) continue;
+
+      for (const message of inboundMessages) {
         const phone = normalizePhoneToE164(
-          message.from ?? value.contacts?.[0]?.wa_id ?? ""
+          message.from ?? value?.contacts?.[0]?.wa_id ?? ""
         );
         const waMessageId = String(message.id ?? "").trim();
 
@@ -63,7 +68,14 @@ export function normalizeInboundMessages(
             mimeType: message.audio?.mime_type,
             rawPayload: message,
           });
+          continue;
         }
+
+        console.log("[whatsapp][normalizer] unsupported message type", {
+          type: message.type ?? "unknown",
+          waMessageId,
+          phone,
+        });
       }
     }
   }

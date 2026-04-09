@@ -1,0 +1,25 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "test-entry",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "contacts": [{ "wa_id": "50255500000" }],
+            "messages": [
+              {
+                "id": "wamid.TEST123",
+                "from": "50255500000",
+                "type": "text",
+                "text": { "body": "hola" }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -6,9 +6,27 @@ type SendTextResult = {
   raw: unknown;
 };
 
+type MetaGraphErrorPayload = {
+  error?: {
+    message?: string;
+    type?: string;
+    code?: number;
+    error_subcode?: number;
+    fbtrace_id?: string;
+  };
+};
+
+function maskToken(token: string): string {
+  if (!token) return "missing";
+  if (token.length <= 8) return "***";
+  return `${token.slice(0, 4)}...${token.slice(-4)}`;
+}
+
 function getWhatsappConfig() {
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN?.trim() ?? "";
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() ?? "";
+
+  console.log("[whatsapp] token present:", Boolean(process.env.WHATSAPP_ACCESS_TOKEN?.trim()));
 
   if (!accessToken || !phoneNumberId) {
     throw new Error(
@@ -35,6 +53,7 @@ export async function sendTextMessage(
     phoneNumberId,
     to: normalizedTo,
     textLength: text.length,
+    tokenPreview: maskToken(accessToken),
   });
 
   const response = await fetch(
@@ -57,16 +76,31 @@ export async function sendTextMessage(
   );
 
   const raw = await response.json().catch(() => null);
+  const metaError = (raw as MetaGraphErrorPayload | null)?.error;
 
   console.log("[whatsapp][outbound] meta response", {
     status: response.status,
     ok: response.ok,
+    errorMessage: metaError?.message ?? null,
+    errorType: metaError?.type ?? null,
+    errorCode: metaError?.code ?? null,
+    errorSubcode: metaError?.error_subcode ?? null,
     raw,
   });
 
   if (!response.ok) {
+    if (response.status === 401 || metaError?.code === 190) {
+      console.error("[whatsapp][outbound] TOKEN EXPIRED OR INVALID", {
+        status: response.status,
+        errorMessage: metaError?.message ?? null,
+        errorCode: metaError?.code ?? null,
+        errorType: metaError?.type ?? null,
+        phoneNumberId,
+      });
+    }
+
     throw new Error(
-      `WhatsApp outbound failed: ${response.status} ${JSON.stringify(raw)}`
+      `WhatsApp outbound failed: status=${response.status} code=${metaError?.code ?? "n/a"} type=${metaError?.type ?? "n/a"} message=${metaError?.message ?? JSON.stringify(raw)}`
     );
   }
 

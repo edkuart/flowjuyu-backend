@@ -55,6 +55,9 @@ import SellerManualPaymentReport from "./SellerManualPaymentReport.model";
 import ConversationSession  from "./ConversationSession.model";
 import ConversationMessage  from "./ConversationMessage.model";
 import ListingDraft         from "./ListingDraft.model";
+import WhatsappLinkingToken from "./WhatsappLinkingToken.model";
+import WhatsappLinkedIdentity from "./WhatsappLinkedIdentity.model";
+import AnalyticsEvent from "./AnalyticsEvent.model";
 
 /**
  * ============================================
@@ -189,6 +192,51 @@ function setupAssociations() {
   if (!(ListingDraft as any).associations?.seller) {
     ListingDraft.belongsTo(User, {
       foreignKey: "seller_user_id",
+      as: "seller",
+    });
+  }
+
+  if (!(User as any).associations?.whatsappLinkingTokens) {
+    User.hasMany(WhatsappLinkingToken, {
+      foreignKey: "seller_user_id",
+      as: "whatsappLinkingTokens",
+      onDelete: "CASCADE",
+    });
+  }
+
+  if (!(WhatsappLinkingToken as any).associations?.seller) {
+    WhatsappLinkingToken.belongsTo(User, {
+      foreignKey: "seller_user_id",
+      as: "seller",
+    });
+  }
+
+  if (!(User as any).associations?.whatsappLinkedIdentities) {
+    User.hasMany(WhatsappLinkedIdentity, {
+      foreignKey: "seller_user_id",
+      as: "whatsappLinkedIdentities",
+      onDelete: "CASCADE",
+    });
+  }
+
+  if (!(WhatsappLinkedIdentity as any).associations?.seller) {
+    WhatsappLinkedIdentity.belongsTo(User, {
+      foreignKey: "seller_user_id",
+      as: "seller",
+    });
+  }
+
+  if (!(User as any).associations?.analyticsEvents) {
+    User.hasMany(AnalyticsEvent, {
+      foreignKey: "seller_id",
+      as: "analyticsEvents",
+      onDelete: "SET NULL",
+    });
+  }
+
+  if (!(AnalyticsEvent as any).associations?.seller) {
+    AnalyticsEvent.belongsTo(User, {
+      foreignKey: "seller_id",
       as: "seller",
     });
   }
@@ -542,6 +590,9 @@ export {
   ConversationSession,
   ConversationMessage,
   ListingDraft,
+  WhatsappLinkingToken,
+  WhatsappLinkedIdentity,
+  AnalyticsEvent,
 };
 
 export const models = {
@@ -586,4 +637,7 @@ export const models = {
   ConversationSession,
   ConversationMessage,
   ListingDraft,
+  WhatsappLinkingToken,
+  WhatsappLinkedIdentity,
+  AnalyticsEvent,
 };

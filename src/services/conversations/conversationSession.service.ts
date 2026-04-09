@@ -7,6 +7,7 @@ import {
   type ExpectedInputType,
 } from "./conversationState";
 import type { PendingConfirmation } from "./conversationConfirmation.service";
+import type { ConversationCommandContext } from "./conversationCommandContext.types";
 
 export async function findOrCreateSession(phoneE164: string) {
   const [session] = await ConversationSession.findOrCreate({
@@ -105,6 +106,135 @@ export async function setPendingConfirmation(
     );
 
     session.pending_confirmation_json = lockedSession.pending_confirmation_json;
+  });
+
+  return session;
+}
+
+export async function resetSessionForNewListing(
+  session: ConversationSession
+): Promise<ConversationSession> {
+  await sequelize.transaction(async (transaction) => {
+    const lockedSession = await getSessionForUpdate(session.id, transaction);
+    await lockedSession.update(
+      {
+        current_step: "awaiting_image",
+        expected_input_type: "image",
+        pending_confirmation_json: null,
+        command_context_json: null,
+        status: "active",
+      },
+      { transaction }
+    );
+
+    session.current_step = lockedSession.current_step;
+    session.expected_input_type = lockedSession.expected_input_type;
+    session.pending_confirmation_json = lockedSession.pending_confirmation_json;
+    session.command_context_json = lockedSession.command_context_json;
+    session.status = lockedSession.status;
+  });
+
+  return session;
+}
+
+export async function resetConversationSession(
+  session: ConversationSession
+): Promise<ConversationSession> {
+  return resetSessionForNewListing(session);
+}
+
+export async function clearInterruptibleState(
+  session: ConversationSession
+): Promise<ConversationSession> {
+  await sequelize.transaction(async (transaction) => {
+    const lockedSession = await getSessionForUpdate(session.id, transaction);
+    await lockedSession.update(
+      {
+        expected_input_type: null,
+        pending_confirmation_json: null,
+      },
+      { transaction }
+    );
+
+    session.expected_input_type = lockedSession.expected_input_type;
+    session.pending_confirmation_json = lockedSession.pending_confirmation_json;
+  });
+
+  return session;
+}
+
+export async function resetConversationHard(
+  session: ConversationSession
+): Promise<ConversationSession> {
+  await sequelize.transaction(async (transaction) => {
+    const lockedSession = await getSessionForUpdate(session.id, transaction);
+    await lockedSession.update(
+      {
+        // Keep a valid persisted step while bypassing the state machine completely.
+        current_step: "awaiting_image",
+        expected_input_type: null,
+        pending_confirmation_json: null,
+        command_context_json: null,
+        status: "active",
+      },
+      { transaction }
+    );
+
+    session.current_step = lockedSession.current_step;
+    session.expected_input_type = lockedSession.expected_input_type;
+    session.pending_confirmation_json = lockedSession.pending_confirmation_json;
+    session.command_context_json = lockedSession.command_context_json;
+    session.status = lockedSession.status;
+  });
+
+  return session;
+}
+
+export function getCommandContext(
+  session: ConversationSession
+): ConversationCommandContext | null {
+  const value = session.command_context_json;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as ConversationCommandContext;
+}
+
+export async function setCommandContext(
+  session: ConversationSession,
+  commandContext: ConversationCommandContext | null
+): Promise<ConversationSession> {
+  await sequelize.transaction(async (transaction) => {
+    const lockedSession = await getSessionForUpdate(session.id, transaction);
+    const existingContext =
+      lockedSession.command_context_json &&
+      typeof lockedSession.command_context_json === "object" &&
+      !Array.isArray(lockedSession.command_context_json)
+        ? (lockedSession.command_context_json as ConversationCommandContext)
+        : null;
+    const nowIso = new Date().toISOString();
+    const normalizedContext = commandContext
+      ? {
+          ...commandContext,
+          context_created_at:
+            commandContext.context_created_at ??
+            existingContext?.context_created_at ??
+            nowIso,
+          last_interaction_at:
+            commandContext.last_interaction_at ??
+            nowIso,
+        }
+      : null;
+
+    await lockedSession.update(
+      {
+        command_context_json: normalizedContext,
+      },
+      { transaction }
+    );
+
+    session.command_context_json = lockedSession.command_context_json;
   });
 
   return session;
