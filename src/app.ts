@@ -39,6 +39,7 @@ import whatsappIntegrationRoutes from "./routes/whatsappIntegration.routes";
 
 // Phase 2 table setup
 import { setupPhase2Tables } from "./utils/setupTables";
+import { verifyFailureIntelligenceInfra } from "./services/conversations/conversationInfraHealth.service";
 
 // Initialize Sequelize associations (must run before any query uses `include`)
 import "./models";
@@ -56,6 +57,7 @@ const app: Express = express();
 
 // Initialize Phase 2 DB tables (non-blocking)
 setupPhase2Tables().catch(() => {});
+verifyFailureIntelligenceInfra().catch(() => {});
 const PgSession = pgSession(session);
 
 // ===========================

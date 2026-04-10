@@ -24,7 +24,16 @@ const EXACT_COMMANDS: Record<string, CommandKey> = {
   "mis productos": "mis_productos",
   productos: "mis_productos",
   "nuevo producto": "nuevo",
+  "crear producto": "nuevo",
+  "agregar producto": "nuevo",
+  "publicar producto": "nuevo",
+  "subir producto": "nuevo",
+  "nueva publicacion": "nuevo",
   nuevo: "nuevo",
+  crear: "nuevo",
+  agregar: "nuevo",
+  publicar: "nuevo",
+  subir: "nuevo",
   cancelar: "cancelar",
   cancel: "cancelar",
   guardar: "guardar_edicion",
@@ -57,6 +66,21 @@ function matchNaturalLanguageCommand(normalizedText: string): CommandKey | null 
     normalizedText.includes("ver perfil")
   ) {
     return "perfil";
+  }
+
+  if (
+    normalizedText.includes("quiero crear un producto") ||
+    normalizedText.includes("quiero crear producto") ||
+    normalizedText.includes("quiero agregar un producto") ||
+    normalizedText.includes("quiero agregar producto") ||
+    normalizedText.includes("quiero publicar un producto") ||
+    normalizedText.includes("quiero publicar producto") ||
+    normalizedText.includes("crear un producto") ||
+    normalizedText.includes("agregar un producto") ||
+    normalizedText.includes("publicar un producto") ||
+    normalizedText.includes("subir un producto")
+  ) {
+    return "nuevo";
   }
 
   if (
@@ -149,7 +173,11 @@ function detectNewIntent(tokens: string[], normalizedText: string): boolean {
   return (
     normalizedText.includes("nuevo producto") ||
     normalizedText.includes("nueva publicacion") ||
-    (hasAnyToken(tokens, ["nuevo", "nueva", "crear", "publicar", "subir"]) &&
+    normalizedText === "crear" ||
+    normalizedText === "agregar" ||
+    normalizedText === "publicar" ||
+    normalizedText === "subir" ||
+    (hasAnyToken(tokens, ["nuevo", "nueva", "crear", "agregar", "publicar", "subir"]) &&
       hasAnyToken(tokens, ["producto", "publicacion", "articulo"]))
   );
 }
@@ -209,6 +237,7 @@ export function detectIntent(rawText: string): IntentType {
   if (naturalLanguageCommand === "menu") return "menu";
   if (naturalLanguageCommand === "perfil") return "perfil";
   if (naturalLanguageCommand === "mis_productos") return "mis_productos";
+  if (naturalLanguageCommand === "nuevo") return "nuevo";
 
   const tokens = tokenize(normalizedText);
 

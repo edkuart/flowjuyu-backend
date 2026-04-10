@@ -155,13 +155,26 @@ export async function routeConversationCommand(
       };
     }
 
-    case "nuevo":
+    case "nuevo": {
+      // Guard: "publicar" and "publicar producto" are also caught by isPublishCommand()
+      // in handleTextInput. When the session is at awaiting_confirmation, the user
+      // intends to PUBLISH the current draft — not start a new listing. Let the
+      // step handler take it instead of resetting the draft here.
+      const publishAmbiguousTerms = new Set(["publicar", "publicar producto"]);
+      if (
+        context.session.current_step === "awaiting_confirmation" &&
+        publishAmbiguousTerms.has(match.normalizedText)
+      ) {
+        return { handled: false };
+      }
+
       return {
         handled: true,
         commandKey: "nuevo",
         action: "start_new_listing",
         responseText: buildNewListingMessage(),
       };
+    }
 
     case "cancelar":
       return {

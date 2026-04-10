@@ -37,7 +37,18 @@ const EXPECTED_INPUT_TYPES: ExpectedInputType[] = [
 
 class ConversationSession extends Model<
   InferAttributes<ConversationSession>,
-  InferCreationAttributes<ConversationSession, { omit: "id" | "created_at" | "updated_at" | "last_activity_at" | "pending_confirmation_json" | "command_context_json" }>
+  InferCreationAttributes<ConversationSession, {
+    omit:
+      | "id"
+      | "created_at"
+      | "updated_at"
+      | "last_activity_at"
+      | "pending_confirmation_json"
+      | "command_context_json"
+      | "failure_score"
+      | "frustration_score"
+      | "safe_mode"
+  }>
 > {
   declare id: CreationOptional<string>;
   declare phone_e164: string;
@@ -48,6 +59,12 @@ class ConversationSession extends Model<
   declare pending_confirmation_json: object | null;
   declare command_context_json: object | null;
   declare status: ConversationSessionStatus;
+  /** Composite failure score (0–100). Driven by failure signal increments, decays on success. */
+  declare failure_score: CreationOptional<number>;
+  /** Frustration-specific sub-score (0–100). Driven by user frustration signals. */
+  declare frustration_score: CreationOptional<number>;
+  /** When true: bot restricts to guided interactions only. Entered at CRITICAL risk. */
+  declare safe_mode: CreationOptional<boolean>;
   declare last_activity_at: CreationOptional<Date>;
   declare created_at: CreationOptional<Date>;
   declare updated_at: CreationOptional<Date>;
@@ -107,6 +124,21 @@ ConversationSession.init(
         isIn: [["active", "blocked", "closed"]],
       },
     },
+    failure_score: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    frustration_score: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    safe_mode: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     last_activity_at: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -134,6 +166,7 @@ ConversationSession.init(
       { fields: ["status"], name: "idx_conversation_sessions_status" },
       { fields: ["linked_seller_user_id"], name: "idx_conversation_sessions_seller" },
       { fields: ["last_activity_at"], name: "idx_conversation_sessions_last_activity" },
+      { fields: ["safe_mode"], name: "idx_conversation_sessions_safe_mode" },
     ],
   }
 );

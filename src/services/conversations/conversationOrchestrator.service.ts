@@ -1,5 +1,7 @@
 import type ConversationSession from "../../models/ConversationSession.model";
 import type ListingDraft from "../../models/ListingDraft.model";
+import ConversationFailureEvent from "../../models/ConversationFailureEvent.model";
+import { logger } from "../../config/logger";
 import {
   bindSellerToSession,
   clearInterruptibleState,
@@ -88,9 +90,258 @@ import {
   buildSaveSuccessMessage,
 } from "./ux/conversationUxBuilder.service";
 import type { UxEditFeedback } from "./ux/conversationUxTypes";
+import {
+  detectSyncFailureSignals,
+  detectAsyncFailureSignals,
+} from "./conversationFailureDetector.service";
+import {
+  buildAdaptiveRecovery,
+  buildSafeModeGuidance,
+} from "./conversationRecovery.service";
+import { persistFailureEvent, persistFailureEvents } from "./conversationFailureEvent.service";
+import { matchFaqEntry } from "../platform-faq/platformFaq.service";
+import {
+  updateSessionScore,
+  applySuccessfulStepDecay,
+  evaluateSafeMode,
+  getSessionRiskLevel,
+} from "./conversationScoring.service";
+import {
+  addUserMessage,
+  addBotMessage,
+  addAction,
+  getMemorySnapshot,
+  clearMemory,
+} from "./conversationMemory.service";
+import { shouldUseAiFallback } from "./conversationAiGate.service";
+import {
+  buildAiContext,
+  getRecentFailureSignals,
+  countRecentRecoveryAttempts,
+} from "./conversationAiContextBuilder.service";
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+} from "./conversationAiPromptBuilder.service";
+import { validateAiFallbackResponse } from "./conversationAiValidator.service";
+import { getActiveFallbackAdapter } from "../ai/aiFallback.interface";
+import type { ConversationStep } from "./conversationState";
+import type { FailureSignal } from "./conversationFailureDetector.service";
 
 function normalizeText(input: string | undefined): string {
   return String(input ?? "").trim();
+}
+
+const SAFE_MODE_GUIDED_COMMANDS = new Set([
+  "nuevo",
+  "mis productos",
+  "cancelar",
+  "menu",
+]);
+
+function isSafeModeGuidedCommand(normalizedText: string): boolean {
+  return SAFE_MODE_GUIDED_COMMANDS.has(normalizedText);
+}
+
+function canProcessStrictSafeModeStep(
+  session: ConversationSession,
+  message: NormalizedInboundMessage
+): boolean {
+  if (message.type !== "text") return false;
+  return Boolean(
+    session.expected_input_type &&
+      session.expected_input_type !== "image" &&
+      session.current_step !== "awaiting_image"
+  );
+}
+
+async function getRecentConversationFailureEvents(
+  session: ConversationSession
+): Promise<ConversationFailureEvent[]> {
+  try {
+    return await ConversationFailureEvent.findAll({
+      where: { session_id: session.id },
+      order: [["created_at", "DESC"]],
+      limit: 10,
+    });
+  } catch (error: any) {
+    logger.info(
+      { session_id: session.id, error: error?.message ?? String(error) },
+      "[conversation][ai.fallback]"
+    );
+    return [];
+  }
+}
+
+async function maybeSendAiFallback(params: {
+  session: ConversationSession;
+  draft: ListingDraft | null;
+  message: NormalizedInboundMessage;
+  normalizedText: string;
+  memory: ReturnType<typeof getMemorySnapshot>;
+  currentSignals: FailureSignal[];
+  ruleRecoveryText?: string;
+}): Promise<boolean> {
+  const recentEvents = await getRecentConversationFailureEvents(params.session);
+  const historicalSignals = getRecentFailureSignals(recentEvents);
+  const allSignals = [...params.currentSignals, ...historicalSignals];
+  const priorRecoveryAttempts = countRecentRecoveryAttempts(recentEvents);
+
+  const aiGate = shouldUseAiFallback({
+    failure_score: params.session.failure_score ?? 0,
+    frustration_score: params.session.frustration_score ?? 0,
+    failure_signals: allSignals,
+    current_step: params.session.current_step,
+    expected_input_type: params.session.expected_input_type ?? null,
+    safe_mode: Boolean(params.session.safe_mode),
+    message_type: params.message.type,
+    last_user_messages: params.memory.lastUserMessages,
+    last_actions: params.memory.lastActions,
+    recovery_attempted: priorRecoveryAttempts > 0,
+  });
+
+  if (!aiGate.useAi) return false;
+
+  const adapter = getActiveFallbackAdapter();
+  if (!adapter.isAvailable()) {
+    logger.info(
+      {
+        session_id: params.session.id,
+        wa_message_id: params.message.waMessageId,
+        reason: "adapter_unavailable",
+      },
+      "[conversation][ai.fallback]"
+    );
+    return false;
+  }
+
+  const aiContext = buildAiContext(
+    params.session,
+    params.memory,
+    params.draft,
+    recentEvents,
+    {
+      activeFailureSignals: allSignals,
+      triggerReason: aiGate.reason,
+      priorRecoveryAttempts,
+      ruleRecoveryText: params.ruleRecoveryText,
+    }
+  );
+  const systemPrompt = buildSystemPrompt(aiContext);
+  const userPrompt = buildUserPrompt(aiContext);
+
+  logger.info(
+    {
+      session_id: params.session.id,
+      wa_message_id: params.message.waMessageId,
+      risk_level: aiContext.risk_level,
+      reason: aiGate.reason,
+      signals: allSignals,
+    },
+    "[conversation][ai.triggered]"
+  );
+
+  const aiResponse = await adapter.generateResponse({
+    session: {
+      id: params.session.id,
+      current_step: params.session.current_step,
+      expected_input_type: params.session.expected_input_type ?? null,
+      failure_score: params.session.failure_score ?? 0,
+      frustration_score: params.session.frustration_score ?? 0,
+      safe_mode: Boolean(params.session.safe_mode),
+    },
+    memory: params.memory,
+    currentUserText: params.normalizedText,
+    failureSignals: allSignals,
+    riskLevel: aiContext.risk_level,
+    systemPrompt,
+    userPrompt,
+  });
+
+  const validation = validateAiFallbackResponse(aiResponse, params.session);
+
+  if (!validation.valid) {
+    logger.info(
+      {
+        session_id: params.session.id,
+        wa_message_id: params.message.waMessageId,
+        reason: validation.reason,
+        confidence: aiResponse.confidence,
+        intent: aiResponse.intent ?? null,
+        notes: aiResponse.notes ?? [],
+      },
+      "[conversation][ai.rejected]"
+    );
+    void persistFailureEvent({
+      session: params.session,
+      signal: "ai_rejected",
+      waMessageId: params.message.waMessageId,
+      userText: params.normalizedText,
+      botText: params.ruleRecoveryText ?? null,
+      metadata: {
+        reason: validation.reason,
+        confidence: aiResponse.confidence,
+        intent: aiResponse.intent ?? null,
+      },
+    });
+    return false;
+  }
+
+  logger.info(
+    {
+      session_id: params.session.id,
+      wa_message_id: params.message.waMessageId,
+      confidence: aiResponse.confidence,
+      intent: aiResponse.intent ?? null,
+      notes: aiResponse.notes ?? [],
+      response_length: aiResponse.text.length,
+      model: aiResponse.metadata?.model ?? null,
+    },
+    "[conversation][ai.response]"
+  );
+
+  await sendReply(params.session, aiResponse.text.trim());
+  void persistFailureEvent({
+    session: params.session,
+    signal: "ai_used",
+    waMessageId: params.message.waMessageId,
+    userText: params.normalizedText,
+    botText: aiResponse.text.trim(),
+    metadata: {
+      confidence: aiResponse.confidence,
+      intent: aiResponse.intent ?? null,
+      notes: aiResponse.notes ?? [],
+      model: aiResponse.metadata?.model ?? null,
+      durationMs: aiResponse.metadata?.durationMs ?? null,
+    },
+  });
+
+  return true;
+}
+
+/**
+ * Maps a conversation step to the set of draft fields that step's handler
+ * writes when it processes a valid input. Used to prevent autofill from
+ * overwriting a field that was just written by the step handler in the same
+ * turn.
+ */
+function getFieldsWrittenByStep(step: ConversationStep): Set<string> {
+  switch (step) {
+    case "awaiting_details":
+      return new Set(["suggested_description", "suggested_title"]);
+    case "awaiting_category":
+      return new Set(["categoria_custom", "suggested_title"]);
+    case "awaiting_class":
+      return new Set(["clase_id"]);
+    case "awaiting_measures":
+      return new Set(["measures_text"]);
+    case "awaiting_price":
+      return new Set(["price"]);
+    case "awaiting_stock":
+      return new Set(["stock"]);
+    default:
+      return new Set();
+  }
 }
 
 export async function transitionSessionSafely(
@@ -107,8 +358,18 @@ export async function transitionSessionSafely(
       `[conversation][transition.error] session=${session.id} wa_message_id=${waMessageId} target=${currentStep} expected=${expectedInputType ?? "null"}:`,
       error?.message ?? error
     );
-    await deleteListingDraftBySession(session.id);
+    // Do NOT delete the draft on a failed transition — preserve the seller's
+    // work. Only reset session state to a safe resting point. The draft remains
+    // and the seller can continue after the recovery message.
+    await updateSessionScore(session, ["invalid_transition"]);
+    await evaluateSafeMode(session);
     await resetConversationHard(session);
+    void persistFailureEvent({
+      session,
+      signal: "invalid_transition",
+      waMessageId,
+      metadata: { targetStep: currentStep, expectedInputType: expectedInputType ?? null },
+    });
     await sendReply(session, buildNeutralReadyMessage());
     return false;
   }
@@ -214,6 +475,7 @@ async function sendReply(session: ConversationSession, text: string): Promise<vo
       status: "sent",
       rawPayload: result.raw,
     });
+    addBotMessage(session.id, text);
   } catch (error: any) {
     console.error(
       `[whatsapp][outbound] send failed session=${session.id} phone=${session.phone_e164}:`,
@@ -224,6 +486,15 @@ async function sendReply(session: ConversationSession, text: string): Promise<vo
       contentText: text,
       status: "failed",
       rawPayload: { error: error?.message ?? String(error) },
+    });
+    await updateSessionScore(session, ["silent_outbound_failure"]);
+    await evaluateSafeMode(session);
+    // Persist failure event for observability — fire and forget.
+    void persistFailureEvent({
+      session,
+      signal: "silent_outbound_failure",
+      botText: text,
+      metadata: { error: error?.message ?? String(error) },
     });
   }
 }
@@ -617,6 +888,7 @@ async function handleResetCommand(
 
   await deleteListingDraftBySession(session.id);
   await resetConversationHard(session);
+  clearMemory(session.id);
   await sendReply(session, buildNeutralReadyMessage());
 
   return true;
@@ -962,6 +1234,9 @@ export async function handleInboundMessage(
       await addImageToDraft(draft, message);
       await draft.reload();
       await maybeApplyVisionSuggestionToDraft(draft, message.waMessageId);
+      addAction(session.id, "awaiting_image");
+      await applySuccessfulStepDecay(session);
+      await evaluateSafeMode(session);
     } else {
       let textMessage = message;
 
@@ -985,6 +1260,10 @@ export async function handleInboundMessage(
       }
 
       const normalizedText = normalizeConversationCommandText(textMessage.text ?? "");
+      console.log(
+        `[conversation][inbound.text] session=${session.id} wa_message_id=${textMessage.waMessageId} step=${session.current_step ?? "idle"} expected=${session.expected_input_type ?? "none"} text="${normalizedText}"`
+      );
+      addUserMessage(session.id, normalizedText);
 
       const resetPattern = getResetCommandPattern(normalizedText);
 
@@ -1001,32 +1280,75 @@ export async function handleInboundMessage(
         return;
       }
 
-      if (isGlobalConversationCommand(normalizedText)) {
-        console.log(
-          `[conversation][global.command.detected] session=${session.id} wa_message_id=${textMessage.waMessageId} text="${normalizedText}"`
+      const safeModeStrictStep =
+        session.safe_mode &&
+        !isSafeModeGuidedCommand(normalizedText) &&
+        canProcessStrictSafeModeStep(session, textMessage);
+
+      if (
+        session.safe_mode &&
+        !safeModeStrictStep &&
+        !isSafeModeGuidedCommand(normalizedText)
+      ) {
+        logger.info(
+          {
+            session_id: session.id,
+            wa_message_id: textMessage.waMessageId,
+            current_step: session.current_step,
+            expected_input_type: session.expected_input_type,
+            failure_score: session.failure_score ?? 0,
+          },
+          "[conversation][safe_mode.blocked]"
         );
-        await interruptActiveFlowForGlobalCommand(session);
+        await sendReply(session, buildSafeModeGuidance());
+        await markMessageProcessed(record, "processed");
+        return;
       }
 
-      const commandResult = await routeConversationCommand({
-        session,
-        seller,
-        message: textMessage,
-      });
-
-      if (commandResult.handled) {
-        console.log(
-          `[conversation][command] handled session=${session.id} command=${commandResult.commandKey ?? "unknown"}`
+      if (safeModeStrictStep) {
+        logger.info(
+          {
+            session_id: session.id,
+            wa_message_id: textMessage.waMessageId,
+            current_step: session.current_step,
+            expected_input_type: session.expected_input_type,
+          },
+          "[conversation][safe_mode.strict_step]"
         );
-
-        if (commandResult.action === "start_new_listing") {
-          if (!draft) {
-            draft = await getOrCreateDraft(session);
-          }
-          await resetDraftForNewListing(draft, { waMessageId: textMessage.waMessageId });
-          await draft.reload();
-          await resetSessionForNewListing(session);
+      } else {
+        if (isGlobalConversationCommand(normalizedText)) {
+          console.log(
+            `[conversation][global.command.detected] session=${session.id} wa_message_id=${textMessage.waMessageId} text="${normalizedText}"`
+          );
+          await interruptActiveFlowForGlobalCommand(session);
         }
+
+        const commandResult = await routeConversationCommand({
+          session,
+          seller,
+          message: textMessage,
+        });
+
+        if (commandResult.handled) {
+          console.log(
+            `[conversation][command] handled session=${session.id} command=${commandResult.commandKey ?? "unknown"}`
+          );
+          addAction(session.id, commandResult.commandKey ?? commandResult.action ?? "command");
+
+          if (commandResult.action === "start_new_listing") {
+            console.log(
+              `[conversation][new_listing.start] session=${session.id} wa_message_id=${textMessage.waMessageId} from_step=${session.current_step ?? "idle"}`
+            );
+            if (!draft) {
+              draft = await getOrCreateDraft(session);
+            }
+            await resetDraftForNewListing(draft, { waMessageId: textMessage.waMessageId });
+            await draft.reload();
+            await resetSessionForNewListing(session);
+            console.log(
+              `[conversation][new_listing.state] session=${session.id} draft=${draft.id} next_step=${session.current_step ?? "idle"} expected=${session.expected_input_type ?? "none"}`
+            );
+          }
 
         if (commandResult.action === "cancel_listing") {
           const sessionCommandContext = getCommandContext(session);
@@ -1314,6 +1636,7 @@ export async function handleInboundMessage(
         await markMessageProcessed(record, "processed");
         return;
       }
+      }
 
       if (isEditMode(session)) {
         await handleEditMode(session, draft, textMessage);
@@ -1345,68 +1668,258 @@ export async function handleInboundMessage(
         return;
       }
 
+      // ── Failure Intelligence Layer ──────────────────────────────────────
+      // Runs AFTER all command/edit-mode guards pass and BEFORE step handling.
+      // Priority:
+      //   1. FAQ match → controlled policy answer, return.
+      //   2. Frustration detected → empathetic recovery, return.
+      //   3. Async signals (repetition) → fire-and-forget event persistence.
+      //
+      // This block never runs for recognised commands or edit-mode inputs —
+      // those paths already returned above.
+
+      const faqMatch = session.safe_mode
+        ? null
+        : await matchFaqEntry(normalizedText, {
+            session,
+            waMessageId: textMessage.waMessageId,
+            userText: normalizedText,
+            metadata: { step: session.current_step },
+          });
+      if (faqMatch) {
+        logger.info(
+          {
+            session_id: session.id,
+            wa_message_id: textMessage.waMessageId,
+            key: faqMatch.key,
+            category: faqMatch.category,
+            match_tier: faqMatch.matchTier,
+          },
+          "[conversation][faq.match]"
+        );
+        await sendReply(session, faqMatch.answer);
+        await markMessageProcessed(record, "processed");
+        return;
+      }
+
+      const syncDetection = detectSyncFailureSignals({
+        session,
+        normalizedText,
+        messageType: textMessage.type,
+      });
+
+      if (syncDetection.signals.length > 0) {
+        logger.info(
+          {
+            session_id: session.id,
+            wa_message_id: textMessage.waMessageId,
+            current_step: session.current_step,
+            expected_input_type: session.expected_input_type,
+            signals: syncDetection.signals,
+          },
+          "[conversation][failure]"
+        );
+        await updateSessionScore(session, syncDetection.signals);
+        await evaluateSafeMode(session);
+      }
+
+      const memory = getMemorySnapshot(session.id);
+      let ruleRecoveryText: string | undefined;
+
+      if (syncDetection.intercepting.length > 0) {
+        const recovery = buildAdaptiveRecovery(
+          session,
+          syncDetection.intercepting,
+          memory
+        );
+
+        logger.info(
+          {
+            session_id: session.id,
+            wa_message_id: textMessage.waMessageId,
+            signals: syncDetection.intercepting,
+            risk_level: getSessionRiskLevel(session.failure_score ?? 0),
+            recovery_length: recovery.message.length,
+          },
+          "[conversation][recovery.triggered]"
+        );
+
+        await persistFailureEvents({
+          session,
+          signals: syncDetection.intercepting,
+          waMessageId: textMessage.waMessageId,
+          userText: normalizedText,
+          botText: recovery.message,
+          metadata: { step: session.current_step, expected: session.expected_input_type ?? null },
+        });
+
+        ruleRecoveryText = recovery.message;
+      }
+
+      // Non-intercepting sync signals (e.g. step_mismatch) — log only.
+      if (syncDetection.signals.length > 0) {
+        void persistFailureEvents({
+          session,
+          signals: syncDetection.signals,
+          waMessageId: textMessage.waMessageId,
+          userText: normalizedText,
+          metadata: { step: session.current_step, expected: session.expected_input_type ?? null },
+        });
+      }
+
+      // Fire-and-forget async detection (DB queries for repetition signals).
+      void detectAsyncFailureSignals({
+        session,
+        normalizedText,
+        waMessageId: textMessage.waMessageId,
+      }).then((asyncSignals) => {
+        if (asyncSignals.length > 0) {
+          logger.info(
+            {
+              session_id: session.id,
+              wa_message_id: textMessage.waMessageId,
+              current_step: session.current_step,
+              signals: asyncSignals,
+            },
+            "[conversation][failure]"
+          );
+          void updateSessionScore(session, asyncSignals).then(() =>
+            evaluateSafeMode(session)
+          );
+          void persistFailureEvents({
+            session,
+            signals: asyncSignals,
+            waMessageId: textMessage.waMessageId,
+            userText: normalizedText,
+            metadata: { step: session.current_step, async: true },
+          });
+        }
+      }).catch(() => {});
+
+      // ── End Failure Intelligence Layer ───────────────────────────────────
+
+      if (
+        await maybeSendAiFallback({
+          session,
+          draft,
+          message: textMessage,
+          normalizedText,
+          memory,
+          currentSignals:
+            syncDetection.intercepting.length > 0
+              ? syncDetection.intercepting
+              : syncDetection.signals,
+          ruleRecoveryText,
+        })
+      ) {
+        await markMessageProcessed(record, "processed");
+        return;
+      }
+
+      if (ruleRecoveryText) {
+        await sendReply(session, ruleRecoveryText);
+        await markMessageProcessed(record, "processed");
+        return;
+      }
+
+      // Capture step before handleTextInput so we know which field it wrote.
+      const stepBeforeTextInput = session.current_step;
+
       const textResult = await handleTextInput(session, draft, textMessage);
       if (textResult === "stop") {
         await markMessageProcessed(record, "processed");
         return;
       }
 
-      const autoFill = await autoFillDraftFromSignals(session, draft, textMessage);
-      if (autoFill.updatedFields.length > 0) {
-        const commandContext = getCommandContext(session);
-        if (commandContext?.mode === "listing_edit") {
-          const effectivePatch = await filterEffectiveEditPatch(
-            draft,
-            autoFill.draftPatch,
-            autoFill.updatedFields
-          );
+      addAction(session.id, stepBeforeTextInput);
+      await applySuccessfulStepDecay(session);
+      await evaluateSafeMode(session);
 
-          for (const redundantMessage of effectivePatch.redundantMessages) {
-            console.log(
-              `[edit][no.change] session=${session.id} draft=${draft.id} message="${redundantMessage}"`
-            );
-            await sendReply(session, redundantMessage);
+      const autoFill = session.safe_mode
+        ? { updatedFields: [], draftPatch: {}, confidence: 0, sourceSignals: [] }
+        : await autoFillDraftFromSignals(session, draft, textMessage);
+      if (autoFill.updatedFields.length > 0) {
+        // Filter out fields the step handler already wrote this turn to prevent
+        // double-writes. e.g. if awaiting_price wrote `price`, autofill should
+        // not overwrite it — but may still write other fields it found (stock, etc.)
+        const stepWrittenFields =
+          textResult === "continue" ? getFieldsWrittenByStep(stepBeforeTextInput) : new Set<string>();
+
+        const filteredFields = autoFill.updatedFields.filter(
+          (f) => !stepWrittenFields.has(f)
+        );
+
+        if (filteredFields.length < autoFill.updatedFields.length) {
+          console.log(
+            `[conversation][autofill.filtered] session=${session.id} removed=${autoFill.updatedFields
+              .filter((f) => stepWrittenFields.has(f))
+              .join(",")} kept=${filteredFields.join(",")}`
+          );
+        }
+
+        if (filteredFields.length === 0) {
+          // All autofill fields were already written by the step handler — skip.
+        } else {
+          const filteredPatch: Record<string, unknown> = {};
+          for (const field of filteredFields) {
+            filteredPatch[field] = (autoFill.draftPatch as Record<string, unknown>)[field];
           }
 
-          if (effectivePatch.updatedFields.length > 0) {
-            console.log(
-              `[edit][change.detected] session=${session.id} draft=${draft.id} wa_message_id=${textMessage.waMessageId} updated=${effectivePatch.updatedFields.join(",")}`
+          const commandContext = getCommandContext(session);
+          if (commandContext?.mode === "listing_edit") {
+            const effectivePatch = await filterEffectiveEditPatch(
+              draft,
+              filteredPatch as any,
+              filteredFields
             );
 
-            await updateDraft(draft, effectivePatch.patch as any, {
+            for (const redundantMessage of effectivePatch.redundantMessages) {
+              console.log(
+                `[edit][no.change] session=${session.id} draft=${draft.id} message="${redundantMessage}"`
+              );
+              await sendReply(session, redundantMessage);
+            }
+
+            if (effectivePatch.updatedFields.length > 0) {
+              console.log(
+                `[edit][change.detected] session=${session.id} draft=${draft.id} wa_message_id=${textMessage.waMessageId} updated=${effectivePatch.updatedFields.join(",")}`
+              );
+
+              await updateDraft(draft, effectivePatch.patch as any, {
+                waMessageId: textMessage.waMessageId,
+              });
+              await draft.reload();
+
+              const changedFields = await getChangedFieldFlags(
+                draft,
+                commandContext.editingBaseline
+              );
+
+              await setCommandContext(session, {
+                ...commandContext,
+                changedFields,
+                awaitingEditSaveConfirmation: false,
+              });
+
+              const feedback = buildEditFeedbackListMessage(
+                buildEditFeedbackItems(
+                  effectivePatch.updatedFields,
+                  draft,
+                  effectivePatch.patch as any
+                )
+              );
+              if (feedback) {
+                await sendReply(session, feedback);
+              }
+            }
+          } else {
+            console.log(
+              `[conversation][autofill] session=${session.id} draft=${draft.id} wa_message_id=${textMessage.waMessageId} updated=${filteredFields.join(",")} confidence=${autoFill.confidence} signals=${autoFill.sourceSignals.join(",")}`
+            );
+            await updateDraft(draft, filteredPatch as any, {
               waMessageId: textMessage.waMessageId,
             });
-            await draft.reload();
-
-            const changedFields = await getChangedFieldFlags(
-              draft,
-              commandContext.editingBaseline
-            );
-
-            await setCommandContext(session, {
-              ...commandContext,
-              changedFields,
-              awaitingEditSaveConfirmation: false,
-            });
-
-            const feedback = buildEditFeedbackListMessage(
-              buildEditFeedbackItems(
-                effectivePatch.updatedFields,
-                draft,
-                effectivePatch.patch as any
-              )
-            );
-            if (feedback) {
-              await sendReply(session, feedback);
-            }
           }
-        } else {
-          console.log(
-            `[conversation][autofill] session=${session.id} draft=${draft.id} wa_message_id=${textMessage.waMessageId} updated=${autoFill.updatedFields.join(",")} confidence=${autoFill.confidence} signals=${autoFill.sourceSignals.join(",")}`
-          );
-          await updateDraft(draft, autoFill.draftPatch as any, {
-            waMessageId: textMessage.waMessageId,
-          });
         }
       }
 

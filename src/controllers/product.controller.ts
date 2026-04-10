@@ -27,6 +27,57 @@ const toIntOrNull = (v: any) => {
   return Number.isFinite(n) ? n : null
 }
 
+// Sanitize incoming atributos before storing in JSONB.
+//
+// Contract:
+//   • Accepts a JSON string (multipart/form-data) or a plain object.
+//   • Whitelists top-level keys — rejects unknown fields.
+//   • Prunes empty/null values so the DB stays lean: {} is the
+//     canonical "no attributes" state, never { medidas: {} }.
+//   • medidas.largo/ancho/alto are stored as positive numbers.
+//   • String fields are trimmed; empty-after-trim → omitted.
+function sanitizeAtributos(raw: any): object {
+  // Multipart sends everything as strings — parse if needed
+  if (typeof raw === "string") {
+    try { raw = JSON.parse(raw) } catch { return {} }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {}
+
+  const safe: Record<string, any> = {}
+
+  // ── medidas ────────────────────────────────────────────────────────────────
+  if ("medidas" in raw) {
+    const val = raw.medidas
+    if (val && typeof val === "object" && !Array.isArray(val)) {
+      const m: Record<string, any> = {}
+
+      // Numeric dimensions — parse, reject non-positive or NaN
+      for (const dim of ["largo", "ancho", "alto"] as const) {
+        const n = Number(val[dim])
+        if (Number.isFinite(n) && n > 0) m[dim] = n
+      }
+
+      // unidad stays a string
+      if (typeof val.unidad === "string") {
+        const u = val.unidad.trim().slice(0, 20)
+        if (u) m.unidad = u
+      }
+
+      // Only persist medidas when at least one field has a value
+      if (Object.keys(m).length > 0) safe.medidas = m
+    }
+  }
+
+  // ── string fields ──────────────────────────────────────────────────────────
+  for (const key of ["material_principal", "tecnica", "cuidados"] as const) {
+    if (!(key in raw)) continue
+    const trimmed = typeof raw[key] === "string" ? raw[key].trim().slice(0, 500) : ""
+    if (trimmed) safe[key] = trimmed
+  }
+
+  return safe
+}
+
 // ===========================
 // Multer config (imágenes producto)
 // ===========================
@@ -138,6 +189,7 @@ export const getProductForEdit = async (
         p.accesorio_tipo_custom,
         p.accesorio_material_id,
         p.accesorio_material_custom,
+        p.atributos,
         p.imagen_url AS imagen_principal,
         p.created_at,
 
@@ -495,6 +547,7 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
             accesorio_material_id, accesorio_material_custom,
             imagen_url, activo,
             internal_code, seller_sku,
+            atributos,
             created_at, updated_at
           ) VALUES (
             :vendedor_id, :nombre, :descripcion, :precio, :stock,
@@ -506,6 +559,7 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
             :accesorio_material_id, :accesorio_material_custom,
             :imagen_url, :activo,
             :internal_code, :seller_sku,
+            :atributos,
             now(), now()
           ) RETURNING id, internal_code
           `,
@@ -580,6 +634,9 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
               // Identificadores
               internal_code: internalCode,
               seller_sku: sellerSku,
+
+              // Atributos opcionales (JSONB) — validated + sanitised before INSERT
+              atributos: sanitizeAtributos(b.atributos),
             },
           }
         );
@@ -1252,6 +1309,7 @@ export const updateProduct = async (
          accesorio_tipo_custom = :accesorio_tipo_custom,
          accesorio_material_id = :accesorio_material_id,
          accesorio_material_custom = :accesorio_material_custom,
+         atributos = :atributos,
          activo = :activo,
          updated_at = now()
        WHERE id = :id AND vendedor_id = :vid`,
@@ -1285,6 +1343,8 @@ export const updateProduct = async (
 
           accesorio_material_id: b.accesorio_material_id ? Number(b.accesorio_material_id) : null,
           accesorio_material_custom: b.accesorio_material_custom || null,
+
+          atributos: sanitizeAtributos(b.atributos),
 
           activo,
         },

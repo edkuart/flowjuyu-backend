@@ -8,13 +8,29 @@ export const verifyWhatsappWebhook: RequestHandler = async (req, res) => {
   const token = String(req.query["hub.verify_token"] ?? "");
   const challenge = String(req.query["hub.challenge"] ?? "");
   const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN?.trim() ?? "";
+  const isValid = mode === "subscribe" && Boolean(expectedToken) && token === expectedToken;
 
-  if (mode === "subscribe" && expectedToken && token === expectedToken) {
-    res.status(200).send(challenge);
+  console.log("[whatsapp][webhook.verify] incoming_query", req.query);
+  console.log("[whatsapp][webhook.verify] token_received", {
+    present: Boolean(token),
+    value: token,
+  });
+  console.log("[whatsapp][webhook.verify] expected_token", {
+    present: Boolean(expectedToken),
+    value: expectedToken,
+  });
+  console.log("[whatsapp][webhook.verify] result", {
+    mode,
+    hasChallenge: Boolean(challenge),
+    ok: isValid,
+  });
+
+  if (isValid) {
+    res.status(200).type("text/plain").send(challenge);
     return;
   }
 
-  res.status(403).json({ ok: false, message: "Invalid verify token" });
+  res.sendStatus(403);
 };
 
 export const receiveWhatsappWebhook: RequestHandler = async (req, res) => {

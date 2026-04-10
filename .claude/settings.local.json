@@ -17,7 +17,11 @@
       "Bash(ls /c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend/src/components/home/FeaturedSeller*)",
       "Bash(npx --prefix /c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend tsc --noEmit)",
       "Bash(xargs grep:*)",
-      "Bash(./node_modules/.bin/tsc --noEmit)"
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(cmd /c \"cd /d C:\\\\Users\\\\Dell\\\\Projects\\\\Flowjuyu-1.0\\\\flowjuyu-frontend && npx tsc --noEmit 2>&1\")",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(echo \"exit:$?\")",
+      "Read(//tmp/**)"
     ]
   }
 }

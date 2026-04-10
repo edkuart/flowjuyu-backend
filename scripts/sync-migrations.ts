@@ -179,6 +179,22 @@ const CHECKS: MigrationCheck[] = [
       return tableExists(seq, "ai_content_templates");
     },
   },
+
+  // ── Failure Intelligence Layer ─────────────────────────────────────────────
+  {
+    migration: "20260409000000-create-conversation-failure-events.js",
+    description: "conversation_failure_events table",
+    async alreadyApplied(seq) {
+      return tableExists(seq, "conversation_failure_events");
+    },
+  },
+  {
+    migration: "20260409000001-create-platform-faq-entries.js",
+    description: "platform_faq_entries table",
+    async alreadyApplied(seq) {
+      return tableExists(seq, "platform_faq_entries");
+    },
+  },
 ];
 
 // ── SequelizeMeta helpers ────────────────────────────────────────────────────

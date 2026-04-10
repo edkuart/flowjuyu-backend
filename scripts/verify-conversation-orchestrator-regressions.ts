@@ -256,7 +256,8 @@ async function testInvalidTransitionForced() {
       assert.equal(ok, false);
     });
 
-    assert.equal(destroyMock.deleted, 1);
+    // Invalid transitions must not delete the seller's draft.
+    assert.equal(destroyMock.deleted, 0);
     assert.equal(session.current_step, "awaiting_image");
     assert.equal(session.expected_input_type, null);
     assert.equal(session.pending_confirmation_json, null);
