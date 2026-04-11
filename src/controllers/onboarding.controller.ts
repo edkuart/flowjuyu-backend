@@ -32,6 +32,50 @@ async function getPerfil(userId: number) {
   return VendedorPerfil.findOne({ where: { user_id: userId } });
 }
 
+const COMPLETE_STATES = new Set(['FIRST_PRODUCT_PUBLISHED', 'ACTIVATED']);
+
+/**
+ * Returns the id (UUID string) of the seller's first real published product,
+ * or null if none exists.
+ * productos.vendedor_id = users.id (not vendedor_perfil.id).
+ */
+async function getFirstRealProductId(userId: number): Promise<string | null> {
+  const [rows]: any = await sequelize.query(
+    `SELECT id FROM productos WHERE vendedor_id = :uid ORDER BY "createdAt" ASC LIMIT 1`,
+    { replacements: { uid: userId } },
+  );
+  return rows?.[0]?.id ?? null;
+}
+
+/**
+ * Self-heals the onboarding state for sellers who published products via the
+ * normal product flow (outside the onboarding wizard) or who were not
+ * correctly backfilled by the initial migration.
+ *
+ * Advances to FIRST_PRODUCT_PUBLISHED when a real product exists but the
+ * state is still in an incomplete stage. Sets first_product_id if missing so
+ * that the existing checkActivation() path can fire on the next product view.
+ */
+async function healStateIfNeeded(
+  perfil: NonNullable<Awaited<ReturnType<typeof getPerfil>>>,
+  userId: number,
+): Promise<void> {
+  if (COMPLETE_STATES.has(perfil.onboarding_state ?? '')) return;
+
+  const firstProductId = await getFirstRealProductId(userId);
+  if (!firstProductId) return;
+
+  console.log(
+    `[onboarding] healing state for user ${userId}: ` +
+    `${perfil.onboarding_state} → FIRST_PRODUCT_PUBLISHED (product ${firstProductId})`,
+  );
+
+  await perfil.update({
+    onboarding_state: 'FIRST_PRODUCT_PUBLISHED',
+    first_product_id: perfil.first_product_id ?? firstProductId,
+  });
+}
+
 // ── GET /api/seller/onboarding/status ─────────────────────────────────────────
 
 export const getOnboardingStatus: RequestHandler = async (req, res) => {
@@ -44,14 +88,23 @@ export const getOnboardingStatus: RequestHandler = async (req, res) => {
       return;
     }
 
+    // Self-heal: sellers who published products outside the onboarding wizard
+    // (or were not backfilled by the initial migration) are stuck in incomplete
+    // states even though they already have real products. Detect and fix here.
+    await healStateIfNeeded(perfil, userId);
+
     const waLinked = await WhatsappLinkedIdentity.findOne({
       where: { seller_user_id: userId, status: 'active' },
       attributes: ['id'],
     });
 
+    // Re-read after potential mutation so response reflects current truth.
+    const effectiveState  = perfil.onboarding_state ?? 'NEW_USER';
+    const hasFirstProduct = !!(perfil.first_product_id);
+
     const checklist = {
       profile_completed:       !!(perfil.nombre_comercio && perfil.departamento),
-      first_product_submitted: !!(perfil.first_product_id),
+      first_product_submitted: hasFirstProduct,
       profile_photo_uploaded:  !!(perfil.logo),
       whatsapp_linked:         !!(waLinked),
     };
@@ -61,7 +114,7 @@ export const getOnboardingStatus: RequestHandler = async (req, res) => {
 
     res.json({
       ok: true,
-      onboarding_state:        perfil.onboarding_state ?? 'NEW_USER',
+      onboarding_state:        effectiveState,
       activation_at:           perfil.activation_at ?? null,
       onboarding_completed_at: perfil.onboarding_completed_at ?? null,
       checklist,
@@ -193,10 +246,18 @@ export async function checkActivation(
   const perfil = await VendedorPerfil.findByPk(vendedorPerfilId);
   if (!perfil) return;
   if (perfil.onboarding_state === 'ACTIVATED') return;
-  if (!perfil.first_product_id) return;
+
+  // first_product_id may be null for sellers who published via the normal
+  // product flow before onboarding was introduced. Fall back to querying
+  // the products table so we don't block activation for those sellers.
+  const resolvedProductId =
+    perfil.first_product_id ?? (await getFirstRealProductId(userId));
+
+  if (!resolvedProductId) return;
 
   await perfil.update({
     onboarding_state:        'ACTIVATED',
+    first_product_id:        resolvedProductId,
     activation_at:           new Date(),
     onboarding_completed_at: new Date(),
   });
