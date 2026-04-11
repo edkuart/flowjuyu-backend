@@ -135,12 +135,14 @@ export const createOnboardingDraft: RequestHandler = async (req, res) => {
       suggested_description: null,
       price,
       stock:              null,
-      images_json:        imageUrl ? [{ url: imageUrl, is_main: true }] : [],
+      // NOTE:
+      // images_json was removed from ListingDraft.
+      // Images are now handled via separate storage (producto_imagenes).
+      // Do not reintroduce this field here.
       measures_text:      null,
       clase_id:           null,
       categoria_id:       null,
       categoria_custom:   null,
-      vision_suggestions_json: null,
       status:             'ready_to_publish',
       published_product_id: null,
       // is_onboarding_draft is set via raw SQL column — Sequelize doesn't know
