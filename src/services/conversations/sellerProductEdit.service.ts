@@ -25,6 +25,11 @@ type EditableProduct = {
 };
 
 export type EditableProductDetail = EditableProduct;
+export type ProductReferenceMatch = "seller_sku" | "internal_code";
+export type SellerProductReferenceResult = {
+  product: EditableProduct | null;
+  matchedBy: ProductReferenceMatch | null;
+};
 
 function mapOwnedProductToViewModel(product: EditableProduct): UxProductView {
   return {
@@ -153,6 +158,92 @@ export async function getSellerProductBySku(
   );
 
   return product;
+}
+
+async function getSellerProductByField(
+  sellerUserId: number,
+  value: string,
+  field: ProductReferenceMatch
+): Promise<EditableProduct | null> {
+  const column = field === "seller_sku" ? "p.seller_sku" : "p.internal_code";
+
+  const rows = await sequelize.query<EditableProduct>(
+    `
+    SELECT
+      p.id,
+      p.nombre,
+      p.descripcion,
+      p.precio::text,
+      p.stock,
+      p.categoria_id,
+      p.categoria_custom,
+      c.nombre AS categoria_nombre,
+      p.clase_id,
+      cl.nombre AS clase_nombre,
+      p.activo,
+      p.imagen_url
+    FROM productos p
+    LEFT JOIN categorias c ON c.id = p.categoria_id
+    LEFT JOIN clases cl ON cl.id = p.clase_id
+    WHERE UPPER(${column}) = UPPER(:value)
+      AND p.vendedor_id = :sellerUserId
+    LIMIT 1
+    `,
+    {
+      replacements: { sellerUserId, value },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return rows[0] ?? null;
+}
+
+export async function getSellerProductByReference(
+  sellerUserId: number,
+  reference: string
+): Promise<SellerProductReferenceResult> {
+  if (!reference || reference.length > SKU_MAX_LENGTH || !SKU_FORMAT_RE.test(reference)) {
+    console.log(
+      `[conversation][product.search.reference] event=rejected seller=${sellerUserId} reference="${reference}" reason=invalid_format`
+    );
+    return { product: null, matchedBy: null };
+  }
+
+  console.log(
+    `[conversation][product.search.reference] event=start seller=${sellerUserId} reference="${reference}"`
+  );
+
+  const productBySellerSku = await getSellerProductByField(
+    sellerUserId,
+    reference,
+    "seller_sku"
+  );
+
+  if (productBySellerSku) {
+    console.log(
+      `[conversation][product.search.reference] event=found seller=${sellerUserId} reference="${reference}" matchedBy=seller_sku`
+    );
+    return { product: productBySellerSku, matchedBy: "seller_sku" };
+  }
+
+  const productByInternalCode = await getSellerProductByField(
+    sellerUserId,
+    reference,
+    "internal_code"
+  );
+
+  if (productByInternalCode) {
+    console.log(
+      `[conversation][product.search.reference] event=found seller=${sellerUserId} reference="${reference}" matchedBy=internal_code`
+    );
+    return { product: productByInternalCode, matchedBy: "internal_code" };
+  }
+
+  console.log(
+    `[conversation][product.search.reference] event=not_found seller=${sellerUserId} reference="${reference}"`
+  );
+
+  return { product: null, matchedBy: null };
 }
 
 export async function buildOwnedProductDetailResponse(

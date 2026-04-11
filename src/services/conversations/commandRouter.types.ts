@@ -32,7 +32,7 @@ export type CommandMatch = {
   normalizedText: string;
   args: string[];
   numericArg?: number;
-  /** Uppercased seller SKU extracted from "mis productos <SKU>" inputs. */
+  /** Uppercased direct product reference extracted from code-like inputs. */
   skuArg?: string;
 };
 

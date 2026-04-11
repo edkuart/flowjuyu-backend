@@ -10,7 +10,7 @@ import { getSellerCatalogSummaryData } from "./sellerCatalogSummary.service";
 import {
   buildOwnedProductDetailMessage,
   getProductDetail,
-  getSellerProductBySku,
+  getSellerProductByReference,
 } from "./sellerProductEdit.service";
 import {
   buildInvalidCatalogContextMessage,
@@ -58,16 +58,25 @@ export async function routeConversationCommand(
       };
 
     case "mis_productos": {
-      // "mis productos <SKU>" — look up a single product by seller SKU
+      // Direct product references resolve against seller_sku first, then internal_code.
       if (match.skuArg) {
-        const sku = match.skuArg;
-        const product = await getSellerProductBySku(context.seller.user_id, sku);
+        const reference = match.skuArg;
+        const { product, matchedBy } = await getSellerProductByReference(
+          context.seller.user_id,
+          reference
+        );
+
+        if (product && matchedBy) {
+          console.log(
+            `[conversation][command] resolved_reference session=${context.session.id} seller=${context.seller.user_id} reference="${reference}" matchedBy=${matchedBy} product=${product.id}`
+          );
+        }
 
         if (!product) {
           return {
             handled: true,
             commandKey: "mis_productos",
-            responseText: `No encontré un producto con el SKU *${sku}*. Revisa el código e intenta de nuevo.`,
+            responseText: "No encontré un producto con esa referencia. Revisa el código e intenta de nuevo.",
           };
         }
 
