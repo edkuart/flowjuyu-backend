@@ -4,6 +4,44 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+const FROM_ADDRESS = process.env.EMAIL_FROM ?? "Flowjuyu <onboarding@resend.dev>";
+
+// ── Generic send ─────────────────────────────────────────────────────────────
+// Low-level wrapper used by lifecycle email functions.
+// Guards against missing RESEND_API_KEY without throwing in dev.
+
+export async function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+): Promise<void> {
+  if (process.env.NODE_ENV !== "production") {
+    console.log("─────────────────────────────────────────");
+    console.log(`📧 [DEV] Email to: ${to}`);
+    console.log(`   Subject: ${subject}`);
+    console.log("─────────────────────────────────────────");
+  }
+
+  if (!process.env.RESEND_API_KEY) {
+    console.warn("⚠️  RESEND_API_KEY not set — email skipped.");
+    return;
+  }
+
+  const { data, error } = await resend.emails.send({
+    from: FROM_ADDRESS,
+    to,
+    subject,
+    html,
+  });
+
+  if (error) {
+    console.error(`❌ Resend error [${subject}] to ${to}:`, error);
+    throw new Error(`Email delivery failed: ${error.message}`);
+  }
+
+  console.log(`✅ Email sent to ${to}. Resend ID: ${data?.id}`);
+}
+
 export async function sendResetPasswordEmail(
   to: string,
   resetLink: string,

@@ -43,6 +43,80 @@ const EXACT_COMMANDS: Record<string, CommandKey> = {
   "eliminar confirmar": "confirmar_eliminacion",
 };
 
+// Mirrors the seller_sku validation used by the product model and SKU lookup.
+const SKU_FORMAT_RE = /^[A-Za-z0-9\-_]+$/;
+const SKU_MAX_LENGTH = 100;
+const STANDALONE_SKU_MIN_LENGTH = 6;
+
+type SkuCommandMatch = {
+  skuArg: string;
+};
+
+function normalizeSkuArg(rawSku: string): string {
+  return rawSku.trim().toUpperCase();
+}
+
+function isValidSkuFormat(rawSku: string): boolean {
+  return (
+    !!rawSku &&
+    rawSku.length <= SKU_MAX_LENGTH &&
+    SKU_FORMAT_RE.test(rawSku)
+  );
+}
+
+function isStandaloneSkuCandidate(rawSku: string): boolean {
+  return (
+    rawSku.length >= STANDALONE_SKU_MIN_LENGTH &&
+    isValidSkuFormat(rawSku) &&
+    /[A-Za-z]/.test(rawSku) &&
+    /[0-9\-_]/.test(rawSku)
+  );
+}
+
+function matchSellerSkuCommand(rawText: string): SkuCommandMatch | null {
+  const trimmedRawText = rawText.trim();
+
+  const explicitPatterns = [
+    /^mis\s+productos\s+(\S+)\s*$/i,
+    /^producto\s+(\S+)\s*$/i,
+    /^sku\s+(\S+)\s*$/i,
+  ];
+
+  for (const pattern of explicitPatterns) {
+    const match = trimmedRawText.match(pattern);
+    if (!match) continue;
+
+    const skuArg = normalizeSkuArg(match[1]);
+    if (!isValidSkuFormat(skuArg)) {
+      return null;
+    }
+
+    return { skuArg };
+  }
+
+  const viewMatch = trimmedRawText.match(/^ver\s+(\S+)\s*$/i);
+  if (viewMatch) {
+    const skuArg = normalizeSkuArg(viewMatch[1]);
+
+    // Preserve the existing contextual "ver 2" catalog command behavior.
+    if (/^\d+$/.test(skuArg)) {
+      return null;
+    }
+
+    if (!isValidSkuFormat(skuArg)) {
+      return null;
+    }
+
+    return { skuArg };
+  }
+
+  if (!/\s/.test(trimmedRawText) && isStandaloneSkuCandidate(trimmedRawText)) {
+    return { skuArg: normalizeSkuArg(trimmedRawText) };
+  }
+
+  return null;
+}
+
 function matchNaturalLanguageCommand(normalizedText: string): CommandKey | null {
   if (
     normalizedText.includes("cuantos productos tengo") ||
@@ -284,12 +358,7 @@ export function getResetCommandPattern(rawText: string): string | null {
 }
 
 export function isGlobalConversationCommand(rawText: string): boolean {
-  // "mis productos <SKU>" must be checked here explicitly.
-  // detectIntent() normalizes text before analysis, which lowercases and strips
-  // hyphens/underscores from the SKU token — making it unrecognizable as a
-  // products intent. The regex below mirrors the one in matchConversationCommand
-  // so both functions agree on what constitutes a command.
-  if (/^mis\s+productos\s+\S+\s*$/i.test(rawText.trim())) {
+  if (matchSellerSkuCommand(rawText)) {
     return true;
   }
 
@@ -316,18 +385,17 @@ export function matchConversationCommand(rawText: string): CommandMatch {
     };
   }
 
-  // "mis productos <SKU>" — must run on rawText because the normalizer lowercases
-  // and converts hyphens/underscores to spaces, destroying the SKU value.
-  const skuSearchMatch = rawText.trim().match(/^mis\s+productos\s+(\S+)\s*$/i);
-  if (skuSearchMatch) {
-    const skuArg = skuSearchMatch[1].trim().toUpperCase();
+  // SKU commands must run on rawText because the normalizer lowercases and
+  // converts hyphens/underscores to spaces, destroying the SKU token.
+  const skuCommandMatch = matchSellerSkuCommand(rawText);
+  if (skuCommandMatch) {
     return {
       matched: true,
       commandKey: "mis_productos",
       rawText,
       normalizedText,
-      args: [skuArg],
-      skuArg,
+      args: [skuCommandMatch.skuArg],
+      skuArg: skuCommandMatch.skuArg,
     };
   }
 

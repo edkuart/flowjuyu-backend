@@ -838,6 +838,7 @@ export const getProductById = async (
         t.nombre AS tela_nombre,
 
         -- Vendedor estructurado
+        v.id AS vendedor_perfil_id,
         v.user_id AS vendedor_id,
         v.nombre_comercio,
         v.logo,
@@ -874,6 +875,7 @@ export const getProductById = async (
         cl.nombre,
         t.id,
         t.nombre,
+        v.id,
         v.user_id,
         v.nombre_comercio,
         v.logo,
@@ -994,6 +996,33 @@ export const getProductById = async (
       },
       related,
     });
+
+    // =====================================================
+    // 🚀 ONBOARDING: emitir product_viewed (fire-and-forget)
+    // Solo para sellers que aún no están ACTIVATED.
+    // vendedor_id = users.id, vendedor_perfil_id = vendedor_perfil.id
+    // =====================================================
+    if (rawProduct.vendedor_id && rawProduct.vendedor_perfil_id) {
+      setImmediate(async () => {
+        try {
+          const { VendedorPerfil } = await import('../models/VendedorPerfil');
+          const perfil = await VendedorPerfil.findByPk(rawProduct.vendedor_perfil_id, {
+            attributes: ['onboarding_state'],
+          });
+          if (perfil && perfil.onboarding_state !== 'ACTIVATED') {
+            const { emitEvent } = await import('../lib/onboardingEvents');
+            emitEvent('product_viewed', {
+              userId:           rawProduct.vendedor_id,
+              vendedorPerfilId: rawProduct.vendedor_perfil_id,
+              productId,
+              productName:      rawProduct.nombre,
+            });
+          }
+        } catch (err) {
+          console.error('[onboarding] product_viewed emit error', err);
+        }
+      });
+    }
 
   } catch (error) {
     console.error("Error en getProductById:", error);

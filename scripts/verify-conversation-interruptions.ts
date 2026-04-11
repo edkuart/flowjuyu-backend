@@ -120,8 +120,14 @@ function testCommandMatching() {
 
   assert.equal(isGlobalConversationCommand("quiero ver mis productos"), true);
   assert.equal(isGlobalConversationCommand("cuantos productos tengo"), true);
+  assert.equal(isGlobalConversationCommand("ver FJ-ROP-260410-AB12CD"), true);
+  assert.equal(isGlobalConversationCommand("producto FJ-ROP-260410-AB12CD"), true);
+  assert.equal(isGlobalConversationCommand("sku FJ-ROP-260410-AB12CD"), true);
+  assert.equal(isGlobalConversationCommand("FJ-ROP-260410-AB12CD"), true);
   assert.equal(isGlobalConversationCommand("ver perfil"), true);
   assert.equal(isGlobalConversationCommand("ir al menu"), true);
+  assert.equal(isGlobalConversationCommand("ver 2"), false);
+  assert.equal(isGlobalConversationCommand("holaaaa"), false);
   assert.equal(isGlobalConversationCommand("hola, como estas"), false);
 }
 

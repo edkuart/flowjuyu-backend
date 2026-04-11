@@ -34,10 +34,12 @@ function _markSent(vendedorPerfilId: number, messageType: string): void {
 }
 
 // ── Phone resolution ──────────────────────────────────────────────────────────
+// IMPORTANT: seller_user_id in whatsapp_linked_identities references users.id,
+// NOT vendedor_perfil.id. Always pass userId (users.id) here.
 
-async function _getPhone(vendedorPerfilId: number): Promise<string | null> {
+async function _getPhone(userId: number): Promise<string | null> {
   const identity = await WhatsappLinkedIdentity.findOne({
-    where: { seller_user_id: vendedorPerfilId, status: 'active' },
+    where: { seller_user_id: userId, status: 'active' },
     attributes: ['phone_e164'],
   });
   return identity?.phone_e164 ?? null;
@@ -47,6 +49,7 @@ async function _getPhone(vendedorPerfilId: number): Promise<string | null> {
 
 async function _send(
   vendedorPerfilId: number,
+  userId: number,
   messageType: string,
   text: string,
 ): Promise<void> {
@@ -55,16 +58,16 @@ async function _send(
     return;
   }
 
-  const phone = await _getPhone(vendedorPerfilId);
+  const phone = await _getPhone(userId);
   if (!phone) {
-    console.log(`[whatsappOnboarding] no linked phone for perfil ${vendedorPerfilId} — skipping ${messageType}`);
+    console.log(`[whatsappOnboarding] no linked phone for user ${userId} — skipping ${messageType}`);
     return;
   }
 
   try {
     await sendTextMessage(phone, text);
     _markSent(vendedorPerfilId, messageType);
-    console.log(`[whatsappOnboarding] sent ${messageType} to perfil ${vendedorPerfilId}`);
+    console.log(`[whatsappOnboarding] sent ${messageType} to user ${userId} (perfil ${vendedorPerfilId})`);
   } catch (err) {
     // Never throw — WA failure must not break the caller
     console.error(`[whatsappOnboarding] failed to send ${messageType}`, err);
@@ -79,6 +82,7 @@ async function _send(
  */
 export async function sendWelcome(
   vendedorPerfilId: number,
+  userId: number,
   nombre: string,
 ): Promise<void> {
   const text = [
@@ -89,7 +93,7 @@ export async function sendWelcome(
     `Entra a la app y sube tu primer producto para empezar. ¡Cualquier duda me escribes aquí! ✨`,
   ].join('\n');
 
-  await _send(vendedorPerfilId, 'welcome', text);
+  await _send(vendedorPerfilId, userId, 'welcome', text);
 }
 
 /**
@@ -97,6 +101,7 @@ export async function sendWelcome(
  */
 export async function sendProductSubmitted(
   vendedorPerfilId: number,
+  userId: number,
   nombre: string,
   productName: string,
 ): Promise<void> {
@@ -110,7 +115,7 @@ export async function sendProductSubmitted(
     `Mientras tanto puedes seguir completando tu tienda. 💪`,
   ].join('\n');
 
-  await _send(vendedorPerfilId, 'product_submitted', text);
+  await _send(vendedorPerfilId, userId, 'product_submitted', text);
 }
 
 /**
@@ -118,6 +123,7 @@ export async function sendProductSubmitted(
  */
 export async function sendProductViewed(
   vendedorPerfilId: number,
+  userId: number,
   nombre: string,
   productName: string,
 ): Promise<void> {
@@ -129,5 +135,27 @@ export async function sendProductViewed(
     `Ten tu WhatsApp listo por si te contactan. ¡Suerte con la venta! 🛍️`,
   ].join('\n');
 
-  await _send(vendedorPerfilId, 'product_viewed', text);
+  await _send(vendedorPerfilId, userId, 'product_viewed', text);
+}
+
+/**
+ * Sent when admin approves the seller's KYC.
+ * This is the most important retention message in the onboarding flow.
+ */
+export async function sendKycApproved(
+  vendedorPerfilId: number,
+  userId: number,
+  nombre: string,
+): Promise<void> {
+  const text = [
+    `¡Buenas noticias, ${nombre}! 🎊`,
+    ``,
+    `Tu cuenta en *Flowjuyu* fue aprobada.`,
+    ``,
+    `Tu producto ya está publicado y los compradores de toda Guatemala pueden encontrarlo.`,
+    ``,
+    `Sigue agregando más productos para aumentar tus ventas. ¡Mucho éxito! 🧵`,
+  ].join('\n');
+
+  await _send(vendedorPerfilId, userId, 'kyc_approved', text);
 }

@@ -518,6 +518,23 @@ export const updateSellerProfile: RequestHandler = async (req, res): Promise<voi
 
     await VendedorPerfil.update(fieldsToUpdate, { where: { user_id: user.id } });
 
+    // ── Onboarding state: advance SELLER_REGISTERED → PROFILE_STARTED ────────
+    // Only advances if both required fields are present AND state hasn't
+    // moved past PROFILE_STARTED yet (guards against overwriting later states).
+    const finalNombreComercio = fieldsToUpdate.nombre_comercio;
+    const finalDepartamento   = fieldsToUpdate.departamento;
+    if (finalNombreComercio && finalDepartamento) {
+      await VendedorPerfil.update(
+        { onboarding_state: 'PROFILE_STARTED' },
+        {
+          where: {
+            user_id:          user.id,
+            onboarding_state: 'SELLER_REGISTERED',
+          },
+        }
+      );
+    }
+
     const updatedPerfil = await VendedorPerfil.findOne({ where: { user_id: user.id } });
 
     void logAuditEventFromRequest(req, {

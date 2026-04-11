@@ -60,6 +60,45 @@ function main() {
     assertNotCreationCommand(command);
   }
 
+  const skuInputs = [
+    { input: "mis productos FJ-ROP-260410-AB12CD", sku: "FJ-ROP-260410-AB12CD" },
+    { input: "ver FJ-ROP-260410-AB12CD", sku: "FJ-ROP-260410-AB12CD" },
+    { input: "producto sku_demo-99", sku: "SKU_DEMO-99" },
+    { input: "sku abcd_1234", sku: "ABCD_1234" },
+    { input: "ABCD-1234", sku: "ABCD-1234" },
+  ];
+
+  for (const { input, sku } of skuInputs) {
+    const match = matchConversationCommand(input);
+    assert.equal(match.matched, true, `Expected SKU command match for "${input}"`);
+    assert.equal(
+      match.commandKey,
+      "mis_productos",
+      `Expected mis_productos for "${input}"`
+    );
+    assert.equal(match.skuArg, sku, `Expected SKU ${sku} for "${input}"`);
+    assert.equal(
+      isGlobalConversationCommand(input),
+      true,
+      `Expected global SKU command for "${input}"`
+    );
+  }
+
+  const viewIndexMatch = matchConversationCommand("ver 2");
+  assert.equal(viewIndexMatch.commandKey, "ver_producto");
+  assert.equal(viewIndexMatch.skuArg, undefined);
+
+  const rejectedSkuInputs = ["producto hola mundo", "sku hola/mundo", "holaaaa", "123456"];
+
+  for (const input of rejectedSkuInputs) {
+    const match = matchConversationCommand(input);
+    assert.equal(
+      match.skuArg,
+      undefined,
+      `Did not expect a SKU match for "${input}"`
+    );
+  }
+
   console.log("✅ Command matcher regressions passed");
 }
 

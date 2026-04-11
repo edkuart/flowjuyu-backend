@@ -505,6 +505,16 @@ export const approveSeller: RequestHandler = async (req, res) => {
       message: "Vendedor aprobado correctamente",
     });
 
+    // ── WhatsApp: notificar al seller que fue aprobado (fire-and-forget) ──────
+    // Runs after response is sent so the admin UI is never delayed.
+    setImmediate(async () => {
+      try {
+        const { sendKycApproved } = await import('../services/whatsappOnboarding.service');
+        await sendKycApproved(seller.id, seller.user_id, seller.nombre);
+      } catch (err) {
+        console.error('[onboarding] sendKycApproved failed', err);
+      }
+    });
 
   } catch (error) {
     console.error("approveSeller error:", error);

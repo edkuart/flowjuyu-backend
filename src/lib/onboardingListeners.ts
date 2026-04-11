@@ -41,7 +41,7 @@ onboardingBus.on('seller_created', async (payload: SellerCreatedPayload) => {
       attributes: ['nombre'],
     });
     if (perfil) {
-      await sendWelcome(payload.vendedorPerfilId, perfil.nombre);
+      await sendWelcome(payload.vendedorPerfilId, payload.userId, perfil.nombre);
     }
   } catch (err) {
     console.error('[onboardingListeners] seller_created handler error', err);
@@ -59,6 +59,7 @@ onboardingBus.on('product_published', async (payload: ProductPublishedPayload) =
     if (perfil) {
       await sendProductSubmitted(
         payload.vendedorPerfilId,
+        payload.userId,
         perfil.nombre,
         payload.productName,
       );
@@ -79,6 +80,7 @@ onboardingBus.on('product_viewed', async (payload: ProductViewedPayload) => {
     if (perfil) {
       await sendProductViewed(
         payload.vendedorPerfilId,
+        payload.userId,
         perfil.nombre,
         payload.productName,
       );
