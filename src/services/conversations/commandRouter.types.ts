@@ -32,6 +32,8 @@ export type CommandMatch = {
   normalizedText: string;
   args: string[];
   numericArg?: number;
+  /** Uppercased seller SKU extracted from "mis productos <SKU>" inputs. */
+  skuArg?: string;
 };
 
 export type CommandRouterContext = {

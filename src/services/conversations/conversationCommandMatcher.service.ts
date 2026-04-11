@@ -284,6 +284,15 @@ export function getResetCommandPattern(rawText: string): string | null {
 }
 
 export function isGlobalConversationCommand(rawText: string): boolean {
+  // "mis productos <SKU>" must be checked here explicitly.
+  // detectIntent() normalizes text before analysis, which lowercases and strips
+  // hyphens/underscores from the SKU token — making it unrecognizable as a
+  // products intent. The regex below mirrors the one in matchConversationCommand
+  // so both functions agree on what constitutes a command.
+  if (/^mis\s+productos\s+\S+\s*$/i.test(rawText.trim())) {
+    return true;
+  }
+
   const intent = detectIntent(rawText);
 
   return (
@@ -304,6 +313,21 @@ export function matchConversationCommand(rawText: string): CommandMatch {
       rawText,
       normalizedText,
       args: [],
+    };
+  }
+
+  // "mis productos <SKU>" — must run on rawText because the normalizer lowercases
+  // and converts hyphens/underscores to spaces, destroying the SKU value.
+  const skuSearchMatch = rawText.trim().match(/^mis\s+productos\s+(\S+)\s*$/i);
+  if (skuSearchMatch) {
+    const skuArg = skuSearchMatch[1].trim().toUpperCase();
+    return {
+      matched: true,
+      commandKey: "mis_productos",
+      rawText,
+      normalizedText,
+      args: [skuArg],
+      skuArg,
     };
   }
 

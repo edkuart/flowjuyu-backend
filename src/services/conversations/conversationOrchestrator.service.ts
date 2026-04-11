@@ -33,6 +33,7 @@ import {
   buildDraftPreview,
   deleteListingDraftBySession,
   getMissingFields,
+  getMissingFieldsForEdit,
   getOrCreateDraft,
   getVisionSuggestion,
   hasDraftContent,
@@ -1450,7 +1451,7 @@ export async function handleInboundMessage(
             return;
           }
 
-          const missing = getMissingFields(draft);
+          const missing = getMissingFieldsForEdit(draft);
           if (missing.length > 0) {
             await sendReply(
               session,
@@ -1960,7 +1961,8 @@ export async function handleInboundMessage(
 
     if (draft.status !== "published") {
       if (commandContext?.mode === "listing_edit" && commandContext.selectedProductId) {
-        if (missing.length > 0) {
+        const missingForEdit = getMissingFieldsForEdit(draft);
+        if (missingForEdit.length > 0) {
           await updateDraft(
             draft,
             { status: "collecting" },
@@ -1970,7 +1972,7 @@ export async function handleInboundMessage(
             ...commandContext,
             awaitingEditSaveConfirmation: false,
           });
-          await promptNextMissingField(session, draft, missing[0], {
+          await promptNextMissingField(session, draft, missingForEdit[0], {
             waMessageId: message.waMessageId,
           });
         } else {

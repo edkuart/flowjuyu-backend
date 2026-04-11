@@ -9,6 +9,7 @@ import { validateUploadedFiles } from "../middleware/upload.middleware";
 import * as SellerController from "../controllers/seller.controller";
 import * as SellerTicketController from "../controllers/sellerTicket.controller";
 import * as SellerWhatsappLinkingController from "../controllers/sellerWhatsappLinking.controller";
+import * as OnboardingController from "../controllers/onboarding.controller";
 import { getSellerReviewInsightsHandler } from "../controllers/review.controller";
 
 const router: ReturnType<typeof Router> = Router();
@@ -244,6 +245,23 @@ router.put(
 router.delete(
   "/banner",
   asyncHandler(SellerController.deleteSellerBanner)
+);
+
+/* ==================================================
+   🚀 ONBOARDING
+   No requireActiveSeller — sellers in KYC-pending state
+   must be able to check status and submit their first product.
+================================================== */
+
+router.get(
+  "/onboarding/status",
+  asyncHandler(OnboardingController.getOnboardingStatus)
+);
+
+router.post(
+  "/onboarding/product-draft",
+  upload.single("imagen"),
+  asyncHandler(OnboardingController.createOnboardingDraft)
 );
 
 export default router;

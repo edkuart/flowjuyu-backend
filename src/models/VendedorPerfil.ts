@@ -37,6 +37,17 @@ export type PlanTipo =
   | "founder";
 
 /* ======================================================
+   🎯 ONBOARDING STATE
+====================================================== */
+export type OnboardingState =
+  | "NEW_USER"
+  | "SELLER_REGISTERED"
+  | "PROFILE_STARTED"
+  | "FIRST_PRODUCT_STARTED"
+  | "FIRST_PRODUCT_PUBLISHED"
+  | "ACTIVATED";
+
+/* ======================================================
    🧱 Interface Base
 ====================================================== */
 interface VendedorPerfilAttrs {
@@ -101,6 +112,12 @@ interface VendedorPerfilAttrs {
     gradient_variant?: string;
   } | null;
 
+  /* 🚀 ONBOARDING */
+  onboarding_state?: OnboardingState | null;
+  onboarding_completed_at?: Date | null;
+  first_product_id?: string | null;
+  activation_at?: Date | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -143,6 +160,10 @@ type Creation = Optional<
   | "facebook"
   | "tiktok"
   | "header_style"
+  | "onboarding_state"
+  | "onboarding_completed_at"
+  | "first_product_id"
+  | "activation_at"
 >;
 
 /* ======================================================
@@ -202,6 +223,12 @@ export class VendedorPerfil
 
   /* 🎨 ESTILO DEL ENCABEZADO */
   public header_style?: VendedorPerfilAttrs["header_style"];
+
+  /* 🚀 ONBOARDING */
+  public onboarding_state?: OnboardingState | null;
+  public onboarding_completed_at?: Date | null;
+  public first_product_id?: string | null;
+  public activation_at?: Date | null;
 
   public readonly createdAt?: Date;
   public readonly updatedAt?: Date;
@@ -399,6 +426,31 @@ VendedorPerfil.init(
 
     header_style: {
       type: DataTypes.JSONB,
+      allowNull: true,
+    },
+
+    /* ===============================
+       🚀 ONBOARDING
+    ================================ */
+
+    onboarding_state: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+      defaultValue: "NEW_USER",
+    },
+
+    onboarding_completed_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+
+    first_product_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
+
+    activation_at: {
+      type: DataTypes.DATE,
       allowNull: true,
     },
 

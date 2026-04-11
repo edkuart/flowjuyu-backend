@@ -215,6 +215,15 @@ export function getVisionSuggestion(draft: ListingDraft): VisionSuggestion | nul
   return value as VisionSuggestion;
 }
 
+/**
+ * Returns the fields still missing before a NEW product can be published.
+ *
+ * ⚠️  CREATE FLOW ONLY.
+ * All seven fields are mandatory here, including "measures" and "image".
+ * Do NOT call this in the edit flow — use getMissingFieldsForEdit() instead.
+ * Mixing the two causes optional/non-existent fields (e.g. measures_text,
+ * which has no column in productos) to block the edit save permanently.
+ */
 export function getMissingFields(draft: ListingDraft): MissingDraftField[] {
   const missing: MissingDraftField[] = [];
   const images = getDraftImages(draft);
@@ -224,6 +233,32 @@ export function getMissingFields(draft: ListingDraft): MissingDraftField[] {
   if (!draft.categoria_id && !draft.categoria_custom?.trim()) missing.push("category");
   if (!draft.clase_id) missing.push("class");
   if (!draft.measures_text?.trim()) missing.push("measures");
+  if (draft.price == null || Number(draft.price) <= 0) missing.push("price");
+  if (draft.stock == null || Number(draft.stock) <= 0) missing.push("stock");
+
+  return missing;
+}
+
+/**
+ * Validates fields required to save an EDIT to an existing product.
+ *
+ * Differs from getMissingFields (create flow) in two ways:
+ * 1. "measures" is excluded — the productos table has no measures column,
+ *    so measures_text is never populated when loading a product into a draft.
+ *    Requiring it would permanently block every edit save.
+ * 2. "image" is excluded — products can exist without an image; the edit
+ *    flow must not force an image upload just because the draft re-loaded
+ *    the product with an empty image slot.
+ *
+ * All other fields (description, category, class, price, stock) map directly
+ * to columns in productos and must be present to produce a valid UPDATE.
+ */
+export function getMissingFieldsForEdit(draft: ListingDraft): MissingDraftField[] {
+  const missing: MissingDraftField[] = [];
+
+  if (!draft.suggested_description?.trim()) missing.push("description");
+  if (!draft.categoria_id && !draft.categoria_custom?.trim()) missing.push("category");
+  if (!draft.clase_id) missing.push("class");
   if (draft.price == null || Number(draft.price) <= 0) missing.push("price");
   if (draft.stock == null || Number(draft.stock) <= 0) missing.push("stock");
 

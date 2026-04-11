@@ -10,6 +10,7 @@ import { getSellerCatalogSummaryData } from "./sellerCatalogSummary.service";
 import {
   buildOwnedProductDetailMessage,
   getProductDetail,
+  getSellerProductBySku,
 } from "./sellerProductEdit.service";
 import {
   buildInvalidCatalogContextMessage,
@@ -36,7 +37,7 @@ export async function routeConversationCommand(
   }
 
   console.log(
-    `[conversation][command] matched session=${context.session.id} command=${match.commandKey} text="${match.normalizedText}"`
+    `[conversation][command] matched session=${context.session.id} seller=${context.seller.user_id} command=${match.commandKey}${match.skuArg ? ` sku="${match.skuArg}"` : ""} text="${match.normalizedText}"`
   );
 
   const existingCommandContext = getCommandContext(context.session);
@@ -57,6 +58,32 @@ export async function routeConversationCommand(
       };
 
     case "mis_productos": {
+      // "mis productos <SKU>" — look up a single product by seller SKU
+      if (match.skuArg) {
+        const sku = match.skuArg;
+        const product = await getSellerProductBySku(context.seller.user_id, sku);
+
+        if (!product) {
+          return {
+            handled: true,
+            commandKey: "mis_productos",
+            responseText: `No encontré un producto con el SKU *${sku}*. Revisa el código e intenta de nuevo.`,
+          };
+        }
+
+        return {
+          handled: true,
+          commandKey: "mis_productos",
+          responseText: buildOwnedProductDetailMessage(product),
+          nextCommandContext: {
+            ...existingCommandContext,
+            selectedProductId: product.id,
+            selectedProductName: product.nombre,
+          },
+        };
+      }
+
+      // "mis productos" — return full catalog listing
       const summary = await getSellerCatalogSummaryData(context.seller.user_id);
       return {
         handled: true,

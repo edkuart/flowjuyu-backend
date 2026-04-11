@@ -88,6 +88,73 @@ export async function getOwnedProductForConversation(
   return getProductDetail(sellerUserId, productId);
 }
 
+// Mirrors the model-level format rule: letters, digits, hyphens, underscores.
+// Max length matches the seller_sku column definition (100 chars).
+const SKU_FORMAT_RE = /^[A-Za-z0-9\-_]+$/;
+const SKU_MAX_LENGTH = 100;
+
+/**
+ * Looks up a seller's product by its seller_sku using an exact, case-insensitive
+ * match. Returns null if the SKU does not exist, belongs to a different seller,
+ * or fails format validation (no DB query is made in that case).
+ *
+ * @param sellerUserId - The authenticated seller's user ID.
+ * @param sku          - The SKU string (already uppercased by the caller).
+ */
+export async function getSellerProductBySku(
+  sellerUserId: number,
+  sku: string
+): Promise<EditableProduct | null> {
+  // Guard: reject before hitting the DB. The format rule mirrors the model's
+  // validator so we never send symbols, empty strings, or oversized input.
+  if (!sku || sku.length > SKU_MAX_LENGTH || !SKU_FORMAT_RE.test(sku)) {
+    console.log(
+      `[conversation][product.search.sku] event=rejected seller=${sellerUserId} sku="${sku}" reason=invalid_format`
+    );
+    return null;
+  }
+
+  console.log(
+    `[conversation][product.search.sku] event=start seller=${sellerUserId} sku="${sku}"`
+  );
+
+  const rows = await sequelize.query<EditableProduct>(
+    `
+    SELECT
+      p.id,
+      p.nombre,
+      p.descripcion,
+      p.precio::text,
+      p.stock,
+      p.categoria_id,
+      p.categoria_custom,
+      c.nombre AS categoria_nombre,
+      p.clase_id,
+      cl.nombre AS clase_nombre,
+      p.activo,
+      p.imagen_url
+    FROM productos p
+    LEFT JOIN categorias c ON c.id = p.categoria_id
+    LEFT JOIN clases cl ON cl.id = p.clase_id
+    WHERE UPPER(p.seller_sku) = UPPER(:sku)
+      AND p.vendedor_id = :sellerUserId
+    LIMIT 1
+    `,
+    {
+      replacements: { sellerUserId, sku },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const product = rows[0] ?? null;
+
+  console.log(
+    `[conversation][product.search.sku] event=${product ? "found" : "not_found"} seller=${sellerUserId} sku="${sku}"`
+  );
+
+  return product;
+}
+
 export async function buildOwnedProductDetailResponse(
   sellerUserId: number,
   productId: string

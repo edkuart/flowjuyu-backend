@@ -4,6 +4,9 @@ import "dotenv/config";
 import app from "./app";
 import { assertDbConnection } from "./config/db";
 
+// Register onboarding event listeners (side-effects only — import once here)
+import "./lib/onboardingListeners";
+
 const PORT = Number(process.env.PORT || 8800);
 
 // ── Environment pre-flight check ────────────────────────────────────────────

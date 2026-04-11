@@ -1726,9 +1726,11 @@ export const activateSeller: RequestHandler = async (req, res) => {
     }
 
     // ── Promote buyer → seller ──────────────────────────────────────────────
+    let newPerfilId: number | null = null;
+
     await sequelize.transaction(async (t) => {
       await user.update({ rol: "seller" }, { transaction: t });
-      await VendedorPerfil.create(
+      const newPerfil = await VendedorPerfil.create(
         {
           user_id:           user.id,
           nombre:            user.nombre,
@@ -1741,9 +1743,20 @@ export const activateSeller: RequestHandler = async (req, res) => {
         },
         { transaction: t },
       );
+      newPerfilId = newPerfil.id;
     });
 
     await user.reload();
+
+    // Emit seller_created after the transaction commits so listeners
+    // see the committed row. Fire-and-forget via setImmediate inside emitEvent.
+    if (newPerfilId !== null) {
+      const { emitEvent } = await import("../lib/onboardingEvents");
+      emitEvent("seller_created", {
+        userId:           user.id,
+        vendedorPerfilId: newPerfilId,
+      });
+    }
 
     res.status(200).json({
       ok:   true,
