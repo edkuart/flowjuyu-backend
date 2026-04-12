@@ -21,7 +21,8 @@
       "Bash(cmd /c \"cd /d C:\\\\Users\\\\Dell\\\\Projects\\\\Flowjuyu-1.0\\\\flowjuyu-frontend && npx tsc --noEmit 2>&1\")",
       "Bash(node_modules/.bin/tsc --noEmit)",
       "Bash(echo \"exit:$?\")",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Read(//c/Users/Dell/Projects/Flowjuyu-1.0//**)"
     ]
   }
 }

@@ -78,6 +78,10 @@ export async function updateDraft(
   return updateDraftById(draft.id, partialData, context);
 }
 
+// Mirrors the format rule on productos.seller_sku and the validation in
+// product.controller.ts — keep these three in sync if the rule changes.
+const SELLER_SKU_RE = /^[A-Za-z0-9\-_]{1,100}$/;
+
 function validateDraftPatch(partialData: DraftPatch): void {
   if (partialData.price != null && Number(partialData.price) <= 0) {
     throw new Error("Draft price must be greater than zero");
@@ -85,6 +89,12 @@ function validateDraftPatch(partialData: DraftPatch): void {
 
   if (partialData.stock != null && Number(partialData.stock) <= 0) {
     throw new Error("Draft stock must be greater than zero");
+  }
+
+  if (partialData.seller_sku != null && !SELLER_SKU_RE.test(partialData.seller_sku)) {
+    throw new Error(
+      "Draft seller_sku: only letters, digits, hyphens (-) and underscores (_) allowed, max 100 chars"
+    );
   }
 }
 

@@ -14,4 +14,11 @@ export type DraftPatch = Partial<{
   vision_suggestions_json: object | null;
   status: ListingDraftStatus;
   published_product_id: string | null;
+  /**
+   * Optional seller-defined inventory code.
+   * Format: letters, digits, hyphens, underscores — max 100 chars.
+   * Mirrors the seller_sku column in productos (partial unique per seller).
+   * Set to null to clear.
+   */
+  seller_sku: string | null;
 }>;

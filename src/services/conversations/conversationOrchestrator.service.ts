@@ -43,7 +43,7 @@ import {
   type MissingDraftField,
 } from "../listing-drafts/listingDraft.service";
 import { listProductClasses, resolveProductClassFromText } from "../listing-drafts/productCatalog.service";
-import { publishListingDraft } from "../listing-drafts/listingPublish.service";
+import { publishListingDraft, SkuCollisionError } from "../listing-drafts/listingPublish.service";
 import { generateListingContent } from "../ai-listing/aiListingGeneration.service";
 import { transcribeAudio } from "../ai-listing/aiListingTranscription.service";
 import { analyzeListingImages } from "../ai-listing/aiListingVision.service";
@@ -936,13 +936,25 @@ async function handleTextInput(
         return "stop";
       }
 
-    const result = await publishListingDraft(draft);
+    let result: { productId: string; internalCode: string };
+    try {
+      result = await publishListingDraft(draft);
+    } catch (publishErr: any) {
+      if (publishErr instanceof SkuCollisionError) {
+        await sendReply(
+          session,
+          `El código de inventario *${publishErr.sku}* ya está en uso en otro de tus productos. Edita el borrador con un código diferente antes de guardar.`
+        );
+        return "stop";
+      }
+      throw publishErr;
+    }
     if (!(await transitionSessionSafely(session, "published", null, message.waMessageId))) {
       return "stop";
     }
     await sendReply(
       session,
-      `Tu producto fue creado correctamente con ID ${result.productId}. Quedó guardado como inactivo para revisión final antes de activarlo.`
+      `✅ Producto creado con código *${result.internalCode}*.\n\nQuedó guardado como *inactivo*. Actívalo desde tu panel web para que aparezca en el catálogo.\n\nPara consultarlo aquí: *mis productos ${result.internalCode}*`
     );
     return "stop";
   }

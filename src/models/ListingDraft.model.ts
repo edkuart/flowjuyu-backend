@@ -34,6 +34,13 @@ class ListingDraft extends Model<
   declare vision_suggestions_json: object | null;
   declare status: ListingDraftStatus;
   declare published_product_id: string | null;
+  /**
+   * Optional seller-defined inventory code captured during the conversation.
+   * Written to productos.seller_sku at publish time.
+   * Validated at draft-save time (format: [A-Za-z0-9\-_]{1,100}).
+   * Uniqueness per seller is enforced by the DB at publish — not here.
+   */
+  declare seller_sku: string | null;
   declare created_at: CreationOptional<Date>;
   declare updated_at: CreationOptional<Date>;
 }
@@ -112,6 +119,11 @@ ListingDraft.init(
     published_product_id: {
       type: DataTypes.UUID,
       allowNull: true,
+    },
+    seller_sku: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      defaultValue: null,
     },
     created_at: {
       type: DataTypes.DATE,
