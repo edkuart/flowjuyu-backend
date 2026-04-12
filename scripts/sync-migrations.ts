@@ -134,22 +134,22 @@ const CHECKS: MigrationCheck[] = [
     },
   },
 
-  // ── Social links on vendedor_perfiles ─────────────────────────────────────
+  // ── Social links on vendedor_perfil ──────────────────────────────────────
   {
     migration: "20260323000000-add-social-links-vendedor-perfil.js",
-    description: "vendedor_perfiles social link columns",
+    description: "vendedor_perfil social link columns",
     async alreadyApplied(seq) {
-      const cols = await describeTable(seq, "vendedor_perfiles");
+      const cols = await describeTable(seq, "vendedor_perfil");
       return cols != null && "whatsapp" in cols;
     },
   },
 
-  // ── Header style on vendedor_perfiles ─────────────────────────────────────
+  // ── Header style on vendedor_perfil ──────────────────────────────────────
   {
     migration: "20260323100000-add-header-style-vendedor-perfil.js",
-    description: "vendedor_perfiles.header_style column",
+    description: "vendedor_perfil.header_style column",
     async alreadyApplied(seq) {
-      const cols = await describeTable(seq, "vendedor_perfiles");
+      const cols = await describeTable(seq, "vendedor_perfil");
       return cols != null && "header_style" in cols;
     },
   },
@@ -193,6 +193,64 @@ const CHECKS: MigrationCheck[] = [
     description: "platform_faq_entries table",
     async alreadyApplied(seq) {
       return tableExists(seq, "platform_faq_entries");
+    },
+  },
+
+  // ── Block 1: Consent & Policy Layer ───────────────────────────────────────
+  {
+    migration: "20260412000000-create-policy-versions.js",
+    description: "policy_versions table",
+    async alreadyApplied(seq) {
+      return tableExists(seq, "policy_versions");
+    },
+  },
+  {
+    migration: "20260412000001-create-user-consents.js",
+    description: "user_consents table + current_consents view",
+    async alreadyApplied(seq) {
+      return tableExists(seq, "user_consents");
+    },
+  },
+  {
+    migration: "20260412000002-add-consent-fields-to-users.js",
+    description: "users.terms_current + 9 other consent flag columns",
+    async alreadyApplied(seq) {
+      const cols = await describeTable(seq, "users");
+      return cols != null && "terms_current" in cols;
+    },
+  },
+  {
+    migration: "20260412000003-add-consent-fields-to-vendedor-perfil.js",
+    description: "vendedor_perfil.kyc_data_consent + 4 other consent columns",
+    async alreadyApplied(seq) {
+      const cols = await describeTable(seq, "vendedor_perfil");
+      return cols != null && "kyc_data_consent" in cols;
+    },
+  },
+  {
+    migration: "20260412000004-seed-policy-versions-v1.js",
+    description: "policy_versions v1 seed rows (terms, privacy, communications, kyc_data)",
+    async alreadyApplied(seq) {
+      const [rows] = await seq.query(
+        `SELECT COUNT(*) AS cnt FROM policy_versions WHERE version = 'v1'`,
+        { type: QueryTypes.SELECT }
+      ) as any[];
+      return parseInt((rows as any).cnt, 10) >= 4;
+    },
+  },
+  {
+    migration: "20260412000005-add-marketing-whatsapp-fields-to-users.js",
+    description: "users.marketing_whatsapp + users.marketing_whatsapp_at",
+    async alreadyApplied(seq) {
+      const cols = await describeTable(seq, "users");
+      return cols != null && "marketing_whatsapp" in cols;
+    },
+  },
+  {
+    migration: "20260412000006-create-user-marketing-prompt-states.js",
+    description: "user_marketing_prompt_states table",
+    async alreadyApplied(seq) {
+      return tableExists(seq, "user_marketing_prompt_states");
     },
   },
 ];
@@ -315,3 +373,6 @@ main().catch((err) => {
   console.error("\n❌ Sync failed:", err);
   sequelize.close().finally(() => process.exit(1));
 });
+
+
+

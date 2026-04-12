@@ -24,6 +24,10 @@ import {
   invalidateSession,
 } from "../lib/sessionCache";
 import { logAuditEventFromRequest } from "../services/audit.service";
+import {
+  recordRegistrationConsents,
+  getActivePolicyVersion,
+} from "../services/consent.service";
 import { checkLoginAbuse } from "../services/abuseDetection.service";
 import { LOGIN_RULES } from "../config/securityRules";
 import { evaluateLoginDefense } from "../services/activeDefense.service";
@@ -124,6 +128,19 @@ export const register = async (
     });
 
     const token = issueTokenPair(res, newUser);
+
+    // Record consent — best-effort after user creation.
+    // A failure here must NOT fail the registration response since the user
+    // account already exists. The gap is resolved by re-consent on next login
+    // once the middleware enforcement is active (Block 3+).
+    recordRegistrationConsents(newUser.id, {
+      accepted:  true,
+      source:    "registration_buyer",
+      ipAddress: req.ip ?? null,
+      userAgent: req.get("user-agent") ?? null,
+    }).catch((consentErr) =>
+      console.error("[consent] buyer registration consent failed:", consentErr),
+    );
 
     res.status(201).json({
       ok:    true,
@@ -294,6 +311,17 @@ export const registerVendedor = async (
     const userDTO = buildUserDTO(newUser);
 
     await t.commit();
+
+    // Record consent after commit — uses its own internal transaction so a
+    // consent failure cannot roll back the seller registration.
+    recordRegistrationConsents(newUser.id, {
+      accepted:  true,
+      source:    "registration_seller",
+      ipAddress: req.ip ?? null,
+      userAgent: req.get("user-agent") ?? null,
+    }).catch((consentErr) =>
+      console.error("[consent] seller registration consent failed:", consentErr),
+    );
 
     void logAuditEventFromRequest(req, {
       actor_user_id: newUser.id,
@@ -547,11 +575,30 @@ export const login = async (
       severity:      "low",
     });
 
+    // Consent gate — inform the frontend if the user needs to re-accept terms.
+    // terms_current=false covers:
+    //   • Users registered before Block 2 was deployed (backfill pending)
+    //   • Users who explicitly revoked consent
+    //   • Users whose accepted version is no longer current
+    // The frontend should redirect to the consent modal on needsConsent=true.
+    const needsConsent = !user.terms_current;
+    let currentVersion: string | null = null;
+
+    if (needsConsent) {
+      try {
+        const activeTerms = await getActivePolicyVersion("terms");
+        currentVersion = activeTerms?.version ?? null;
+      } catch {
+        // Non-fatal — login still succeeds; frontend retries via GET /api/consent/status
+      }
+    }
+
     res.status(200).json({
       ok:    true,
       token,
       user:  buildUserDTO(user),
-      ...(sellerStatus && { sellerStatus }),
+      ...(sellerStatus  && { sellerStatus }),
+      ...(needsConsent  && { needsConsent: true, currentVersion }),
     });
   } catch (error) {
     console.error("Error en login:", error);
@@ -896,6 +943,20 @@ export const loginWithSocial: RequestHandler = async (req, res) => {
     }
 
     const { user, isNew } = await findOrCreateSocialUser(profile);
+
+    // Record consent for genuinely new users only.
+    // Returning social users already have their consent on record.
+    if (isNew) {
+      recordRegistrationConsents(user.id, {
+        accepted:  true,
+        source:    "registration_social",
+        ipAddress: req.ip ?? null,
+        userAgent: req.get("user-agent") ?? null,
+      }).catch((consentErr) =>
+        console.error("[consent] social registration consent failed:", consentErr),
+      );
+    }
+
     const token = issueTokenPair(res, user);
 
     res.status(200).json({ ok: true, token, user: buildUserDTO(user), is_new_user: isNew });

@@ -59,6 +59,11 @@ import WhatsappLinkingToken from "./WhatsappLinkingToken.model";
 import WhatsappLinkedIdentity from "./WhatsappLinkedIdentity.model";
 import AnalyticsEvent from "./AnalyticsEvent.model";
 
+// Consent Layer (Block 2)
+import PolicyVersion from "./PolicyVersion.model";
+import UserConsent   from "./UserConsent.model";
+import UserMarketingPromptState from "./UserMarketingPromptState.model";
+
 /**
  * ============================================
  * 🧠 Asociaciones centralizadas
@@ -238,6 +243,55 @@ function setupAssociations() {
     AnalyticsEvent.belongsTo(User, {
       foreignKey: "seller_id",
       as: "seller",
+    });
+  }
+
+  /* ============================
+     🔏 Consent Layer
+     User ↔ UserConsent ↔ PolicyVersion
+  ============================ */
+
+  if (!(User as any).associations?.consents) {
+    User.hasMany(UserConsent, {
+      foreignKey: "user_id",
+      as:         "consents",
+      onDelete:   "CASCADE",
+    });
+  }
+
+  if (!(UserConsent as any).associations?.user) {
+    UserConsent.belongsTo(User, {
+      foreignKey: "user_id",
+      as:         "user",
+    });
+  }
+
+  if (!(UserConsent as any).associations?.policyVersion) {
+    UserConsent.belongsTo(PolicyVersion, {
+      foreignKey: "policy_version_id",
+      as:         "policyVersion",
+    });
+  }
+
+  if (!(PolicyVersion as any).associations?.consents) {
+    PolicyVersion.hasMany(UserConsent, {
+      foreignKey: "policy_version_id",
+      as:         "consents",
+    });
+  }
+
+  if (!(User as any).associations?.marketingPromptStates) {
+    User.hasMany(UserMarketingPromptState, {
+      foreignKey: "user_id",
+      as:         "marketingPromptStates",
+      onDelete:   "CASCADE",
+    });
+  }
+
+  if (!(UserMarketingPromptState as any).associations?.user) {
+    UserMarketingPromptState.belongsTo(User, {
+      foreignKey: "user_id",
+      as:         "user",
     });
   }
 
@@ -593,6 +647,10 @@ export {
   WhatsappLinkingToken,
   WhatsappLinkedIdentity,
   AnalyticsEvent,
+  // Consent Layer
+  PolicyVersion,
+  UserConsent,
+  UserMarketingPromptState,
 };
 
 export const models = {
@@ -640,4 +698,12 @@ export const models = {
   WhatsappLinkingToken,
   WhatsappLinkedIdentity,
   AnalyticsEvent,
+  // Consent Layer
+  PolicyVersion,
+  UserConsent,
+  UserMarketingPromptState,
 };
+
+
+
+

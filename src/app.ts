@@ -36,6 +36,7 @@ import paymentRoutes       from "./routes/payment.routes";
 import sellerBillingRoutes from "./routes/sellerBilling.routes";
 import adminBillingRoutes  from "./routes/adminBilling.routes";
 import whatsappIntegrationRoutes from "./routes/whatsappIntegration.routes";
+import consentRoutes from "./routes/consent.routes";
 
 // Phase 2 table setup
 import { setupPhase2Tables } from "./utils/setupTables";
@@ -258,6 +259,7 @@ app.use("/api/admin/billing", adminBillingRoutes);    // Phase 3: Seller Billing
 // ===========================
 // Dominio
 // ===========================
+app.use("/api/consent", consentRoutes);
 app.use("/api/buyer", buyerRoutes);
 app.use("/api/seller", sellerRoutes);
 app.use("/api/seller/billing", sellerBillingRoutes); // Phase 3: Seller Billing self-service

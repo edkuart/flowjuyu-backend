@@ -3,15 +3,7 @@
 import { DataTypes, Model, Optional } from "sequelize";
 import { sequelize } from "../config/db";
 
-/* ===============================
-   ROLE TYPE
-=============================== */
-
 export type UserRole = "buyer" | "seller" | "admin" | "support";
-
-/* ===============================
-   ATTRIBUTES
-=============================== */
 
 interface UserAttributes {
   id: number;
@@ -26,16 +18,41 @@ interface UserAttributes {
   reset_password_token?: string | null;
   reset_password_expires?: Date | null;
 
+  terms_current?: boolean;
+  terms_version?: string | null;
+  terms_accepted_at?: Date | null;
+  privacy_current?: boolean;
+  privacy_version?: string | null;
+  privacy_accepted_at?: Date | null;
+  marketing_email?: boolean;
+  marketing_email_at?: Date | null;
+  marketing_whatsapp?: boolean;
+  marketing_whatsapp_at?: Date | null;
+  data_processing_acknowledged?: boolean;
+  data_processing_acknowledged_at?: Date | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 interface UserCreationAttributes
-  extends Optional<UserAttributes, "id" | "token_version"> {}
-
-/* ===============================
-   MODEL
-=============================== */
+  extends Optional<
+    UserAttributes,
+    | "id"
+    | "token_version"
+    | "terms_current"
+    | "terms_version"
+    | "terms_accepted_at"
+    | "privacy_current"
+    | "privacy_version"
+    | "privacy_accepted_at"
+    | "marketing_email"
+    | "marketing_email_at"
+    | "marketing_whatsapp"
+    | "marketing_whatsapp_at"
+    | "data_processing_acknowledged"
+    | "data_processing_acknowledged_at"
+  > {}
 
 export class User
   extends Model<UserAttributes, UserCreationAttributes>
@@ -53,13 +70,22 @@ export class User
   public reset_password_token?: string | null;
   public reset_password_expires?: Date | null;
 
+  public terms_current?: boolean;
+  public terms_version?: string | null;
+  public terms_accepted_at?: Date | null;
+  public privacy_current?: boolean;
+  public privacy_version?: string | null;
+  public privacy_accepted_at?: Date | null;
+  public marketing_email?: boolean;
+  public marketing_email_at?: Date | null;
+  public marketing_whatsapp?: boolean;
+  public marketing_whatsapp_at?: Date | null;
+  public data_processing_acknowledged?: boolean;
+  public data_processing_acknowledged_at?: Date | null;
+
   public readonly createdAt?: Date;
   public readonly updatedAt?: Date;
 }
-
-/* ===============================
-   INIT
-=============================== */
 
 User.init(
   {
@@ -91,7 +117,7 @@ User.init(
     password: {
       type: DataTypes.STRING,
       allowNull: false,
-      field: "contraseña", // mantiene compatibilidad con DB actual
+      field: "contraseña",
     },
 
     reset_password_token: {
@@ -132,6 +158,60 @@ User.init(
       allowNull: false,
       field: "updatedAt",
       defaultValue: DataTypes.NOW,
+    },
+
+    terms_current: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    terms_version: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+    },
+    terms_accepted_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    privacy_current: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    privacy_version: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+    },
+    privacy_accepted_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    marketing_email: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    marketing_email_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    marketing_whatsapp: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    marketing_whatsapp_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    data_processing_acknowledged: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    data_processing_acknowledged_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
   },
   {
