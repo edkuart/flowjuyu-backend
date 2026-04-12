@@ -41,7 +41,7 @@ const COMPLETE_STATES = new Set(['FIRST_PRODUCT_PUBLISHED', 'ACTIVATED']);
  */
 async function getFirstRealProductId(userId: number): Promise<string | null> {
   const [rows]: any = await sequelize.query(
-    `SELECT id FROM productos WHERE vendedor_id = :uid ORDER BY "createdAt" ASC LIMIT 1`,
+    `SELECT id FROM productos WHERE vendedor_id = :uid LIMIT 1`,
     { replacements: { uid: userId } },
   );
   return rows?.[0]?.id ?? null;
