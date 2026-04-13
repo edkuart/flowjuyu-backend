@@ -1,5 +1,6 @@
 import type { RequestHandler } from "express";
 import {
+  getConsentConversionSummary,
   getConversionRates,
   getEventsByDay,
   getFunnelStats,
@@ -19,4 +20,10 @@ export const getAdminAnalyticsTimeseries: RequestHandler = async (req, res) => {
   const days = Number(req.query.days || 14);
   const data = await getEventsByDay(days);
   res.json({ ok: true, data, meta: { days: Math.max(1, Math.min(90, Math.floor(days || 14))) } });
+};
+
+export const getAdminConsentConversion: RequestHandler = async (req, res) => {
+  const days = Number(req.query.days || 30);
+  const data = await getConsentConversionSummary(days);
+  res.json({ ok: true, data, meta: { days: data.rangeDays } });
 };
