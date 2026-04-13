@@ -23,7 +23,14 @@
       "Bash(echo \"exit:$?\")",
       "Read(//tmp/**)",
       "Read(//c/Users/Dell/Projects/Flowjuyu-1.0//**)",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Read(//c/Users/Dell/Projects/**)",
+      "Bash(cmd /c \"cd C:\\\\Users\\\\Dell\\\\Projects\\\\Flowjuyu-1.0\\\\flowjuyu-frontend && npx tsc --noEmit 2>&1\")",
+      "Bash(bash -c \"cd '/c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend' && npx tsc --noEmit 2>&1 | head -40\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\context",
+      "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\app\\consent\\review"
     ]
   }
 }
