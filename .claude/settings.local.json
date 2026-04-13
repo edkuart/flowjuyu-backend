@@ -22,7 +22,8 @@
       "Bash(node_modules/.bin/tsc --noEmit)",
       "Bash(echo \"exit:$?\")",
       "Read(//tmp/**)",
-      "Read(//c/Users/Dell/Projects/Flowjuyu-1.0//**)"
+      "Read(//c/Users/Dell/Projects/Flowjuyu-1.0//**)",
+      "Bash(node -e ':*)"
     ]
   }
 }
