@@ -13,10 +13,13 @@ export type ExpirationResult = {
 
 function hasMeaningfulContext(context: ConversationCommandContext): boolean {
   return Boolean(
+    (context.catalogListContext?.items && context.catalogListContext.items.length > 0) ||
     (context.lastShownProducts && context.lastShownProducts.length > 0) ||
+    context.focusedProductId ||
     context.selectedProductId ||
     context.pendingDeleteProductId ||
-    context.mode
+    context.mode ||
+    context.productDetailContext
   );
 }
 
@@ -52,6 +55,14 @@ export function evaluateAndExpireContext(
   let expiredPendingDelete = false;
 
   if (
+    updatedContext.catalogListContext?.items?.length &&
+    nowMs - baselineMs > PRODUCT_LIST_TTL_MS
+  ) {
+    updatedContext.catalogListContext = null;
+    expiredProductList = true;
+  }
+
+  if (
     updatedContext.lastShownProducts?.length &&
     nowMs - baselineMs > PRODUCT_LIST_TTL_MS
   ) {
@@ -65,10 +76,19 @@ export function evaluateAndExpireContext(
     nowMs - baselineMs > EDIT_MODE_TTL_MS
   ) {
     updatedContext.mode = null;
+    updatedContext.focusedProductId = null;
+    updatedContext.focusedProductName = null;
     updatedContext.selectedProductId = null;
     updatedContext.selectedProductName = null;
     updatedContext.awaitingEditSaveConfirmation = false;
     expiredEditMode = true;
+  }
+
+  if (
+    updatedContext.productDetailContext &&
+    nowMs - baselineMs > PRODUCT_LIST_TTL_MS
+  ) {
+    updatedContext.productDetailContext = null;
   }
 
   if (

@@ -1,11 +1,14 @@
 // src/index.ts
-import "dotenv/config";
+import "./config/env";
 
 import app from "./app";
 import { assertDbConnection } from "./config/db";
+import { setupConsentTables, setupPhase2Tables } from "./utils/setupTables";
+import { verifyFailureIntelligenceInfra } from "./services/conversations/conversationInfraHealth.service";
 
 // Register onboarding event listeners (side-effects only — import once here)
 import "./lib/onboardingListeners";
+import { getLoadedEnvFiles } from "./config/env";
 
 const PORT = Number(process.env.PORT || 8800);
 
@@ -38,8 +41,12 @@ function assertEnv() {
 async function bootstrap() {
   try {
     assertEnv();
+    console.log("🧾 Env cargado:", getLoadedEnvFiles().join(" -> "));
 
     await assertDbConnection();
+    await setupPhase2Tables();
+    await setupConsentTables();
+    await verifyFailureIntelligenceInfra();
 
     app.listen(PORT, () => {
       console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);

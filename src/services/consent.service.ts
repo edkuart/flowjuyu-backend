@@ -126,18 +126,13 @@ function buildUserFlags(
 
   switch (consentType) {
     case "terms":
-      return {
-        terms_current: granted,
-        terms_accepted_at: now,
-        ...(policyVersion ? { terms_version: policyVersion } : {}),
-      };
+      // Some environments still lag the mirror columns on users.
+      // The legal consent source of truth is user_consents/current_consents,
+      // so avoid writing terms_* here to keep accept/status functional.
+      return {};
 
     case "privacy":
-      return {
-        privacy_current: granted,
-        privacy_accepted_at: now,
-        ...(policyVersion ? { privacy_version: policyVersion } : {}),
-      };
+      return {};
 
     case "marketing_email":
       return {
@@ -358,11 +353,6 @@ export async function recordRegistrationConsents(
         user_agent: opts.userAgent ?? null,
         source: opts.source,
       });
-      if (opts.accepted) {
-        userFlags.terms_current = true;
-        userFlags.terms_version = termsVersion.version;
-        userFlags.terms_accepted_at = now;
-      }
     }
 
     if (privacyVersion) {
@@ -374,11 +364,6 @@ export async function recordRegistrationConsents(
         user_agent: opts.userAgent ?? null,
         source: opts.source,
       });
-      if (opts.accepted) {
-        userFlags.privacy_current = true;
-        userFlags.privacy_version = privacyVersion.version;
-        userFlags.privacy_accepted_at = now;
-      }
     }
 
     for (const row of consentRows) {
@@ -411,16 +396,57 @@ export async function getEffectiveConsent(
   userId: number,
   policyType: PolicyType,
 ): Promise<CurrentConsentRow | null> {
-  const rows = await sequelize.query<CurrentConsentRow>(
-    `SELECT * FROM current_consents
-     WHERE user_id = :userId AND policy_type = :policyType
-     LIMIT 1`,
-    {
-      replacements: { userId, policyType },
-      type: QueryTypes.SELECT,
-    },
-  );
-  return rows[0] ?? null;
+  try {
+    const rows = await sequelize.query<CurrentConsentRow>(
+      `SELECT * FROM current_consents
+       WHERE user_id = :userId AND policy_type = :policyType
+       LIMIT 1`,
+      {
+        replacements: { userId, policyType },
+        type: QueryTypes.SELECT,
+      },
+    );
+    return rows[0] ?? null;
+  } catch (error) {
+    const missingCurrentConsentsView =
+      error instanceof Error &&
+      "name" in error &&
+      (error as { name?: string }).name === "SequelizeDatabaseError" &&
+      "original" in error &&
+      Boolean(
+        (error as { original?: { code?: string } }).original?.code === "42P01",
+      );
+
+    if (!missingCurrentConsentsView) {
+      throw error;
+    }
+
+    const fallbackRows = await sequelize.query<CurrentConsentRow>(
+      `SELECT
+         uc.id,
+         uc.user_id,
+         pv.policy_type,
+         pv.version,
+         uc.policy_version_id,
+         uc.granted,
+         uc.source,
+         uc.ip_address,
+         uc.created_at
+       FROM user_consents uc
+       INNER JOIN policy_versions pv
+         ON pv.id = uc.policy_version_id
+       WHERE uc.user_id = :userId
+         AND pv.policy_type = :policyType
+       ORDER BY uc.created_at DESC, uc.id DESC
+       LIMIT 1`,
+      {
+        replacements: { userId, policyType },
+        type: QueryTypes.SELECT,
+      },
+    );
+
+    return fallbackRows[0] ?? null;
+  }
 }
 
 export async function getCommunicationPreferences(
@@ -654,21 +680,13 @@ export async function checkTermsCompliance(userId: number): Promise<{
   privacy: boolean;
   missingConsents: string[];
 }> {
-  const user = await User.findByPk(userId, {
-    attributes: ["id", "terms_current", "privacy_current"],
-  });
+  const [termsConsent, privacyConsent] = await Promise.all([
+    getEffectiveConsent(userId, "terms"),
+    getEffectiveConsent(userId, "privacy"),
+  ]);
 
-  if (!user) {
-    return {
-      compliant: false,
-      terms: false,
-      privacy: false,
-      missingConsents: ["terms", "privacy"],
-    };
-  }
-
-  const termsOk = user.terms_current ?? false;
-  const privacyOk = user.privacy_current ?? false;
+  const termsOk = Boolean(termsConsent?.granted);
+  const privacyOk = Boolean(privacyConsent?.granted);
   const missing: string[] = [];
   if (!termsOk) missing.push("terms");
   if (!privacyOk) missing.push("privacy");

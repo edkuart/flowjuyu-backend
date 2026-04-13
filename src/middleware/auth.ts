@@ -4,6 +4,13 @@ import type { Request, Response, NextFunction, RequestHandler } from "express";
 import jwt, { VerifyOptions } from "jsonwebtoken";
 import { User } from "../models/user.model";
 
+const VERIFY_TOKEN_USER_ATTRIBUTES = [
+  "id",
+  "correo",
+  "rol",
+  "token_version",
+] as const;
+
 // ─────────────────────────────────────────────
 // Role type — single source of truth
 // ─────────────────────────────────────────────
@@ -89,7 +96,9 @@ export const verifyToken = (
       }
 
       // ── Load user from DB ──
-      const user = await User.findByPk(decoded.sub);
+      const user = await User.findByPk(decoded.sub, {
+        attributes: VERIFY_TOKEN_USER_ATTRIBUTES as unknown as string[],
+      });
 
       if (!user) {
         console.warn(

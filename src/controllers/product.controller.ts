@@ -615,7 +615,7 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
               seller_sku: sellerSku,
 
               // Atributos opcionales (JSONB) — validated + sanitised before INSERT
-              atributos: sanitizeAtributos(b.atributos),
+              atributos: JSON.stringify(sanitizeAtributos(b.atributos)),
             },
           }
         );
@@ -1330,7 +1330,7 @@ export const updateProduct = async (
           accesorio_material_id: b.accesorio_material_id ? Number(b.accesorio_material_id) : null,
           accesorio_material_custom: b.accesorio_material_custom || null,
 
-          atributos: sanitizeAtributos(b.atributos),
+          atributos: JSON.stringify(sanitizeAtributos(b.atributos)),
 
           activo,
         },

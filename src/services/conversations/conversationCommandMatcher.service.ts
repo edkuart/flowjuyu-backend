@@ -50,6 +50,7 @@ const STANDALONE_SKU_MIN_LENGTH = 6;
 
 type SkuCommandMatch = {
   skuArg: string;
+  action: "view" | "edit" | "delete";
 };
 
 function normalizeSkuArg(rawSku: string): string {
@@ -76,22 +77,28 @@ function isStandaloneSkuCandidate(rawSku: string): boolean {
 function matchSellerSkuCommand(rawText: string): SkuCommandMatch | null {
   const trimmedRawText = rawText.trim();
 
-  const explicitPatterns = [
-    /^mis\s+productos\s+(\S+)\s*$/i,
-    /^producto\s+(\S+)\s*$/i,
-    /^sku\s+(\S+)\s*$/i,
+  const explicitPatterns: Array<{ pattern: RegExp; action: SkuCommandMatch["action"] }> = [
+    { pattern: /^mis\s+productos\s+(\S+)\s*$/i, action: "view" },
+    { pattern: /^producto\s+(\S+)\s*$/i, action: "view" },
+    { pattern: /^sku\s+(\S+)\s*$/i, action: "view" },
+    { pattern: /^editar\s+(\S+)\s*$/i, action: "edit" },
+    { pattern: /^eliminar\s+(\S+)\s*$/i, action: "delete" },
   ];
 
-  for (const pattern of explicitPatterns) {
+  for (const { pattern, action } of explicitPatterns) {
     const match = trimmedRawText.match(pattern);
     if (!match) continue;
 
     const skuArg = normalizeSkuArg(match[1]);
+    if (/^\d+$/.test(skuArg)) {
+      return null;
+    }
+
     if (!isValidSkuFormat(skuArg)) {
       return null;
     }
 
-    return { skuArg };
+    return { skuArg, action };
   }
 
   const viewMatch = trimmedRawText.match(/^ver\s+(\S+)\s*$/i);
@@ -107,11 +114,11 @@ function matchSellerSkuCommand(rawText: string): SkuCommandMatch | null {
       return null;
     }
 
-    return { skuArg };
+    return { skuArg, action: "view" };
   }
 
   if (!/\s/.test(trimmedRawText) && isStandaloneSkuCandidate(trimmedRawText)) {
-    return { skuArg: normalizeSkuArg(trimmedRawText) };
+    return { skuArg: normalizeSkuArg(trimmedRawText), action: "view" };
   }
 
   return null;
@@ -358,7 +365,13 @@ export function getResetCommandPattern(rawText: string): string | null {
 }
 
 export function isGlobalConversationCommand(rawText: string): boolean {
+  const normalizedText = normalizeConversationCommandText(rawText);
+
   if (matchSellerSkuCommand(rawText)) {
+    return true;
+  }
+
+  if (normalizedText === "editar") {
     return true;
   }
 
@@ -389,9 +402,16 @@ export function matchConversationCommand(rawText: string): CommandMatch {
   // converts hyphens/underscores to spaces, destroying the SKU token.
   const skuCommandMatch = matchSellerSkuCommand(rawText);
   if (skuCommandMatch) {
+    const commandKey =
+      skuCommandMatch.action === "edit"
+        ? "editar_producto"
+        : skuCommandMatch.action === "delete"
+          ? "eliminar_producto"
+          : "mis_productos";
+
     return {
       matched: true,
-      commandKey: "mis_productos",
+      commandKey,
       rawText,
       normalizedText,
       args: [skuCommandMatch.skuArg],
@@ -404,6 +424,16 @@ export function matchConversationCommand(rawText: string): CommandMatch {
     return {
       matched: true,
       commandKey: exact,
+      rawText,
+      normalizedText,
+      args: [],
+    };
+  }
+
+  if (normalizedText === "editar") {
+    return {
+      matched: true,
+      commandKey: "editar_producto",
       rawText,
       normalizedText,
       args: [],

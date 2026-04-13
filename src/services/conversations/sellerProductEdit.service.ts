@@ -47,6 +47,16 @@ export function buildOwnedProductDetailMessage(product: EditableProduct): string
   return buildProductViewMessage(mapOwnedProductToViewModel(product));
 }
 
+export function buildOwnedProductDetailMessageForContext(
+  product: EditableProduct,
+  options?: {
+    actionMode?: "catalog_index" | "focused";
+    index?: number | null;
+  }
+): string {
+  return buildProductViewMessage(mapOwnedProductToViewModel(product), options);
+}
+
 export async function getProductDetail(
   sellerUserId: number,
   productId: string

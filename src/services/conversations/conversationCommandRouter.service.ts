@@ -9,6 +9,7 @@ import { buildSellerProfileSummary } from "./sellerProfileSummary.service";
 import { getSellerCatalogSummaryData } from "./sellerCatalogSummary.service";
 import {
   buildOwnedProductDetailMessage,
+  buildOwnedProductDetailMessageForContext,
   getProductDetail,
   getSellerProductByReference,
 } from "./sellerProductEdit.service";
@@ -20,6 +21,7 @@ import {
   buildCancelMessage,
   buildDeleteConfirmMessage,
   buildErrorMessage,
+  buildMissingEditTargetMessage,
   buildNewListingMessage,
   buildNoPendingEditConfirmationMessage,
 } from "./ux/conversationUxBuilder.service";
@@ -41,6 +43,14 @@ export async function routeConversationCommand(
   );
 
   const existingCommandContext = getCommandContext(context.session);
+  const focusedProductId =
+    existingCommandContext?.focusedProductId ??
+    existingCommandContext?.selectedProductId ??
+    null;
+  const focusedProductName =
+    existingCommandContext?.focusedProductName ??
+    existingCommandContext?.selectedProductName ??
+    null;
 
   switch (match.commandKey) {
     case "menu":
@@ -58,7 +68,6 @@ export async function routeConversationCommand(
       };
 
     case "mis_productos": {
-      // Direct product references resolve against seller_sku first, then internal_code.
       if (match.skuArg) {
         const reference = match.skuArg;
         const { product, matchedBy } = await getSellerProductByReference(
@@ -83,9 +92,20 @@ export async function routeConversationCommand(
         return {
           handled: true,
           commandKey: "mis_productos",
-          responseText: buildOwnedProductDetailMessage(product),
+          responseText: buildOwnedProductDetailMessageForContext(product, {
+            actionMode: "focused",
+          }),
           nextCommandContext: {
             ...existingCommandContext,
+            productDetailContext: {
+              source: "direct_reference",
+              shownAt: new Date().toISOString(),
+              reference,
+              matchedBy,
+              catalogIndex: null,
+            },
+            focusedProductId: product.id,
+            focusedProductName: product.nombre,
             selectedProductId: product.id,
             selectedProductName: product.nombre,
           },
@@ -100,8 +120,15 @@ export async function routeConversationCommand(
         responseText: summary.responseText,
         nextCommandContext: {
           ...existingCommandContext,
+          catalogListContext: {
+            items: summary.items,
+            shownAt: new Date().toISOString(),
+          },
           lastShownProducts: summary.items,
           lastShownAt: new Date().toISOString(),
+          productDetailContext: null,
+          focusedProductId: null,
+          focusedProductName: null,
           pendingDeleteProductId: null,
           pendingDeleteProductName: null,
         },
@@ -111,6 +138,165 @@ export async function routeConversationCommand(
     case "ver_producto":
     case "editar_producto":
     case "eliminar_producto": {
+      if (match.skuArg) {
+        const reference = match.skuArg;
+        const { product, matchedBy } = await getSellerProductByReference(
+          context.seller.user_id,
+          reference
+        );
+
+        if (!product) {
+          return {
+            handled: true,
+            commandKey: match.commandKey,
+            responseText: "No encontré un producto con esa referencia. Revisa el código e intenta de nuevo.",
+          };
+        }
+
+        if (match.commandKey === "ver_producto") {
+          return {
+            handled: true,
+            commandKey: "ver_producto",
+            action: "view_catalog_product",
+            contextProductId: product.id,
+            contextProductName: product.nombre,
+            responseText: buildOwnedProductDetailMessageForContext(product, {
+              actionMode: "focused",
+            }),
+            nextCommandContext: {
+              ...existingCommandContext,
+              productDetailContext: {
+                source: "direct_reference",
+                shownAt: new Date().toISOString(),
+                reference,
+                matchedBy,
+                catalogIndex: null,
+              },
+              focusedProductId: product.id,
+              focusedProductName: product.nombre,
+              selectedProductId: product.id,
+              selectedProductName: product.nombre,
+            },
+          };
+        }
+
+        if (match.commandKey === "editar_producto") {
+          return {
+            handled: true,
+            commandKey: "editar_producto",
+            action: "start_product_edit",
+            contextProductId: product.id,
+            contextProductName: product.nombre,
+            nextCommandContext: {
+              ...existingCommandContext,
+              productDetailContext: {
+                source: "direct_reference",
+                shownAt: new Date().toISOString(),
+                reference,
+                matchedBy,
+                catalogIndex: null,
+              },
+              focusedProductId: product.id,
+              focusedProductName: product.nombre,
+              selectedProductId: product.id,
+              selectedProductName: product.nombre,
+              mode: "listing_edit",
+              awaitingEditSaveConfirmation: false,
+              changedFields: {},
+              editingBaseline: {
+                nombre: product.nombre,
+                precio: Number(product.precio),
+                stock: product.stock,
+                descripcion: product.descripcion?.trim() || null,
+                categoria: product.categoria_custom?.trim() || product.categoria_nombre?.trim() || "Sin categoría",
+                clase: product.clase_nombre?.trim() || "Sin clase",
+              },
+              pendingDeleteProductId: null,
+              pendingDeleteProductName: null,
+            },
+          };
+        }
+
+        return {
+          handled: true,
+          commandKey: "eliminar_producto",
+          action: "request_product_delete",
+          contextProductId: product.id,
+          contextProductName: product.nombre,
+          responseText: buildDeleteConfirmMessage(product.nombre),
+          nextCommandContext: {
+            ...existingCommandContext,
+            productDetailContext: {
+              source: "direct_reference",
+              shownAt: new Date().toISOString(),
+              reference,
+              matchedBy,
+              catalogIndex: null,
+            },
+            focusedProductId: product.id,
+            focusedProductName: product.nombre,
+            selectedProductId: product.id,
+            selectedProductName: product.nombre,
+            pendingDeleteProductId: product.id,
+            pendingDeleteProductName: product.nombre,
+          },
+        };
+      }
+
+      if (
+        match.commandKey === "editar_producto" &&
+        match.numericArg == null
+      ) {
+        if (!focusedProductId) {
+          return {
+            handled: true,
+            commandKey: "editar_producto",
+            responseText: buildMissingEditTargetMessage(),
+          };
+        }
+
+        const ownedProduct = await getProductDetail(
+          context.seller.user_id,
+          focusedProductId
+        );
+
+        if (!ownedProduct) {
+          return {
+            handled: true,
+            commandKey: "editar_producto",
+            responseText: buildErrorMessage("product_access_lost"),
+          };
+        }
+
+        return {
+          handled: true,
+          commandKey: "editar_producto",
+          action: "start_product_edit",
+          contextProductId: ownedProduct.id,
+          contextProductName: ownedProduct.nombre,
+          nextCommandContext: {
+            ...existingCommandContext,
+            focusedProductId: ownedProduct.id,
+            focusedProductName: ownedProduct.nombre,
+            selectedProductId: ownedProduct.id,
+            selectedProductName: ownedProduct.nombre,
+            mode: "listing_edit",
+            awaitingEditSaveConfirmation: false,
+            changedFields: {},
+            editingBaseline: {
+              nombre: ownedProduct.nombre,
+              precio: Number(ownedProduct.precio),
+              stock: ownedProduct.stock,
+              descripcion: ownedProduct.descripcion?.trim() || null,
+              categoria: ownedProduct.categoria_custom?.trim() || ownedProduct.categoria_nombre?.trim() || "Sin categoría",
+              clase: ownedProduct.clase_nombre?.trim() || "Sin clase",
+            },
+            pendingDeleteProductId: null,
+            pendingDeleteProductName: null,
+          },
+        };
+      }
+
       const { item, reason } = resolveCatalogContextItem(
         existingCommandContext,
         match.numericArg ?? -1
@@ -144,7 +330,24 @@ export async function routeConversationCommand(
           action: "view_catalog_product",
           contextProductId: ownedProduct.id,
           contextProductName: ownedProduct.nombre,
-          responseText: buildOwnedProductDetailMessage(ownedProduct),
+          responseText: buildOwnedProductDetailMessageForContext(ownedProduct, {
+            actionMode: "catalog_index",
+            index: item.index,
+          }),
+          nextCommandContext: {
+            ...existingCommandContext,
+            productDetailContext: {
+              source: "catalog_list",
+              shownAt: new Date().toISOString(),
+              catalogIndex: item.index,
+              reference: null,
+              matchedBy: null,
+            },
+            focusedProductId: ownedProduct.id,
+            focusedProductName: ownedProduct.nombre,
+            selectedProductId: ownedProduct.id,
+            selectedProductName: ownedProduct.nombre,
+          },
         };
       }
 
@@ -157,6 +360,15 @@ export async function routeConversationCommand(
           contextProductName: ownedProduct.nombre,
           nextCommandContext: {
             ...existingCommandContext,
+            productDetailContext: {
+              source: "catalog_list",
+              shownAt: new Date().toISOString(),
+              catalogIndex: item.index,
+              reference: null,
+              matchedBy: null,
+            },
+            focusedProductId: ownedProduct.id,
+            focusedProductName: ownedProduct.nombre,
             selectedProductId: ownedProduct.id,
             selectedProductName: ownedProduct.nombre,
             mode: "listing_edit",
@@ -185,6 +397,17 @@ export async function routeConversationCommand(
         responseText: buildDeleteConfirmMessage(ownedProduct.nombre),
         nextCommandContext: {
           ...existingCommandContext,
+          productDetailContext: {
+            source: "catalog_list",
+            shownAt: new Date().toISOString(),
+            catalogIndex: item.index,
+            reference: null,
+            matchedBy: null,
+          },
+          focusedProductId: ownedProduct.id,
+          focusedProductName: ownedProduct.nombre,
+          selectedProductId: ownedProduct.id,
+          selectedProductName: ownedProduct.nombre,
           pendingDeleteProductId: ownedProduct.id,
           pendingDeleteProductName: ownedProduct.nombre,
         },

@@ -4,8 +4,9 @@
   "description": "Backend API para Cortes Marketplace. RESTful con Express 5, TypeScript, Sequelize y PostgreSQL.",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "pnpm run dev:supabase",
-    "dev:supabase": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt NODE_ENV=development ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev": "pnpm run dev:local",
+    "dev:local": "cross-env APP_ENV_FILE=.env.local NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt NODE_ENV=development ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev:supabase": "pnpm run dev:local",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/src/index.js",
     "postinstall": "npm run build",

@@ -32,6 +32,21 @@ import { checkLoginAbuse } from "../services/abuseDetection.service";
 import { LOGIN_RULES } from "../config/securityRules";
 import { evaluateLoginDefense } from "../services/activeDefense.service";
 
+const USER_AUTH_READ_ATTRIBUTES = [
+  "id",
+  "nombre",
+  "correo",
+  "password",
+  "rol",
+  "telefono",
+  "direccion",
+  "createdAt",
+  "updatedAt",
+  "token_version",
+  "reset_password_token",
+  "reset_password_expires",
+] as const;
+
 // ────────────────────────────────────────────────────────────
 // User DTO — canonical response shape
 // All auth responses use this. Never expose correo/rol/nombre.
@@ -106,7 +121,10 @@ export const register = async (
       return;
     }
 
-    const existing = await User.findOne({ where: { correo: email } });
+    const existing = await User.findOne({
+      where: { correo: email },
+      attributes: ["id"],
+    });
 
     if (existing) {
       res.status(409).json({
@@ -190,7 +208,10 @@ export const registerVendedor = async (
     return;
   }
 
-  const existing = await User.findOne({ where: { correo: email } });
+  const existing = await User.findOne({
+    where: { correo: email },
+    attributes: ["id"],
+  });
 
   if (existing) {
     res.status(409).json({
@@ -422,7 +443,10 @@ export const login = async (
       return;
     }
 
-    const user = await User.findOne({ where: { correo: email } });
+    const user = await User.findOne({
+      where: { correo: email },
+      attributes: USER_AUTH_READ_ATTRIBUTES as unknown as string[],
+    });
 
     if (user?.rol !== "admin") {
       const defense = await evaluateLoginDefense({
@@ -637,7 +661,9 @@ export const changePassword: RequestHandler = async (req, res) => {
       return;
     }
 
-    const user = await User.findByPk(userId);
+    const user = await User.findByPk(userId, {
+      attributes: USER_AUTH_READ_ATTRIBUTES as unknown as string[],
+    });
 
     if (!user) {
       res.status(404).json({ ok: false, message: "Usuario no encontrado" });
@@ -701,7 +727,9 @@ export const logoutAll: RequestHandler = async (req, res) => {
       return;
     }
 
-    const user = await User.findByPk(userId);
+    const user = await User.findByPk(userId, {
+      attributes: USER_AUTH_READ_ATTRIBUTES as unknown as string[],
+    });
 
     if (!user) {
       res.status(404).json({ ok: false, message: "Usuario no encontrado" });
@@ -737,7 +765,10 @@ export const forgotPassword: RequestHandler = async (req, res) => {
       return;
     }
 
-    const user = await User.findOne({ where: { correo: email } });
+    const user = await User.findOne({
+      where: { correo: email },
+      attributes: USER_AUTH_READ_ATTRIBUTES as unknown as string[],
+    });
 
     // Always 200 — do not reveal whether the email exists
     if (!user) {
@@ -808,6 +839,7 @@ export const resetPassword: RequestHandler = async (req, res) => {
     const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
     const user        = await User.findOne({
       where: { reset_password_token: hashedToken },
+      attributes: USER_AUTH_READ_ATTRIBUTES as unknown as string[],
     });
 
     if (!user) {
@@ -864,7 +896,10 @@ async function findOrCreateSocialUser(
   profile: SocialProfile,
 ): Promise<{ user: User; isNew: boolean }> {
   const email = profile.email.toLowerCase().trim();
-  let user = await User.findOne({ where: { correo: email } });
+  let user = await User.findOne({
+    where: { correo: email },
+    attributes: USER_AUTH_READ_ATTRIBUTES as unknown as string[],
+  });
 
   if (!user) {
     const placeholderHash = await bcrypt.hash(

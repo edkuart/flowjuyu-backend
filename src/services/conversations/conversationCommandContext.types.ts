@@ -5,6 +5,19 @@ export type CatalogContextItem = {
   activo: boolean;
 };
 
+export type CatalogListContext = {
+  items: CatalogContextItem[];
+  shownAt: string;
+};
+
+export type ProductDetailContext = {
+  source: "catalog_list" | "direct_reference";
+  shownAt: string;
+  reference?: string | null;
+  matchedBy?: "seller_sku" | "internal_code" | null;
+  catalogIndex?: number | null;
+};
+
 export type ConversationCommandMode =
   | "listing_create"
   | "listing_edit"
@@ -34,6 +47,10 @@ export type ConversationCommandContext = {
   lastShownAt?: string | null;
   selectedProductId?: string | null;
   selectedProductName?: string | null;
+  catalogListContext?: CatalogListContext | null;
+  productDetailContext?: ProductDetailContext | null;
+  focusedProductId?: string | null;
+  focusedProductName?: string | null;
   mode?: ConversationCommandMode | null;
   awaitingEditSaveConfirmation?: boolean;
   changedFields?: Partial<Record<EditModeFieldKey, boolean>> | null;

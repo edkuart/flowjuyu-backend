@@ -1,12 +1,11 @@
 // src/app.ts
-import "dotenv/config";
+import "./config/env";
 import express, { Express, RequestHandler, ErrorRequestHandler } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
 import path from "path";
-import { Pool } from "pg";
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 import compression from "compression";
@@ -38,12 +37,9 @@ import adminBillingRoutes  from "./routes/adminBilling.routes";
 import whatsappIntegrationRoutes from "./routes/whatsappIntegration.routes";
 import consentRoutes from "./routes/consent.routes";
 
-// Phase 2 table setup
-import { setupPhase2Tables } from "./utils/setupTables";
-import { verifyFailureIntelligenceInfra } from "./services/conversations/conversationInfraHealth.service";
-
 // Initialize Sequelize associations (must run before any query uses `include`)
 import "./models";
+import { sessionPool } from "./config/db";
 
 // Middleware global
 import { errorHandler }        from "./middleware/errorHandler";
@@ -56,9 +52,6 @@ import { responseTimeLogger }  from "./middleware/responseTime";
 // ===========================
 const app: Express = express();
 
-// Initialize Phase 2 DB tables (non-blocking)
-setupPhase2Tables().catch(() => {});
-verifyFailureIntelligenceInfra().catch(() => {});
 const PgSession = pgSession(session);
 
 // ===========================
@@ -155,28 +148,10 @@ if (process.env.NODE_ENV !== "production") {
 // ===========================
 // PostgreSQL Pool (Sessions)
 // ===========================
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production"
-    ? {
-        rejectUnauthorized: false,
-      }
-    : false,
-  keepAlive: true,
-});
-
-pool
-  .query("SELECT current_database()")
-  .then((r) => console.log("📦 SESSION DB:", r.rows[0].current_database))
-  .catch((e) => console.error("Error checking session DB:", e));
-
-// ===========================
-// Sesiones
-// ===========================
 app.use(
   session({
     store: new PgSession({
-      pool,
+      pool: sessionPool,
       tableName: "sessions",
       createTableIfMissing: true,
     }),

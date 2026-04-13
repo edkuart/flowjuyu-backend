@@ -1,5 +1,5 @@
 // src/server.ts
-import "dotenv/config";
+import "./config/env";
 
 import http from "http";
 import app from "./app";

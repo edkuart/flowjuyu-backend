@@ -1329,7 +1329,7 @@ export async function handleInboundMessage(
           "[conversation][safe_mode.strict_step]"
         );
       } else {
-        if (isGlobalConversationCommand(normalizedText)) {
+        if (isGlobalConversationCommand(textMessage.text ?? "")) {
           console.log(
             `[conversation][global.command.detected] session=${session.id} wa_message_id=${textMessage.waMessageId} text="${normalizedText}"`
           );

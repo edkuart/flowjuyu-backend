@@ -92,7 +92,28 @@ export function buildProductListMessage(products: UxMenuProductItem[]): string {
   });
 }
 
-export function buildProductViewMessage(product: UxProductView): string {
+export function buildProductViewMessage(
+  product: UxProductView,
+  options?: {
+    actionMode?: "catalog_index" | "focused";
+    index?: number | null;
+  }
+): string {
+  const actionMode = options?.actionMode ?? "catalog_index";
+  const index = options?.index ?? 1;
+  const actions =
+    actionMode === "focused"
+      ? [
+          "👉 editar",
+          "👉 eliminar",
+          `👉 ${UX_COMMANDS.products}`,
+        ]
+      : [
+          `👉 editar ${index}`,
+          `👉 eliminar ${index}`,
+          `👉 ${UX_COMMANDS.products}`,
+        ];
+
   return lines([
     "🔎 Detalle del producto",
     "",
@@ -105,9 +126,7 @@ export function buildProductViewMessage(product: UxProductView): string {
     `• Descripción: ${product.descripcion || "Sin descripción"}`,
     "",
     "Puedes escribir:",
-    "👉 editar 1",
-    "👉 eliminar 1",
-    `👉 ${UX_COMMANDS.products}`,
+    ...actions,
   ]);
 }
 
@@ -202,6 +221,19 @@ export function buildNoPendingEditConfirmationMessage(): string {
     "",
     "Puedes modificar algo, escribir guardar o salir con:",
     `👉 ${UX_COMMANDS.cancel}`,
+  ]);
+}
+
+export function buildMissingEditTargetMessage(): string {
+  return lines([
+    "ℹ️ Necesito saber qué producto quieres editar",
+    "",
+    "Dime la referencia del producto o usa el número de tu lista.",
+    "",
+    "Ejemplos:",
+    "👉 editar 1",
+    "👉 editar FJ-BAJ-COR-260326-G4AZ4Z",
+    `👉 ${UX_COMMANDS.products}`,
   ]);
 }
 
