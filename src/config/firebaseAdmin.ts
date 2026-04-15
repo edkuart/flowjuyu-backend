@@ -1,29 +1,52 @@
 import admin from "firebase-admin";
 
-// ─── Conditional initialization ────────────────────────────────────────────────
-// Only initialize if all three service-account fields are present in the
-// environment. Missing credentials are not a startup error — they simply
-// mean Google login will return 503 until the env is configured.
+// ─── Fail-fast initialization ────────────────────────────────────────────────
+// Google auth is a first-class login path, so the backend must never boot in a
+// half-configured state where the route exists but session exchange always
+// fails at runtime.
 //
-// Required env vars (from Firebase Console → Project Settings → Service Accounts):
-//   FIREBASE_PROJECT_ID    e.g. flowjuyu-70653
-//   FIREBASE_CLIENT_EMAIL  e.g. firebase-adminsdk-xxx@flowjuyu-70653.iam.gserviceaccount.com
-//   FIREBASE_PRIVATE_KEY   the full PEM key (newlines as \n in .env)
+// Required env vars (Firebase Console → Project Settings → Service Accounts):
+//   FIREBASE_PROJECT_ID
+//   FIREBASE_CLIENT_EMAIL
+//   FIREBASE_PRIVATE_KEY  (PEM key with newlines escaped as \n in .env)
+
+const REQUIRED_ENV_VARS = [
+  "FIREBASE_PROJECT_ID",
+  "FIREBASE_CLIENT_EMAIL",
+  "FIREBASE_PRIVATE_KEY",
+] as const;
+
+function readRequiredEnv(name: (typeof REQUIRED_ENV_VARS)[number]): string {
+  const value = process.env[name]?.trim();
+  if (value) return value;
+
+  throw new Error(
+    `[firebaseAdmin] Missing required env var ${name}. ` +
+    "Google Auth requires FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, " +
+    "and FIREBASE_PRIVATE_KEY to be configured before the server starts.",
+  );
+}
+
+function normalizePrivateKey(raw: string): string {
+  const unwrapped = raw
+    .replace(/^"(.*)"$/s, "$1")
+    .replace(/^'(.*)'$/s, "$1");
+
+  return unwrapped.replace(/\\n/g, "\n").trim();
+}
 
 if (!admin.apps.length) {
-  const projectId   = process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey  = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  const projectId = readRequiredEnv("FIREBASE_PROJECT_ID");
+  const clientEmail = readRequiredEnv("FIREBASE_CLIENT_EMAIL");
+  const privateKey = normalizePrivateKey(readRequiredEnv("FIREBASE_PRIVATE_KEY"));
 
-  if (projectId && clientEmail && privateKey) {
+  try {
     admin.initializeApp({
       credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
     });
-  } else {
-    console.warn(
-      "[firebaseAdmin] Firebase Admin SDK not initialized — " +
-      "FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY are required. " +
-      "POST /api/login/google will return 503 until they are set.",
+  } catch (error) {
+    throw new Error(
+      `[firebaseAdmin] Failed to initialize Firebase Admin SDK: ${(error as Error).message}`,
     );
   }
 }

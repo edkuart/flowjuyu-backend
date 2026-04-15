@@ -8,11 +8,14 @@
 // match the new JWT, so it's automatically bypassed and then evicted.
 // logoutAll also explicitly calls invalidateSession() for immediate effect.
 
+import type { SessionConsentContract } from "../services/consent.service";
+
 export type CachedSession = {
   id:            number;
   nombre:        string;
   correo:        string;
   rol:           string;
+  consent:       SessionConsentContract;
   token_version: number;
   expiresAt:     number;
 };
@@ -36,6 +39,7 @@ export function setCachedSession(user: {
   nombre:        string;
   correo:        string;
   rol:           string;
+  consent:       SessionConsentContract;
   token_version: number;
 }): void {
   _cache.set(user.id, { ...user, expiresAt: Date.now() + TTL_MS });

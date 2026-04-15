@@ -1,7 +1,8 @@
 // src/models/PolicyVersion.model.ts
 //
-// Source-of-truth registry for every legal document version ever published.
-// Rows are NEVER updated or deleted — new version = new row.
+// Source-of-truth registry for every policy version ever published.
+// New version = new row. Operational fields (is_active / summaries) may be
+// updated by privileged publishing flows when a draft is activated.
 
 import {
   DataTypes,
@@ -24,17 +25,25 @@ export type PolicyType =
 
 class PolicyVersion extends Model<
   InferAttributes<PolicyVersion>,
-  InferCreationAttributes<PolicyVersion, { omit: "id" | "created_at" }>
+  InferCreationAttributes<
+    PolicyVersion,
+    { omit: "id" | "created_at" | "updated_at" }
+  >
 > {
-  declare id:             CreationOptional<number>;
-  declare policy_type:    PolicyType;
-  declare version:        string;
-  declare label:          string;
-  declare url:            string;
-  declare content_hash:   string | null;
-  declare effective_from: Date;
-  declare is_active:      boolean;
-  declare created_at:     CreationOptional<Date>;
+  declare id:                     CreationOptional<string>;
+  declare policy_type:            PolicyType;
+  declare version_code:           string;
+  declare version_label:          string;
+  declare url:                    string | null;
+  declare content_hash:           string;
+  declare effective_at:           Date;
+  declare is_active:              boolean;
+  declare is_material:            boolean;
+  declare requires_reacceptance:  boolean;
+  declare change_summary_short:   string | null;
+  declare change_summary_full:    string | null;
+  declare created_at:             CreationOptional<Date>;
+  declare updated_at:             CreationOptional<Date>;
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -42,31 +51,32 @@ class PolicyVersion extends Model<
 PolicyVersion.init(
   {
     id: {
-      type:          DataTypes.INTEGER,
-      primaryKey:    true,
-      autoIncrement: true,
+      type:         DataTypes.UUID,
+      primaryKey:   true,
+      allowNull:    false,
+      defaultValue: DataTypes.UUIDV4,
     },
     policy_type: {
       type:      DataTypes.STRING(50),
       allowNull: false,
     },
-    version: {
-      type:      DataTypes.STRING(20),
+    version_code: {
+      type:      DataTypes.STRING(32),
       allowNull: false,
     },
-    label: {
+    version_label: {
       type:      DataTypes.STRING(200),
       allowNull: false,
     },
     url: {
       type:      DataTypes.STRING(500),
-      allowNull: false,
+      allowNull: true,
     },
     content_hash: {
       type:      DataTypes.STRING(64),
-      allowNull: true,
+      allowNull: false,
     },
-    effective_from: {
+    effective_at: {
       type:      DataTypes.DATE,
       allowNull: false,
     },
@@ -75,8 +85,32 @@ PolicyVersion.init(
       allowNull:    false,
       defaultValue: false,
     },
+    is_material: {
+      type:         DataTypes.BOOLEAN,
+      allowNull:    false,
+      defaultValue: true,
+    },
+    requires_reacceptance: {
+      type:         DataTypes.BOOLEAN,
+      allowNull:    false,
+      defaultValue: true,
+    },
+    change_summary_short: {
+      type:      DataTypes.STRING(500),
+      allowNull: true,
+    },
+    change_summary_full: {
+      type:      DataTypes.TEXT,
+      allowNull: true,
+    },
     created_at: {
       type:         DataTypes.DATE,
+      allowNull:    false,
+      defaultValue: DataTypes.NOW,
+    },
+    updated_at: {
+      type:         DataTypes.DATE,
+      allowNull:    false,
       defaultValue: DataTypes.NOW,
     },
   },

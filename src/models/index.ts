@@ -62,6 +62,7 @@ import AnalyticsEvent from "./AnalyticsEvent.model";
 // Consent Layer (Block 2)
 import PolicyVersion from "./PolicyVersion.model";
 import UserConsent   from "./UserConsent.model";
+import CurrentConsent from "./CurrentConsent.model";
 import UserMarketingPromptState from "./UserMarketingPromptState.model";
 
 /**
@@ -277,6 +278,35 @@ function setupAssociations() {
     PolicyVersion.hasMany(UserConsent, {
       foreignKey: "policy_version_id",
       as:         "consents",
+    });
+  }
+
+  if (!(User as any).associations?.currentConsent) {
+    User.hasOne(CurrentConsent, {
+      foreignKey: "user_id",
+      as:         "currentConsent",
+      onDelete:   "CASCADE",
+    });
+  }
+
+  if (!(CurrentConsent as any).associations?.user) {
+    CurrentConsent.belongsTo(User, {
+      foreignKey: "user_id",
+      as:         "user",
+    });
+  }
+
+  if (!(CurrentConsent as any).associations?.acceptedTermsVersion) {
+    CurrentConsent.belongsTo(PolicyVersion, {
+      foreignKey: "accepted_terms_version_id",
+      as:         "acceptedTermsVersion",
+    });
+  }
+
+  if (!(CurrentConsent as any).associations?.acceptedPrivacyVersion) {
+    CurrentConsent.belongsTo(PolicyVersion, {
+      foreignKey: "accepted_privacy_version_id",
+      as:         "acceptedPrivacyVersion",
     });
   }
 
@@ -650,6 +680,7 @@ export {
   // Consent Layer
   PolicyVersion,
   UserConsent,
+  CurrentConsent,
   UserMarketingPromptState,
 };
 
@@ -701,6 +732,7 @@ export const models = {
   // Consent Layer
   PolicyVersion,
   UserConsent,
+  CurrentConsent,
   UserMarketingPromptState,
 };
 

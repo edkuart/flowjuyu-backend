@@ -1,28 +1,16 @@
-// src/services/consent.service.ts
-//
-// Single write-gate for the consent layer.
-// Controllers must NOT write directly to user_consents or update consent
-// flags on users. All consent mutations must flow through this service.
-//
-// Design rules:
-//   - user_consents is append-only. Never UPDATE or DELETE rows here.
-//   - Each consent write is atomic: INSERT + user flag UPDATE share one transaction.
-//   - getActivePolicyVersion() is the only place that reads policy_versions;
-//     callers never hardcode version strings.
-//   - recordRegistrationConsents() is the shorthand for the two-policy write
-//     that happens at every registration path.
-
-import { QueryTypes } from "sequelize";
+import { Op, QueryTypes, Transaction } from "sequelize";
 import { sequelize } from "../config/db";
 import PolicyVersion, { type PolicyType } from "../models/PolicyVersion.model";
 import UserConsent, { type ConsentSource } from "../models/UserConsent.model";
+import CurrentConsent from "../models/CurrentConsent.model";
 import UserMarketingPromptState, {
   type MarketingPromptStatus,
 } from "../models/UserMarketingPromptState.model";
 import WhatsappLinkedIdentity from "../models/WhatsappLinkedIdentity.model";
 import { User } from "../models/user.model";
+import { invalidateSession } from "../lib/sessionCache";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+export type LegalPolicyType = "terms" | "privacy";
 
 export type ConsentType =
   | "terms"
@@ -42,9 +30,12 @@ export interface RecordConsentInput {
   accepted: boolean;
   source: ConsentSource | string;
   ipAddress?: string | null;
+  ipHash?: string | null;
+  locale?: string | null;
   userAgent?: string | null;
-  /** Skip the DB lookup when the caller already resolved the version */
-  policyVersionId?: number;
+  evidenceJson?: Record<string, unknown> | null;
+  acceptedAt?: Date;
+  policyVersionId?: string;
 }
 
 export interface CommunicationPreferences {
@@ -72,26 +63,67 @@ export interface MarketingPromptSnapshot {
   preferences: CommunicationPreferences;
 }
 
-// Rows returned by the current_consents view
-export interface CurrentConsentRow {
+export interface PolicyVersionSnapshot {
   id: string;
-  user_id: number;
-  policy_type: string;
-  version: string;
-  policy_version_id: number;
-  granted: boolean;
-  source: string | null;
-  ip_address: string | null;
-  created_at: Date;
+  policyType: PolicyType;
+  versionCode: string;
+  versionLabel: string;
+  url: string | null;
+  contentHash: string;
+  effectiveAt: string;
+  isActive: boolean;
+  isMaterial: boolean;
+  requiresReacceptance: boolean;
+  changeSummaryShort: string | null;
+  changeSummaryFull: string | null;
 }
 
-// ── Internal mapping tables ───────────────────────────────────────────────────
+export interface ResolvedConsentAccess {
+  userId: number;
+  canAccess: boolean;
+  needsConsent: boolean;
+  missingPolicies: LegalPolicyType[];
+  requiresReacceptanceFor: LegalPolicyType[];
+  acceptedVersionIds: {
+    terms: string | null;
+    privacy: string | null;
+  };
+  activeVersions: {
+    terms: PolicyVersionSnapshot | null;
+    privacy: PolicyVersionSnapshot | null;
+  };
+  summary: {
+    acceptedTermsVersionId: string | null;
+    acceptedPrivacyVersionId: string | null;
+    needsReacceptanceTerms: boolean;
+    needsReacceptancePrivacy: boolean;
+    updatedAt: string | null;
+  };
+}
 
-/**
- * Maps consentType to the policy_type stored in policy_versions.
- * marketing_email, marketing_whatsapp and data_processing share the
- * 'communications' policy.
- */
+export interface SessionConsentContract {
+  canAccess: boolean;
+  needsConsent: boolean;
+  missingPolicies: LegalPolicyType[];
+  requiresReacceptanceFor: LegalPolicyType[];
+  acceptedVersionIds: {
+    terms: string | null;
+    privacy: string | null;
+  };
+  activeVersions: {
+    terms: PolicyVersionSnapshot | null;
+    privacy: PolicyVersionSnapshot | null;
+  };
+}
+
+type CurrentLegalDecisionRow = {
+  policy_type: LegalPolicyType;
+  policy_version_id: string | null;
+  accepted: boolean;
+  accepted_at: Date;
+  created_at: Date;
+};
+
 const CONSENT_TO_POLICY_TYPE: Record<ConsentType, PolicyType> = {
   terms: "terms",
   privacy: "privacy",
@@ -113,67 +145,48 @@ const PROMPT_COOLDOWN_MS: Record<MarketingPromptStatus, number> = {
   snoozed: 7 * 24 * 60 * 60 * 1000,
 };
 
-/**
- * Builds the partial update object for the users table based on consentType.
- * kyc_data is intentionally absent — its flag lives on vendedor_perfil, not users.
- */
-function buildUserFlags(
-  consentType: ConsentType,
-  granted: boolean,
-  policyVersion: string | null,
-): Record<string, unknown> {
-  const now = new Date();
+let activePolicyCache:
+  | {
+      expiresAt: number;
+      values: Record<LegalPolicyType, PolicyVersion | null>;
+    }
+  | null = null;
 
-  switch (consentType) {
-    case "terms":
-      // Some environments still lag the mirror columns on users.
-      // The legal consent source of truth is user_consents/current_consents,
-      // so avoid writing terms_* here to keep accept/status functional.
-      return {};
+function normalizeUserId(userId: number | string): number {
+  const parsed =
+    typeof userId === "number" ? userId : Number.parseInt(String(userId), 10);
 
-    case "privacy":
-      return {};
-
-    case "marketing_email":
-      return {
-        marketing_email: granted,
-        marketing_email_at: now,
-      };
-
-    case "marketing_whatsapp":
-      return {
-        marketing_whatsapp: granted,
-        marketing_whatsapp_at: now,
-      };
-
-    case "data_processing":
-      return {
-        data_processing_acknowledged: granted,
-        data_processing_acknowledged_at: now,
-      };
-
-    case "kyc_data":
-      return {};
-
-    default:
-      return {};
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Invalid userId "${userId}"`);
   }
+
+  return parsed;
 }
 
-async function hasOperationalWhatsappChannel(
-  userId: number,
-  role?: string | null,
-): Promise<boolean> {
-  if (role !== "seller") return false;
+function toPolicySnapshot(policy: PolicyVersion | null): PolicyVersionSnapshot | null {
+  if (!policy) return null;
 
-  const count = await WhatsappLinkedIdentity.count({
-    where: {
-      seller_user_id: userId,
-      status: "active",
-    },
-  });
+  return {
+    id: policy.id,
+    policyType: policy.policy_type,
+    versionCode: policy.version_code,
+    versionLabel: policy.version_label,
+    url: policy.url,
+    contentHash: policy.content_hash,
+    effectiveAt: policy.effective_at.toISOString(),
+    isActive: policy.is_active,
+    isMaterial: policy.is_material,
+    requiresReacceptance: policy.requires_reacceptance,
+    changeSummaryShort: policy.change_summary_short,
+    changeSummaryFull: policy.change_summary_full,
+  };
+}
 
-  return count > 0;
+function hashIpAddress(ipAddress?: string | null): string | null {
+  if (!ipAddress) return null;
+  const normalized = ipAddress.trim();
+  if (!normalized) return null;
+  return Buffer.from(normalized).toString("base64");
 }
 
 function assertPromptRole(userRole: string | null | undefined, promptKey: MarketingPromptKey): void {
@@ -222,236 +235,528 @@ function serializePromptSnapshot(
   };
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+function buildLegacyUserFlags(
+  consentType: ConsentType,
+  accepted: boolean,
+  policy: PolicyVersion,
+  acceptedAt: Date,
+): Record<string, unknown> {
+  switch (consentType) {
+    case "terms":
+      return {
+        terms_current: accepted,
+        terms_version: accepted ? policy.version_code : null,
+        terms_accepted_at: accepted ? acceptedAt : null,
+      };
+    case "privacy":
+      return {
+        privacy_current: accepted,
+        privacy_version: accepted ? policy.version_code : null,
+        privacy_accepted_at: accepted ? acceptedAt : null,
+      };
+    case "marketing_email":
+      return {
+        marketing_email: accepted,
+        marketing_email_at: accepted ? acceptedAt : null,
+      };
+    case "marketing_whatsapp":
+      return {
+        marketing_whatsapp: accepted,
+        marketing_whatsapp_at: accepted ? acceptedAt : null,
+      };
+    case "data_processing":
+      return {
+        data_processing_acknowledged: accepted,
+        data_processing_acknowledged_at: accepted ? acceptedAt : null,
+      };
+    case "kyc_data":
+    default:
+      return {};
+  }
+}
 
-/**
- * Returns the currently active version of a policy type.
- * Returns null if no active version exists (misconfiguration).
- */
+async function hasOperationalWhatsappChannel(
+  userId: number,
+  role?: string | null,
+): Promise<boolean> {
+  if (role !== "seller") return false;
+
+  const count = await WhatsappLinkedIdentity.count({
+    where: {
+      seller_user_id: userId,
+      status: "active",
+    },
+  });
+
+  return count > 0;
+}
+
+async function fetchLatestLegalDecisions(
+  userId: number,
+  transaction?: Transaction,
+): Promise<Map<LegalPolicyType, CurrentLegalDecisionRow>> {
+  const rows = await sequelize.query<CurrentLegalDecisionRow>(
+    `
+    SELECT DISTINCT ON (policy_type)
+      policy_type,
+      policy_version_id,
+      accepted,
+      accepted_at,
+      created_at
+    FROM user_consents
+    WHERE user_id = :userId
+      AND policy_type IN ('terms', 'privacy')
+    ORDER BY policy_type, accepted_at DESC, created_at DESC, id DESC
+    `,
+    {
+      replacements: { userId },
+      type: QueryTypes.SELECT,
+      transaction,
+    },
+  );
+
+  return new Map(rows.map((row) => [row.policy_type, row]));
+}
+
+async function getActiveLegalPolicies(options?: {
+  transaction?: Transaction;
+  bypassCache?: boolean;
+}): Promise<Record<LegalPolicyType, PolicyVersion | null>> {
+  const bypassCache = options?.transaction != null || options?.bypassCache === true;
+  const now = Date.now();
+
+  if (!bypassCache && activePolicyCache && now < activePolicyCache.expiresAt) {
+    return activePolicyCache.values;
+  }
+
+  const rows = await PolicyVersion.findAll({
+    where: {
+      policy_type: { [Op.in]: ["terms", "privacy"] },
+      is_active: true,
+    },
+    transaction: options?.transaction,
+  });
+
+  const values: Record<LegalPolicyType, PolicyVersion | null> = {
+    terms: rows.find((row) => row.policy_type === "terms") ?? null,
+    privacy: rows.find((row) => row.policy_type === "privacy") ?? null,
+  };
+
+  if (!bypassCache) {
+    activePolicyCache = {
+      values,
+      expiresAt: now + 30_000,
+    };
+  }
+
+  return values;
+}
+
+function computeConsentAccess(
+  userId: number,
+  summary: CurrentConsent | null,
+  activePolicies: Record<LegalPolicyType, PolicyVersion | null>,
+): ResolvedConsentAccess {
+  const acceptedTermsVersionId = summary?.accepted_terms_version_id ?? null;
+  const acceptedPrivacyVersionId = summary?.accepted_privacy_version_id ?? null;
+
+  const missingPolicies: LegalPolicyType[] = [];
+  const requiresReacceptanceFor: LegalPolicyType[] = [];
+
+  const activeTerms = activePolicies.terms;
+  const activePrivacy = activePolicies.privacy;
+
+  const termsNeedsConsent =
+    !activeTerms ||
+    !acceptedTermsVersionId ||
+    (activeTerms.requires_reacceptance && acceptedTermsVersionId !== activeTerms.id);
+
+  const privacyNeedsConsent =
+    !activePrivacy ||
+    !acceptedPrivacyVersionId ||
+    (activePrivacy.requires_reacceptance && acceptedPrivacyVersionId !== activePrivacy.id);
+
+  if (termsNeedsConsent) {
+    missingPolicies.push("terms");
+    if (activeTerms && acceptedTermsVersionId && acceptedTermsVersionId !== activeTerms.id) {
+      requiresReacceptanceFor.push("terms");
+    }
+  }
+
+  if (privacyNeedsConsent) {
+    missingPolicies.push("privacy");
+    if (
+      activePrivacy &&
+      acceptedPrivacyVersionId &&
+      acceptedPrivacyVersionId !== activePrivacy.id
+    ) {
+      requiresReacceptanceFor.push("privacy");
+    }
+  }
+
+  return {
+    userId,
+    canAccess: missingPolicies.length === 0,
+    needsConsent: missingPolicies.length > 0,
+    missingPolicies,
+    requiresReacceptanceFor,
+    acceptedVersionIds: {
+      terms: acceptedTermsVersionId,
+      privacy: acceptedPrivacyVersionId,
+    },
+    activeVersions: {
+      terms: toPolicySnapshot(activeTerms),
+      privacy: toPolicySnapshot(activePrivacy),
+    },
+    summary: {
+      acceptedTermsVersionId,
+      acceptedPrivacyVersionId,
+      needsReacceptanceTerms: summary?.needs_reacceptance_terms ?? termsNeedsConsent,
+      needsReacceptancePrivacy: summary?.needs_reacceptance_privacy ?? privacyNeedsConsent,
+      updatedAt: summary?.updated_at ? summary.updated_at.toISOString() : null,
+    },
+  };
+}
+
+async function syncCurrentConsentSummary(
+  userId: number,
+  transaction?: Transaction,
+): Promise<CurrentConsent> {
+  const [latestDecisions, activePolicies] = await Promise.all([
+    fetchLatestLegalDecisions(userId, transaction),
+    getActiveLegalPolicies({ transaction }),
+  ]);
+
+  const latestTerms = latestDecisions.get("terms");
+  const latestPrivacy = latestDecisions.get("privacy");
+
+  const acceptedTermsVersionId = latestTerms?.accepted
+    ? latestTerms.policy_version_id
+    : null;
+  const acceptedPrivacyVersionId = latestPrivacy?.accepted
+    ? latestPrivacy.policy_version_id
+    : null;
+
+  const needsReacceptanceTerms = Boolean(
+    activePolicies.terms &&
+      (!acceptedTermsVersionId ||
+        (activePolicies.terms.requires_reacceptance &&
+          acceptedTermsVersionId !== activePolicies.terms.id)),
+  );
+
+  const needsReacceptancePrivacy = Boolean(
+    activePolicies.privacy &&
+      (!acceptedPrivacyVersionId ||
+        (activePolicies.privacy.requires_reacceptance &&
+          acceptedPrivacyVersionId !== activePolicies.privacy.id)),
+  );
+
+  await CurrentConsent.upsert(
+    {
+      user_id: userId,
+      accepted_terms_version_id: acceptedTermsVersionId,
+      accepted_privacy_version_id: acceptedPrivacyVersionId,
+      needs_reacceptance_terms: needsReacceptanceTerms,
+      needs_reacceptance_privacy: needsReacceptancePrivacy,
+    },
+    { transaction },
+  );
+
+  const current = await CurrentConsent.findByPk(userId, { transaction });
+  if (!current) {
+    throw new Error(`Failed to upsert current_consents row for user ${userId}`);
+  }
+  return current;
+}
+
 export async function getActivePolicyVersion(
   policyType: PolicyType,
 ): Promise<PolicyVersion | null> {
   return PolicyVersion.findOne({
     where: { policy_type: policyType, is_active: true },
+    order: [["effective_at", "DESC"]],
   });
 }
 
-/**
- * Records a single consent action.
- * Atomically:
- *   1. Inserts a row in user_consents (append-only log)
- *   2. Updates the fast-access flags on users
- *
- * Throws on failure — callers decide how to handle (log + continue, or propagate).
- */
+export async function resolveConsentAccess(
+  userIdInput: number | string,
+): Promise<ResolvedConsentAccess> {
+  const userId = normalizeUserId(userIdInput);
+
+  let summary = await CurrentConsent.findByPk(userId);
+  const activePolicies = await getActiveLegalPolicies();
+
+  if (!summary) {
+    summary = await syncCurrentConsentSummary(userId);
+  }
+
+  const computed = computeConsentAccess(userId, summary, activePolicies);
+
+  if (
+    computed.summary.needsReacceptanceTerms !== summary.needs_reacceptance_terms ||
+    computed.summary.needsReacceptancePrivacy !== summary.needs_reacceptance_privacy
+  ) {
+    summary = await syncCurrentConsentSummary(userId);
+    return computeConsentAccess(userId, summary, activePolicies);
+  }
+
+  return computed;
+}
+
+export function buildSessionConsentContract(
+  resolved: ResolvedConsentAccess,
+): SessionConsentContract {
+  return {
+    canAccess: resolved.canAccess,
+    needsConsent: resolved.needsConsent,
+    missingPolicies: resolved.missingPolicies,
+    requiresReacceptanceFor: resolved.requiresReacceptanceFor,
+    acceptedVersionIds: resolved.acceptedVersionIds,
+    activeVersions: resolved.activeVersions,
+  };
+}
+
 export async function recordConsent(
   input: RecordConsentInput,
 ): Promise<UserConsent> {
+  const userId = normalizeUserId(input.userId);
   const policyType = CONSENT_TO_POLICY_TYPE[input.consentType];
-
-  let policyVersionId = input.policyVersionId ?? null;
-  let policyVersion: PolicyVersion | null = null;
-
-  if (!policyVersionId) {
-    policyVersion = await getActivePolicyVersion(policyType);
-    if (!policyVersion) {
-      throw new Error(
-        `[consent] No active policy_version found for type "${policyType}". ` +
-          `Run the seed migration or activate a version before recording consents.`,
-      );
-    }
-    policyVersionId = policyVersion.id;
-  }
+  const acceptedAt = input.acceptedAt ?? new Date();
 
   const t = await sequelize.transaction();
   try {
-    const consent = await UserConsent.create(
-      {
-        user_id: input.userId,
-        policy_version_id: policyVersionId,
-        granted: input.accepted,
-        ip_address: input.ipAddress ?? null,
-        user_agent: input.userAgent ?? null,
-        source: input.source ?? null,
-      },
-      { transaction: t },
+    const policyVersion =
+      (input.policyVersionId
+        ? await PolicyVersion.findByPk(input.policyVersionId, { transaction: t })
+        : await getActivePolicyVersion(policyType)) ?? null;
+
+    if (!policyVersion) {
+      throw new Error(
+        `[consent] No active policy version found for type "${policyType}"`,
+      );
+    }
+
+    const existingAccepted =
+      input.accepted === true
+        ? await UserConsent.findOne({
+            where: {
+              user_id: userId,
+              policy_version_id: policyVersion.id,
+              accepted: true,
+            },
+            transaction: t,
+          })
+        : null;
+
+    const consent =
+      existingAccepted ??
+      (await UserConsent.create(
+        {
+          user_id: userId,
+          policy_type: policyType,
+          policy_version_id: policyVersion.id,
+          accepted: input.accepted,
+          accepted_at: acceptedAt,
+          surface: input.source ?? null,
+          locale: input.locale ?? null,
+          user_agent: input.userAgent ?? null,
+          ip_hash: input.ipHash ?? hashIpAddress(input.ipAddress),
+          evidence_json: input.evidenceJson ?? null,
+        },
+        { transaction: t },
+      ));
+
+    const flags = buildLegacyUserFlags(
+      input.consentType,
+      input.accepted,
+      policyVersion,
+      acceptedAt,
     );
-
-    const resolvedVersion =
-      policyVersion?.version ??
-      (await PolicyVersion.findByPk(policyVersionId))?.version ??
-      null;
-
-    const flags = buildUserFlags(input.consentType, input.accepted, resolvedVersion);
     if (Object.keys(flags).length > 0) {
-      await User.update(flags, { where: { id: input.userId }, transaction: t });
+      await User.update(flags, { where: { id: userId }, transaction: t });
+    }
+
+    if (policyType === "terms" || policyType === "privacy") {
+      await syncCurrentConsentSummary(userId, t);
     }
 
     await t.commit();
+    invalidateSession(userId);
     return consent;
   } catch (err) {
     if ((t as any).finished !== "commit") {
       try {
         await t.rollback();
       } catch {
-        // already finished
+        // ignore
       }
     }
     throw err;
   }
 }
 
-/**
- * Convenience function for the registration paths (buyer, seller, social).
- * Records terms + privacy in a single transaction so both succeed or both fail.
- *
- * Does NOT record marketing_email — that requires an explicit opt-in.
- */
 export async function recordRegistrationConsents(
-  userId: number,
+  userIdInput: number | string,
   opts: {
     accepted: boolean;
     source: ConsentSource | string;
     ipAddress?: string | null;
     userAgent?: string | null;
+    locale?: string | null;
   },
 ): Promise<void> {
+  const userId = normalizeUserId(userIdInput);
+
   const [termsVersion, privacyVersion] = await Promise.all([
     getActivePolicyVersion("terms"),
     getActivePolicyVersion("privacy"),
   ]);
 
-  if (!termsVersion && !privacyVersion) {
-    throw new Error(
-      "[consent] No active policy versions found for 'terms' or 'privacy'. " +
-        "Ensure the seed migration has run.",
-    );
+  if (!termsVersion || !privacyVersion) {
+    throw new Error("[consent] Missing active legal policy versions");
   }
 
   const now = new Date();
   const t = await sequelize.transaction();
 
-  type ConsentRow = {
-    user_id: number;
-    policy_version_id: number;
-    granted: boolean;
-    ip_address: string | null;
-    user_agent: string | null;
-    source: string | null;
-  };
-
   try {
-    const consentRows: ConsentRow[] = [];
-    const userFlags: Record<string, unknown> = {};
-
-    if (termsVersion) {
-      consentRows.push({
+    const rows = [
+      {
         user_id: userId,
+        policy_type: "terms",
         policy_version_id: termsVersion.id,
-        granted: opts.accepted,
-        ip_address: opts.ipAddress ?? null,
-        user_agent: opts.userAgent ?? null,
-        source: opts.source,
-      });
-    }
-
-    if (privacyVersion) {
-      consentRows.push({
+      },
+      {
         user_id: userId,
+        policy_type: "privacy",
         policy_version_id: privacyVersion.id,
-        granted: opts.accepted,
-        ip_address: opts.ipAddress ?? null,
-        user_agent: opts.userAgent ?? null,
-        source: opts.source,
+      },
+    ];
+
+    for (const row of rows) {
+      const existingAccepted = await UserConsent.findOne({
+        where: {
+          user_id: row.user_id,
+          policy_version_id: row.policy_version_id,
+          accepted: true,
+        },
+        transaction: t,
       });
+
+      if (existingAccepted) continue;
+
+      await UserConsent.create(
+        {
+          ...row,
+          accepted: opts.accepted,
+          accepted_at: now,
+          surface: opts.source,
+          locale: opts.locale ?? null,
+          user_agent: opts.userAgent ?? null,
+          ip_hash: hashIpAddress(opts.ipAddress),
+          evidence_json: {
+            registration: true,
+          },
+        },
+        { transaction: t },
+      );
     }
 
-    for (const row of consentRows) {
-      await UserConsent.create(row, { transaction: t });
-    }
+    await User.update(
+      {
+        terms_current: opts.accepted,
+        terms_version: termsVersion.version_code,
+        terms_accepted_at: opts.accepted ? now : null,
+        privacy_current: opts.accepted,
+        privacy_version: privacyVersion.version_code,
+        privacy_accepted_at: opts.accepted ? now : null,
+      },
+      {
+        where: { id: userId },
+        transaction: t,
+      },
+    );
 
-    if (Object.keys(userFlags).length > 0) {
-      await User.update(userFlags, { where: { id: userId }, transaction: t });
-    }
-
+    await syncCurrentConsentSummary(userId, t);
     await t.commit();
+    invalidateSession(userId);
   } catch (err) {
     if ((t as any).finished !== "commit") {
       try {
         await t.rollback();
       } catch {
-        // already finished
+        // ignore
       }
     }
     throw err;
   }
 }
 
-/**
- * Returns the current effective consent for a user × policy_type pair.
- * Queries the current_consents VIEW (most-recent row per user × policy_type).
- * Returns null if the user has never made a consent decision for this type.
- */
 export async function getEffectiveConsent(
-  userId: number,
+  userIdInput: number | string,
   policyType: PolicyType,
-): Promise<CurrentConsentRow | null> {
-  try {
-    const rows = await sequelize.query<CurrentConsentRow>(
-      `SELECT * FROM current_consents
-       WHERE user_id = :userId AND policy_type = :policyType
-       LIMIT 1`,
-      {
-        replacements: { userId, policyType },
-        type: QueryTypes.SELECT,
-      },
-    );
-    return rows[0] ?? null;
-  } catch (error) {
-    const missingCurrentConsentsView =
-      error instanceof Error &&
-      "name" in error &&
-      (error as { name?: string }).name === "SequelizeDatabaseError" &&
-      "original" in error &&
-      Boolean(
-        (error as { original?: { code?: string } }).original?.code === "42P01",
-      );
+): Promise<{
+  user_id: number;
+  policy_type: PolicyType;
+  policy_version_id: string;
+  accepted: boolean;
+  accepted_at: Date;
+  created_at: Date;
+} | null> {
+  const userId = normalizeUserId(userIdInput);
+  const rows = await sequelize.query<{
+    user_id: number;
+    policy_type: PolicyType;
+    policy_version_id: string;
+    accepted: boolean;
+    accepted_at: Date;
+    created_at: Date;
+  }>(
+    `
+    SELECT
+      user_id,
+      policy_type,
+      policy_version_id,
+      accepted,
+      accepted_at,
+      created_at
+    FROM user_consents
+    WHERE user_id = :userId
+      AND policy_type = :policyType
+    ORDER BY accepted_at DESC, created_at DESC, id DESC
+    LIMIT 1
+    `,
+    {
+      replacements: { userId, policyType },
+      type: QueryTypes.SELECT,
+    },
+  );
 
-    if (!missingCurrentConsentsView) {
-      throw error;
-    }
+  return rows[0] ?? null;
+}
 
-    const fallbackRows = await sequelize.query<CurrentConsentRow>(
-      `SELECT
-         uc.id,
-         uc.user_id,
-         pv.policy_type,
-         pv.version,
-         uc.policy_version_id,
-         uc.granted,
-         uc.source,
-         uc.ip_address,
-         uc.created_at
-       FROM user_consents uc
-       INNER JOIN policy_versions pv
-         ON pv.id = uc.policy_version_id
-       WHERE uc.user_id = :userId
-         AND pv.policy_type = :policyType
-       ORDER BY uc.created_at DESC, uc.id DESC
-       LIMIT 1`,
-      {
-        replacements: { userId, policyType },
-        type: QueryTypes.SELECT,
-      },
-    );
+export async function checkTermsCompliance(
+  userIdInput: number | string,
+): Promise<{
+  compliant: boolean;
+  terms: boolean;
+  privacy: boolean;
+  missingConsents: LegalPolicyType[];
+}> {
+  const resolved = await resolveConsentAccess(userIdInput);
 
-    return fallbackRows[0] ?? null;
-  }
+  return {
+    compliant: resolved.canAccess,
+    terms: !resolved.missingPolicies.includes("terms"),
+    privacy: !resolved.missingPolicies.includes("privacy"),
+    missingConsents: resolved.missingPolicies,
+  };
 }
 
 export async function getCommunicationPreferences(
-  userId: number,
+  userIdInput: number | string,
 ): Promise<CommunicationPreferences> {
+  const userId = normalizeUserId(userIdInput);
   const user = await User.findByPk(userId, {
     attributes: ["id", "rol", "marketing_email", "marketing_whatsapp"],
   });
@@ -474,17 +779,19 @@ export async function getCommunicationPreferences(
 }
 
 export async function updateCommunicationPreferences(
-  userId: number,
+  userIdInput: number | string,
   input: CommunicationPreferenceUpdateInput,
   context: {
     source: ConsentSource | string;
     ipAddress?: string | null;
     userAgent?: string | null;
+    locale?: string | null;
   },
 ): Promise<{
   preferences: CommunicationPreferences;
   changedFields: string[];
 }> {
+  const userId = normalizeUserId(userIdInput);
   const user = await User.findByPk(userId, {
     attributes: ["id", "marketing_email", "marketing_whatsapp"],
   });
@@ -506,6 +813,7 @@ export async function updateCommunicationPreferences(
       source: context.source,
       ipAddress: context.ipAddress ?? null,
       userAgent: context.userAgent ?? null,
+      locale: context.locale ?? null,
     });
     changedFields.push("marketingEmail");
   }
@@ -521,6 +829,7 @@ export async function updateCommunicationPreferences(
       source: context.source,
       ipAddress: context.ipAddress ?? null,
       userAgent: context.userAgent ?? null,
+      locale: context.locale ?? null,
     });
     changedFields.push("marketingWhatsapp");
   }
@@ -532,9 +841,10 @@ export async function updateCommunicationPreferences(
 }
 
 export async function getMarketingPromptSnapshot(
-  userId: number,
+  userIdInput: number | string,
   promptKey: MarketingPromptKey,
 ): Promise<MarketingPromptSnapshot> {
+  const userId = normalizeUserId(userIdInput);
   const user = await User.findByPk(userId, {
     attributes: ["id", "rol"],
   });
@@ -556,13 +866,14 @@ export async function getMarketingPromptSnapshot(
 }
 
 export async function updateMarketingPromptState(
-  userId: number,
+  userIdInput: number | string,
   promptKey: MarketingPromptKey,
   input: {
     status: Extract<MarketingPromptStatus, "shown" | "dismissed" | "snoozed">;
     metadata?: Record<string, unknown> | null;
   },
 ): Promise<MarketingPromptSnapshot> {
+  const userId = normalizeUserId(userIdInput);
   const user = await User.findByPk(userId, {
     attributes: ["id", "rol"],
   });
@@ -604,15 +915,17 @@ export async function updateMarketingPromptState(
 }
 
 export async function acceptMarketingPrompt(
-  userId: number,
+  userIdInput: number | string,
   promptKey: MarketingPromptKey,
   context: {
     source: ConsentSource | string;
     ipAddress?: string | null;
     userAgent?: string | null;
+    locale?: string | null;
     metadata?: Record<string, unknown> | null;
   },
 ): Promise<MarketingPromptSnapshot & { changedFields: string[] }> {
+  const userId = normalizeUserId(userIdInput);
   const user = await User.findByPk(userId, {
     attributes: ["id", "rol"],
   });
@@ -630,6 +943,7 @@ export async function acceptMarketingPrompt(
       source: context.source,
       ipAddress: context.ipAddress ?? null,
       userAgent: context.userAgent ?? null,
+      locale: context.locale ?? null,
     },
   );
 
@@ -666,35 +980,5 @@ export async function acceptMarketingPrompt(
   return {
     ...snapshot,
     changedFields: result.changedFields,
-  };
-}
-
-/**
- * Checks whether a user has accepted both current terms and privacy policy.
- * Uses the denormalized flags on users (O(1) — no JOIN required).
- * Intended as the foundation for future middleware enforcement.
- */
-export async function checkTermsCompliance(userId: number): Promise<{
-  compliant: boolean;
-  terms: boolean;
-  privacy: boolean;
-  missingConsents: string[];
-}> {
-  const [termsConsent, privacyConsent] = await Promise.all([
-    getEffectiveConsent(userId, "terms"),
-    getEffectiveConsent(userId, "privacy"),
-  ]);
-
-  const termsOk = Boolean(termsConsent?.granted);
-  const privacyOk = Boolean(privacyConsent?.granted);
-  const missing: string[] = [];
-  if (!termsOk) missing.push("terms");
-  if (!privacyOk) missing.push("privacy");
-
-  return {
-    compliant: termsOk && privacyOk,
-    terms: termsOk,
-    privacy: privacyOk,
-    missingConsents: missing,
   };
 }

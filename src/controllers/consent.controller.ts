@@ -13,9 +13,11 @@
 
 import type { Request, Response, RequestHandler } from "express";
 import {
+  buildSessionConsentContract,
   recordConsent,
   checkTermsCompliance,
   getActivePolicyVersion,
+  resolveConsentAccess,
   getCommunicationPreferences,
   updateCommunicationPreferences,
   getMarketingPromptSnapshot,
@@ -91,21 +93,31 @@ export const getConsentStatus: RequestHandler = async (
       return;
     }
 
-    const [compliance, activeTerms, activePrivacy] = await Promise.all([
+    const [compliance, activeTerms, activePrivacy, resolved] = await Promise.all([
       checkTermsCompliance(userId),
       getActivePolicyVersion("terms"),
       getActivePolicyVersion("privacy"),
+      resolveConsentAccess(userId),
     ]);
 
     res.json({
       ok: true,
       compliance,
+      consent: buildSessionConsentContract(resolved),
       policies: {
         terms: activeTerms
-          ? { version: activeTerms.version, url: activeTerms.url, label: activeTerms.label }
+          ? {
+              version: activeTerms.version_code,
+              url: activeTerms.url,
+              label: activeTerms.version_label,
+            }
           : null,
         privacy: activePrivacy
-          ? { version: activePrivacy.version, url: activePrivacy.url, label: activePrivacy.label }
+          ? {
+              version: activePrivacy.version_code,
+              url: activePrivacy.url,
+              label: activePrivacy.version_label,
+            }
           : null,
       },
     });

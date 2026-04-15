@@ -45,13 +45,6 @@ export class SocialAuthError extends Error {
  *   - Token has not been revoked (`checkRevoked: true`)
  */
 export async function verifyGoogleToken(id_token: string): Promise<SocialProfile> {
-  if (!admin.apps.length) {
-    throw new SocialAuthError(
-      "GOOGLE_NOT_CONFIGURED",
-      "Google login no está disponible en este momento.",
-    );
-  }
-
   let payload: admin.auth.DecodedIdToken;
   try {
     payload = await admin.auth().verifyIdToken(id_token, /* checkRevoked */ true);

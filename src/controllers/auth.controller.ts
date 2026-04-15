@@ -26,7 +26,8 @@ import {
 import { logAuditEventFromRequest } from "../services/audit.service";
 import {
   recordRegistrationConsents,
-  getActivePolicyVersion,
+  resolveConsentAccess,
+  buildSessionConsentContract,
 } from "../services/consent.service";
 import { checkLoginAbuse } from "../services/abuseDetection.service";
 import { LOGIN_RULES } from "../config/securityRules";
@@ -58,6 +59,25 @@ export function buildUserDTO(user: User) {
     name:  user.nombre,
     email: user.correo,
     role:  user.rol,
+  };
+}
+
+async function buildAuthEnvelope(user: User) {
+  const resolvedConsent = await resolveConsentAccess(user.id);
+  const consent = buildSessionConsentContract(resolvedConsent);
+
+  return {
+    user: buildUserDTO(user),
+    consent,
+    ...(consent.needsConsent
+      ? {
+          needsConsent: true,
+          currentVersion:
+            consent.activeVersions.terms?.versionCode ??
+            consent.activeVersions.privacy?.versionCode ??
+            null,
+        }
+      : {}),
   };
 }
 
@@ -588,6 +608,7 @@ export const login = async (
     }
 
     const token = issueTokenPair(res, user);
+    const authEnvelope = await buildAuthEnvelope(user);
 
     void logAuditEventFromRequest(req, {
       actor_user_id: user.id,
@@ -599,30 +620,11 @@ export const login = async (
       severity:      "low",
     });
 
-    // Consent gate — inform the frontend if the user needs to re-accept terms.
-    // terms_current=false covers:
-    //   • Users registered before Block 2 was deployed (backfill pending)
-    //   • Users who explicitly revoked consent
-    //   • Users whose accepted version is no longer current
-    // The frontend should redirect to the consent modal on needsConsent=true.
-    const needsConsent = !user.terms_current;
-    let currentVersion: string | null = null;
-
-    if (needsConsent) {
-      try {
-        const activeTerms = await getActivePolicyVersion("terms");
-        currentVersion = activeTerms?.version ?? null;
-      } catch {
-        // Non-fatal — login still succeeds; frontend retries via GET /api/consent/status
-      }
-    }
-
     res.status(200).json({
       ok:    true,
       token,
-      user:  buildUserDTO(user),
+      ...authEnvelope,
       ...(sellerStatus  && { sellerStatus }),
-      ...(needsConsent  && { needsConsent: true, currentVersion }),
     });
   } catch (error) {
     console.error("Error en login:", error);
@@ -959,9 +961,8 @@ export const loginWithSocial: RequestHandler = async (req, res) => {
     } catch (err) {
       if (err instanceof SocialAuthError) {
         const status =
-          err.code === "GOOGLE_NOT_CONFIGURED"  ? 503 :
           err.code === "PROVIDER_NOT_IMPLEMENTED" ? 501 :
-          err.code === "EMAIL_NOT_VERIFIED"      ? 403 : 401;
+          err.code === "EMAIL_NOT_VERIFIED" ? 403 : 401;
         res.status(status).json({ ok: false, message: err.message, code: err.code });
         return;
       }
@@ -1136,6 +1137,7 @@ export const refresh: RequestHandler = async (req, res) => {
 
     // Issue new access token + rotate refresh token (new cookie replaces old)
     const token = issueTokenPair(res, user);
+    const authEnvelope = await buildAuthEnvelope(user);
 
     void logAuditEventFromRequest(req, {
       actor_user_id: user.id,
@@ -1150,7 +1152,7 @@ export const refresh: RequestHandler = async (req, res) => {
     res.status(200).json({
       ok:   true,
       token,
-      user: buildUserDTO(user),
+      ...authEnvelope,
     });
   } catch (error) {
     console.error("Error en refresh:", error);
@@ -1199,8 +1201,23 @@ export const getSession: RequestHandler = async (req, res) => {
     const cached = getCachedSession(userId, decoded.token_version);
     if (cached) {
       res.status(200).json({
-        ok:   true,
-        user: { id: cached.id, name: cached.nombre, email: cached.correo, role: cached.rol },
+        ok: true,
+        user: {
+          id: cached.id,
+          name: cached.nombre,
+          email: cached.correo,
+          role: cached.rol,
+        },
+        consent: cached.consent,
+        ...(cached.consent.needsConsent
+          ? {
+              needsConsent: true,
+              currentVersion:
+                cached.consent.activeVersions.terms?.versionCode ??
+                cached.consent.activeVersions.privacy?.versionCode ??
+                null,
+            }
+          : {}),
       });
       return;
     }
@@ -1223,18 +1240,21 @@ export const getSession: RequestHandler = async (req, res) => {
       return;
     }
 
+    const authEnvelope = await buildAuthEnvelope(user);
+
     // Populate cache for subsequent requests within the TTL window
     setCachedSession({
       id:            user.id,
       nombre:        user.nombre,
       correo:        user.correo,
       rol:           user.rol,
+      consent:       authEnvelope.consent,
       token_version: user.token_version,
     });
 
     res.status(200).json({
-      ok:   true,
-      user: buildUserDTO(user),
+      ok: true,
+      ...authEnvelope,
     });
   } catch (error) {
     console.error("Error en getSession:", error);

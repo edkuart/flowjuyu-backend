@@ -118,18 +118,60 @@ export async function setupConsentTables(): Promise<void> {
   console.log("🔧 setupConsentTables: checking tables...");
 
   await run(
+    "pgcrypto extension",
+    `CREATE EXTENSION IF NOT EXISTS pgcrypto`
+  );
+
+  const queryInterface = sequelize.getQueryInterface();
+  let policyColumns: Record<string, unknown> | null = null;
+  let consentColumns: Record<string, unknown> | null = null;
+
+  try {
+    policyColumns = await (queryInterface as any).describeTable("policy_versions");
+  } catch {
+    policyColumns = null;
+  }
+
+  try {
+    consentColumns = await (queryInterface as any).describeTable("user_consents");
+  } catch {
+    consentColumns = null;
+  }
+
+  if (policyColumns && !("version_code" in policyColumns)) {
+    console.warn(
+      "⚠️  Legacy consent schema detected in policy_versions. " +
+      "Run Sequelize migrations before relying on consent access resolution.",
+    );
+    return;
+  }
+
+  if (consentColumns && !("accepted" in consentColumns)) {
+    console.warn(
+      "⚠️  Legacy consent schema detected in user_consents. " +
+      "Run Sequelize migrations before relying on consent access resolution.",
+    );
+    return;
+  }
+
+  await run(
     "policy_versions table",
     `
     CREATE TABLE IF NOT EXISTS policy_versions (
-      id             SERIAL PRIMARY KEY,
-      policy_type    VARCHAR(50)  NOT NULL,
-      version        VARCHAR(20)  NOT NULL,
-      label          VARCHAR(200) NOT NULL,
-      url            VARCHAR(500) NOT NULL,
-      content_hash   VARCHAR(64),
-      effective_from TIMESTAMP    NOT NULL,
-      is_active      BOOLEAN      NOT NULL DEFAULT false,
-      created_at     TIMESTAMP    NOT NULL DEFAULT NOW()
+      id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      policy_type            VARCHAR(50)  NOT NULL,
+      version_code           VARCHAR(32)  NOT NULL,
+      version_label          VARCHAR(200) NOT NULL,
+      url                    VARCHAR(500),
+      content_hash           VARCHAR(64)  NOT NULL,
+      effective_at           TIMESTAMP    NOT NULL,
+      is_active              BOOLEAN      NOT NULL DEFAULT false,
+      is_material            BOOLEAN      NOT NULL DEFAULT true,
+      requires_reacceptance  BOOLEAN      NOT NULL DEFAULT true,
+      change_summary_short   VARCHAR(500),
+      change_summary_full    TEXT,
+      created_at             TIMESTAMP    NOT NULL DEFAULT NOW(),
+      updated_at             TIMESTAMP    NOT NULL DEFAULT NOW()
     )
     `
   );
@@ -140,8 +182,8 @@ export async function setupConsentTables(): Promise<void> {
   );
 
   await run(
-    "policy_versions unique version",
-    `CREATE UNIQUE INDEX IF NOT EXISTS policy_versions_policy_type_version_key ON policy_versions (policy_type, version)`
+    "policy_versions unique version_code",
+    `CREATE UNIQUE INDEX IF NOT EXISTS policy_versions_policy_type_version_code_key ON policy_versions (policy_type, version_code)`
   );
 
   await run(
@@ -154,61 +196,21 @@ export async function setupConsentTables(): Promise<void> {
   );
 
   await run(
-    "policy_versions seed terms",
-    `
-    INSERT INTO policy_versions
-      (policy_type, version, label, url, content_hash, effective_from, is_active, created_at)
-    VALUES
-      ('terms', 'v1', 'Términos y Condiciones de Uso v1', '/legal/terms', NULL, NOW(), true, NOW())
-    ON CONFLICT (policy_type, version) DO NOTHING
-    `
-  );
-
-  await run(
-    "policy_versions seed privacy",
-    `
-    INSERT INTO policy_versions
-      (policy_type, version, label, url, content_hash, effective_from, is_active, created_at)
-    VALUES
-      ('privacy', 'v1', 'Política de Privacidad v1', '/legal/privacy', NULL, NOW(), true, NOW())
-    ON CONFLICT (policy_type, version) DO NOTHING
-    `
-  );
-
-  await run(
-    "policy_versions seed communications",
-    `
-    INSERT INTO policy_versions
-      (policy_type, version, label, url, content_hash, effective_from, is_active, created_at)
-    VALUES
-      ('communications', 'v1', 'Política de Comunicaciones y Marketing v1', '/legal/communications', NULL, NOW(), true, NOW())
-    ON CONFLICT (policy_type, version) DO NOTHING
-    `
-  );
-
-  await run(
-    "policy_versions seed kyc_data",
-    `
-    INSERT INTO policy_versions
-      (policy_type, version, label, url, content_hash, effective_from, is_active, created_at)
-    VALUES
-      ('kyc_data', 'v1', 'Aviso de Tratamiento de Datos KYC v1', '/legal/kyc-data', NULL, NOW(), true, NOW())
-    ON CONFLICT (policy_type, version) DO NOTHING
-    `
-  );
-
-  await run(
     "user_consents table",
     `
     CREATE TABLE IF NOT EXISTS user_consents (
-      id                BIGSERIAL PRIMARY KEY,
-      user_id           INTEGER     NOT NULL REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE,
-      policy_version_id INTEGER     NOT NULL REFERENCES policy_versions(id) ON DELETE RESTRICT ON UPDATE CASCADE,
-      granted           BOOLEAN     NOT NULL,
-      ip_address        VARCHAR(45),
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id           INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE,
+      policy_type       VARCHAR(50)  NOT NULL,
+      policy_version_id UUID         NOT NULL REFERENCES policy_versions(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+      accepted          BOOLEAN      NOT NULL,
+      accepted_at       TIMESTAMP    NOT NULL,
+      surface           VARCHAR(100),
+      locale            VARCHAR(16),
       user_agent        TEXT,
-      source            VARCHAR(50),
-      created_at        TIMESTAMP   NOT NULL DEFAULT NOW()
+      ip_hash           VARCHAR(128),
+      evidence_json     JSONB,
+      created_at        TIMESTAMP    NOT NULL DEFAULT NOW()
     )
     `
   );
@@ -224,32 +226,30 @@ export async function setupConsentTables(): Promise<void> {
   );
 
   await run(
-    "user_consents index user_id_created_at",
-    `CREATE INDEX IF NOT EXISTS user_consents_user_id_created_at_idx ON user_consents (user_id, created_at)`
+    "user_consents index user_policy_accepted_at",
+    `CREATE INDEX IF NOT EXISTS user_consents_user_policy_accepted_at_idx ON user_consents (user_id, policy_type, accepted_at)`
   );
 
   await run(
-    "current_consents view drop",
-    `DROP VIEW IF EXISTS current_consents`
-  );
-
-  await run(
-    "current_consents view create",
+    "user_consents unique accept-once",
     `
-    CREATE VIEW current_consents AS
-    SELECT DISTINCT ON (uc.user_id, pv.policy_type)
-      uc.id,
-      uc.user_id,
-      pv.policy_type,
-      pv.version,
-      pv.id AS policy_version_id,
-      uc.granted,
-      uc.source,
-      uc.ip_address,
-      uc.created_at
-    FROM user_consents uc
-    JOIN policy_versions pv ON pv.id = uc.policy_version_id
-    ORDER BY uc.user_id, pv.policy_type, uc.created_at DESC, uc.id DESC
+    CREATE UNIQUE INDEX IF NOT EXISTS user_consents_user_version_accept_once_idx
+    ON user_consents (user_id, policy_version_id)
+    WHERE accepted = true
+    `
+  );
+
+  await run(
+    "current_consents table",
+    `
+    CREATE TABLE IF NOT EXISTS current_consents (
+      user_id                     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE,
+      accepted_terms_version_id   UUID REFERENCES policy_versions(id) ON DELETE SET NULL ON UPDATE CASCADE,
+      accepted_privacy_version_id UUID REFERENCES policy_versions(id) ON DELETE SET NULL ON UPDATE CASCADE,
+      needs_reacceptance_terms    BOOLEAN NOT NULL DEFAULT false,
+      needs_reacceptance_privacy  BOOLEAN NOT NULL DEFAULT false,
+      updated_at                  TIMESTAMP NOT NULL DEFAULT NOW()
+    )
     `
   );
 
