@@ -1,121 +1,181 @@
 'use strict';
 
-async function tableExists(queryInterface, tableName) {
+async function tableExists(queryInterface, tableName, options = {}) {
   try {
-    await queryInterface.describeTable(tableName);
+    await queryInterface.describeTable(tableName, options);
     return true;
   } catch {
     return false;
   }
 }
 
+async function safeCreateIndex(queryInterface, indexName, createSql, options = {}) {
+  await queryInterface.sequelize.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND indexname = '${indexName}'
+      ) THEN
+        ${createSql};
+      END IF;
+    END
+    $$;
+  `, options);
+}
+
+async function tableRowCount(queryInterface, tableName, options = {}) {
+  const [rows] = await queryInterface.sequelize.query(
+    `SELECT COUNT(*)::int AS count FROM "${tableName}"`,
+    options,
+  );
+  return rows[0]?.count ?? 0;
+}
+
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.sequelize.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+    const transaction = await queryInterface.sequelize.transaction();
 
-    const hasPolicyVersions = await tableExists(queryInterface, "policy_versions");
-    const hasUserConsents = await tableExists(queryInterface, "user_consents");
+    try {
+      await queryInterface.sequelize.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`, { transaction });
 
-    if (hasUserConsents) {
-      await queryInterface.sequelize.query(`DROP VIEW IF EXISTS current_consents`);
-      await queryInterface.renameTable("user_consents", "user_consents_legacy");
-    }
+      let hasPolicyVersions = await tableExists(queryInterface, "policy_versions", { transaction });
+      let hasUserConsents = await tableExists(queryInterface, "user_consents", { transaction });
+      const hasPolicyVersionsLegacy = await tableExists(queryInterface, "policy_versions_legacy", { transaction });
+      const hasUserConsentsLegacy = await tableExists(queryInterface, "user_consents_legacy", { transaction });
 
-    if (hasPolicyVersions) {
-      await queryInterface.renameTable("policy_versions", "policy_versions_legacy");
-    }
+      await queryInterface.sequelize.query(`DROP VIEW IF EXISTS current_consents`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS policy_versions_policy_type_idx`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS policy_versions_policy_type_version_key`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS policy_versions_one_active_per_type`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS policy_versions_policy_type_active_effective_idx`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS user_consents_user_id_idx`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS user_consents_policy_type_accepted_at_idx`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS user_consents_user_policy_accepted_at_idx`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS user_consents_policy_version_id_idx`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS user_consents_user_version_accept_once_idx`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS current_consents_terms_version_idx`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS current_consents_privacy_version_idx`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS current_consents_needs_terms_idx`, { transaction });
+      await queryInterface.sequelize.query(`DROP INDEX IF EXISTS current_consents_needs_privacy_idx`, { transaction });
 
-    await queryInterface.createTable("policy_versions", {
-      id: {
-        type: Sequelize.UUID,
-        primaryKey: true,
-        allowNull: false,
-        defaultValue: Sequelize.literal("gen_random_uuid()"),
-      },
-      policy_type: {
-        type: Sequelize.STRING(50),
-        allowNull: false,
-      },
-      version_code: {
-        type: Sequelize.STRING(32),
-        allowNull: false,
-      },
-      version_label: {
-        type: Sequelize.STRING(200),
-        allowNull: false,
-      },
-      url: {
-        type: Sequelize.STRING(500),
-        allowNull: true,
-      },
-      content_hash: {
-        type: Sequelize.STRING(64),
-        allowNull: false,
-      },
-      effective_at: {
-        type: Sequelize.DATE,
-        allowNull: false,
-      },
-      is_active: {
-        type: Sequelize.BOOLEAN,
-        allowNull: false,
-        defaultValue: false,
-      },
-      is_material: {
-        type: Sequelize.BOOLEAN,
-        allowNull: false,
-        defaultValue: true,
-      },
-      requires_reacceptance: {
-        type: Sequelize.BOOLEAN,
-        allowNull: false,
-        defaultValue: true,
-      },
-      change_summary_short: {
-        type: Sequelize.STRING(500),
-        allowNull: true,
-      },
-      change_summary_full: {
-        type: Sequelize.TEXT,
-        allowNull: true,
-      },
-      created_at: {
-        type: Sequelize.DATE,
-        allowNull: false,
-        defaultValue: Sequelize.literal("NOW()"),
-      },
-      updated_at: {
-        type: Sequelize.DATE,
-        allowNull: false,
-        defaultValue: Sequelize.literal("NOW()"),
-      },
-    });
+      if (hasUserConsents && !hasUserConsentsLegacy) {
+        await queryInterface.renameTable("user_consents", "user_consents_legacy", { transaction });
+        hasUserConsents = false;
+      }
 
-    await queryInterface.addIndex("policy_versions", ["policy_type"], {
-      name: "policy_versions_policy_type_idx",
-    });
-    await queryInterface.addIndex("policy_versions", ["policy_type", "version_code"], {
-      name: "policy_versions_policy_type_version_code_key",
-      unique: true,
-    });
-    await queryInterface.addIndex("policy_versions", ["policy_type", "is_active", "effective_at"], {
-      name: "policy_versions_policy_type_active_effective_idx",
-    });
-    await queryInterface.sequelize.query(`
-      CREATE UNIQUE INDEX policy_versions_one_active_per_type
-      ON policy_versions (policy_type)
-      WHERE is_active = true
-    `);
+      if (hasPolicyVersions && !hasPolicyVersionsLegacy) {
+        await queryInterface.renameTable("policy_versions", "policy_versions_legacy", { transaction });
+        hasPolicyVersions = false;
+      }
 
-    if (hasPolicyVersions) {
-      await queryInterface.sequelize.query(`
+      if (!(await tableExists(queryInterface, "policy_versions", { transaction }))) {
+        await queryInterface.createTable("policy_versions", {
+        id: {
+          type: Sequelize.UUID,
+          primaryKey: true,
+          allowNull: false,
+          defaultValue: Sequelize.literal("gen_random_uuid()"),
+        },
+        policy_type: {
+          type: Sequelize.STRING(50),
+          allowNull: false,
+        },
+        version_code: {
+          type: Sequelize.STRING(32),
+          allowNull: false,
+        },
+        version_label: {
+          type: Sequelize.STRING(200),
+          allowNull: false,
+        },
+        url: {
+          type: Sequelize.STRING(500),
+          allowNull: true,
+        },
+        content_hash: {
+          type: Sequelize.STRING(64),
+          allowNull: false,
+        },
+        effective_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+        },
+        is_active: {
+          type: Sequelize.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        is_material: {
+          type: Sequelize.BOOLEAN,
+          allowNull: false,
+          defaultValue: true,
+        },
+        requires_reacceptance: {
+          type: Sequelize.BOOLEAN,
+          allowNull: false,
+          defaultValue: true,
+        },
+        change_summary_short: {
+          type: Sequelize.STRING(500),
+          allowNull: true,
+        },
+        change_summary_full: {
+          type: Sequelize.TEXT,
+          allowNull: true,
+        },
+        created_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal("NOW()"),
+        },
+        updated_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal("NOW()"),
+        },
+        }, { transaction });
+      }
+
+      await safeCreateIndex(
+        queryInterface,
+        "policy_versions_policy_type_idx",
+        "CREATE INDEX policy_versions_policy_type_idx ON policy_versions (policy_type)",
+        { transaction },
+      );
+      await safeCreateIndex(
+        queryInterface,
+        "policy_versions_policy_type_version_code_key",
+        "CREATE UNIQUE INDEX policy_versions_policy_type_version_code_key ON policy_versions (policy_type, version_code)",
+        { transaction },
+      );
+      await safeCreateIndex(
+        queryInterface,
+        "policy_versions_policy_type_active_effective_idx",
+        "CREATE INDEX policy_versions_policy_type_active_effective_idx ON policy_versions (policy_type, is_active, effective_at)",
+        { transaction },
+      );
+      await safeCreateIndex(
+        queryInterface,
+        "policy_versions_one_active_per_type",
+        "CREATE UNIQUE INDEX policy_versions_one_active_per_type ON policy_versions (policy_type) WHERE is_active = true",
+        { transaction },
+      );
+
+      if (
+        await tableExists(queryInterface, "policy_versions_legacy", { transaction }) &&
+        (await tableRowCount(queryInterface, "policy_versions", { transaction })) === 0
+      ) {
+        await queryInterface.sequelize.query(`
         CREATE TEMP TABLE tmp_policy_version_map (
           legacy_id INTEGER PRIMARY KEY,
           new_id UUID NOT NULL
         ) ON COMMIT DROP
-      `);
+      `, { transaction });
 
-      await queryInterface.sequelize.query(`
+        await queryInterface.sequelize.query(`
         WITH inserted AS (
           INSERT INTO policy_versions (
             policy_type,
@@ -155,10 +215,10 @@ module.exports = {
         JOIN inserted
           ON inserted.policy_type = legacy.policy_type
          AND inserted.version_code = COALESCE(legacy.version, 'legacy')
-      `);
-    } else {
-      const now = new Date();
-      await queryInterface.bulkInsert("policy_versions", [
+      `, { transaction });
+      } else {
+        const now = new Date();
+        await queryInterface.bulkInsert("policy_versions", [
         {
           id: Sequelize.literal("gen_random_uuid()"),
           policy_type: "terms",
@@ -191,89 +251,108 @@ module.exports = {
           created_at: now,
           updated_at: now,
         },
-      ]);
-    }
+        ], { transaction });
+      }
 
-    await queryInterface.createTable("user_consents", {
-      id: {
-        type: Sequelize.UUID,
-        primaryKey: true,
-        allowNull: false,
-        defaultValue: Sequelize.literal("gen_random_uuid()"),
-      },
-      user_id: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
-        references: { model: "users", key: "id" },
-        onDelete: "CASCADE",
-        onUpdate: "CASCADE",
-      },
-      policy_type: {
-        type: Sequelize.STRING(50),
-        allowNull: false,
-      },
-      policy_version_id: {
-        type: Sequelize.UUID,
-        allowNull: false,
-        references: { model: "policy_versions", key: "id" },
-        onDelete: "RESTRICT",
-        onUpdate: "CASCADE",
-      },
-      accepted: {
-        type: Sequelize.BOOLEAN,
-        allowNull: false,
-      },
-      accepted_at: {
-        type: Sequelize.DATE,
-        allowNull: false,
-      },
-      surface: {
-        type: Sequelize.STRING(100),
-        allowNull: true,
-      },
-      locale: {
-        type: Sequelize.STRING(16),
-        allowNull: true,
-      },
-      user_agent: {
-        type: Sequelize.TEXT,
-        allowNull: true,
-      },
-      ip_hash: {
-        type: Sequelize.STRING(128),
-        allowNull: true,
-      },
-      evidence_json: {
-        type: Sequelize.JSONB,
-        allowNull: true,
-      },
-      created_at: {
-        type: Sequelize.DATE,
-        allowNull: false,
-        defaultValue: Sequelize.literal("NOW()"),
-      },
-    });
+      if (!(await tableExists(queryInterface, "user_consents", { transaction }))) {
+        await queryInterface.createTable("user_consents", {
+        id: {
+          type: Sequelize.UUID,
+          primaryKey: true,
+          allowNull: false,
+          defaultValue: Sequelize.literal("gen_random_uuid()"),
+        },
+        user_id: {
+          type: Sequelize.INTEGER,
+          allowNull: false,
+          references: { model: "users", key: "id" },
+          onDelete: "CASCADE",
+          onUpdate: "CASCADE",
+        },
+        policy_type: {
+          type: Sequelize.STRING(50),
+          allowNull: false,
+        },
+        policy_version_id: {
+          type: Sequelize.UUID,
+          allowNull: false,
+          references: { model: "policy_versions", key: "id" },
+          onDelete: "RESTRICT",
+          onUpdate: "CASCADE",
+        },
+        accepted: {
+          type: Sequelize.BOOLEAN,
+          allowNull: false,
+        },
+        accepted_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+        },
+        surface: {
+          type: Sequelize.STRING(100),
+          allowNull: true,
+        },
+        locale: {
+          type: Sequelize.STRING(16),
+          allowNull: true,
+        },
+        user_agent: {
+          type: Sequelize.TEXT,
+          allowNull: true,
+        },
+        ip_hash: {
+          type: Sequelize.STRING(128),
+          allowNull: true,
+        },
+        evidence_json: {
+          type: Sequelize.JSONB,
+          allowNull: true,
+        },
+        created_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal("NOW()"),
+        },
+        }, { transaction });
+      }
 
-    await queryInterface.addIndex("user_consents", ["user_id"], {
-      name: "user_consents_user_id_idx",
-    });
-    await queryInterface.addIndex("user_consents", ["policy_type", "accepted_at"], {
-      name: "user_consents_policy_type_accepted_at_idx",
-    });
-    await queryInterface.addIndex("user_consents", ["user_id", "policy_type", "accepted_at"], {
-      name: "user_consents_user_policy_accepted_at_idx",
-    });
-    await queryInterface.addIndex("user_consents", ["policy_version_id"], {
-      name: "user_consents_policy_version_id_idx",
-    });
-    await queryInterface.sequelize.query(`
-      CREATE UNIQUE INDEX user_consents_user_version_accept_once_idx
-      ON user_consents (user_id, policy_version_id)
-      WHERE accepted = true
-    `);
+      await safeCreateIndex(
+        queryInterface,
+        "user_consents_user_id_idx",
+        "CREATE INDEX user_consents_user_id_idx ON user_consents (user_id)",
+        { transaction },
+      );
+      await safeCreateIndex(
+        queryInterface,
+        "user_consents_policy_type_accepted_at_idx",
+        "CREATE INDEX user_consents_policy_type_accepted_at_idx ON user_consents (policy_type, accepted_at)",
+        { transaction },
+      );
+      await safeCreateIndex(
+        queryInterface,
+        "user_consents_user_policy_accepted_at_idx",
+        "CREATE INDEX user_consents_user_policy_accepted_at_idx ON user_consents (user_id, policy_type, accepted_at)",
+        { transaction },
+      );
+      await safeCreateIndex(
+        queryInterface,
+        "user_consents_policy_version_id_idx",
+        "CREATE INDEX user_consents_policy_version_id_idx ON user_consents (policy_version_id)",
+        { transaction },
+      );
+      await safeCreateIndex(
+        queryInterface,
+        "user_consents_user_version_accept_once_idx",
+        "CREATE UNIQUE INDEX user_consents_user_version_accept_once_idx ON user_consents (user_id, policy_version_id) WHERE accepted = true",
+        { transaction },
+      );
 
-    if (hasUserConsents && hasPolicyVersions) {
-      await queryInterface.sequelize.query(`
+      if (
+        await tableExists(queryInterface, "user_consents_legacy", { transaction }) &&
+        await tableExists(queryInterface, "policy_versions_legacy", { transaction }) &&
+        (await tableRowCount(queryInterface, "user_consents", { transaction })) === 0
+      ) {
+        await queryInterface.sequelize.query(`
         INSERT INTO user_consents (
           id,
           user_id,
@@ -310,63 +389,77 @@ module.exports = {
           ON pv.id = legacy.policy_version_id
         JOIN tmp_policy_version_map map
           ON map.legacy_id = legacy.policy_version_id
-      `);
-    }
+      `, { transaction });
+      }
 
-    await queryInterface.createTable("current_consents", {
-      user_id: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
-        primaryKey: true,
-        references: { model: "users", key: "id" },
-        onDelete: "CASCADE",
-        onUpdate: "CASCADE",
-      },
-      accepted_terms_version_id: {
-        type: Sequelize.UUID,
-        allowNull: true,
-        references: { model: "policy_versions", key: "id" },
-        onDelete: "SET NULL",
-        onUpdate: "CASCADE",
-      },
-      accepted_privacy_version_id: {
-        type: Sequelize.UUID,
-        allowNull: true,
-        references: { model: "policy_versions", key: "id" },
-        onDelete: "SET NULL",
-        onUpdate: "CASCADE",
-      },
-      needs_reacceptance_terms: {
-        type: Sequelize.BOOLEAN,
-        allowNull: false,
-        defaultValue: false,
-      },
-      needs_reacceptance_privacy: {
-        type: Sequelize.BOOLEAN,
-        allowNull: false,
-        defaultValue: false,
-      },
-      updated_at: {
-        type: Sequelize.DATE,
-        allowNull: false,
-        defaultValue: Sequelize.literal("NOW()"),
-      },
-    });
+      if (!(await tableExists(queryInterface, "current_consents", { transaction }))) {
+        await queryInterface.createTable("current_consents", {
+        user_id: {
+          type: Sequelize.INTEGER,
+          allowNull: false,
+          primaryKey: true,
+          references: { model: "users", key: "id" },
+          onDelete: "CASCADE",
+          onUpdate: "CASCADE",
+        },
+        accepted_terms_version_id: {
+          type: Sequelize.UUID,
+          allowNull: true,
+          references: { model: "policy_versions", key: "id" },
+          onDelete: "SET NULL",
+          onUpdate: "CASCADE",
+        },
+        accepted_privacy_version_id: {
+          type: Sequelize.UUID,
+          allowNull: true,
+          references: { model: "policy_versions", key: "id" },
+          onDelete: "SET NULL",
+          onUpdate: "CASCADE",
+        },
+        needs_reacceptance_terms: {
+          type: Sequelize.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        needs_reacceptance_privacy: {
+          type: Sequelize.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        updated_at: {
+          type: Sequelize.DATE,
+          allowNull: false,
+          defaultValue: Sequelize.literal("NOW()"),
+        },
+        }, { transaction });
+      }
 
-    await queryInterface.addIndex("current_consents", ["accepted_terms_version_id"], {
-      name: "current_consents_terms_version_idx",
-    });
-    await queryInterface.addIndex("current_consents", ["accepted_privacy_version_id"], {
-      name: "current_consents_privacy_version_idx",
-    });
-    await queryInterface.addIndex("current_consents", ["needs_reacceptance_terms"], {
-      name: "current_consents_needs_terms_idx",
-    });
-    await queryInterface.addIndex("current_consents", ["needs_reacceptance_privacy"], {
-      name: "current_consents_needs_privacy_idx",
-    });
+      await safeCreateIndex(
+        queryInterface,
+        "current_consents_terms_version_idx",
+        "CREATE INDEX current_consents_terms_version_idx ON current_consents (accepted_terms_version_id)",
+        { transaction },
+      );
+      await safeCreateIndex(
+        queryInterface,
+        "current_consents_privacy_version_idx",
+        "CREATE INDEX current_consents_privacy_version_idx ON current_consents (accepted_privacy_version_id)",
+        { transaction },
+      );
+      await safeCreateIndex(
+        queryInterface,
+        "current_consents_needs_terms_idx",
+        "CREATE INDEX current_consents_needs_terms_idx ON current_consents (needs_reacceptance_terms)",
+        { transaction },
+      );
+      await safeCreateIndex(
+        queryInterface,
+        "current_consents_needs_privacy_idx",
+        "CREATE INDEX current_consents_needs_privacy_idx ON current_consents (needs_reacceptance_privacy)",
+        { transaction },
+      );
 
-    await queryInterface.sequelize.query(`
+      await queryInterface.sequelize.query(`
       INSERT INTO current_consents (
         user_id,
         accepted_terms_version_id,
@@ -387,20 +480,61 @@ module.exports = {
       ),
       active AS (
         SELECT
-          MAX(CASE WHEN policy_type = 'terms' THEN id END) AS active_terms_id,
-          MAX(CASE WHEN policy_type = 'privacy' THEN id END) AS active_privacy_id,
-          MAX(CASE WHEN policy_type = 'terms' THEN requires_reacceptance END) AS terms_requires,
-          MAX(CASE WHEN policy_type = 'privacy' THEN requires_reacceptance END) AS privacy_requires
-        FROM policy_versions
-        WHERE is_active = true
-          AND policy_type IN ('terms', 'privacy')
+          (
+            SELECT pv.id
+            FROM policy_versions pv
+            WHERE pv.is_active = true
+              AND pv.policy_type = 'terms'
+            ORDER BY pv.effective_at DESC, pv.created_at DESC, pv.id DESC
+            LIMIT 1
+          ) AS active_terms_id,
+          (
+            SELECT pv.id
+            FROM policy_versions pv
+            WHERE pv.is_active = true
+              AND pv.policy_type = 'privacy'
+            ORDER BY pv.effective_at DESC, pv.created_at DESC, pv.id DESC
+            LIMIT 1
+          ) AS active_privacy_id,
+          COALESCE((
+            SELECT pv.requires_reacceptance
+            FROM policy_versions pv
+            WHERE pv.is_active = true
+              AND pv.policy_type = 'terms'
+            ORDER BY pv.effective_at DESC, pv.created_at DESC, pv.id DESC
+            LIMIT 1
+          ), false) AS terms_requires,
+          COALESCE((
+            SELECT pv.requires_reacceptance
+            FROM policy_versions pv
+            WHERE pv.is_active = true
+              AND pv.policy_type = 'privacy'
+            ORDER BY pv.effective_at DESC, pv.created_at DESC, pv.id DESC
+            LIMIT 1
+          ), false) AS privacy_requires
       )
       SELECT
         latest.user_id,
-        MAX(CASE WHEN latest.policy_type = 'terms' AND latest.accepted THEN latest.policy_version_id END),
-        MAX(CASE WHEN latest.policy_type = 'privacy' AND latest.accepted THEN latest.policy_version_id END),
+        (
+          ARRAY_AGG(
+            CASE
+              WHEN latest.policy_type = 'terms' AND latest.accepted
+              THEN latest.policy_version_id
+              ELSE NULL
+            END
+          )
+        )[1],
+        (
+          ARRAY_AGG(
+            CASE
+              WHEN latest.policy_type = 'privacy' AND latest.accepted
+              THEN latest.policy_version_id
+              ELSE NULL
+            END
+          )
+        )[1],
         COALESCE(
-          MAX(
+          BOOL_OR(
             CASE
               WHEN latest.policy_type = 'terms'
               THEN (
@@ -412,7 +546,7 @@ module.exports = {
           active.terms_requires
         ),
         COALESCE(
-          MAX(
+          BOOL_OR(
             CASE
               WHEN latest.policy_type = 'privacy'
               THEN (
@@ -433,7 +567,13 @@ module.exports = {
         needs_reacceptance_terms = EXCLUDED.needs_reacceptance_terms,
         needs_reacceptance_privacy = EXCLUDED.needs_reacceptance_privacy,
         updated_at = EXCLUDED.updated_at
-    `);
+    `, { transaction });
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   },
 
   async down(queryInterface, _Sequelize) {

@@ -4,96 +4,124 @@
  * Creates the policy_versions table — the canonical registry of every legal
  * document version the platform has ever published.
  *
- * Design notes:
- *   - Append-only: rows are never updated or deleted.
- *   - UNIQUE(policy_type, version) prevents duplicate version strings per type.
- *   - The partial unique index enforces at most one active version per type
- *     (Postgres only — compatible with the project's Supabase/Postgres stack).
- *   - content_hash (SHA-256) is populated by the ops script that publishes a
- *     new version; NULL during the seed phase is intentional and expected.
- *
- * policy_type values:
- *   'terms'          — Términos y Condiciones de Uso
- *   'privacy'        — Política de Privacidad
- *   'communications' — Comunicaciones de Marketing
- *   'kyc_data'       — Tratamiento de Datos KYC (vendedores)
+ * Production-safety goals:
+ *   - Idempotent on PostgreSQL.
+ *   - Safe when a previous run created the table and/or some indexes.
+ *   - No destructive resets when production is partially migrated.
  */
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('policy_versions', {
-      id: {
-        type:          Sequelize.INTEGER,
-        primaryKey:    true,
-        autoIncrement: true,
-        allowNull:     false,
-      },
-      policy_type: {
-        type:      Sequelize.STRING(50),
-        allowNull: false,
-        comment:   'terms | privacy | communications | kyc_data',
-      },
-      version: {
-        type:      Sequelize.STRING(20),
-        allowNull: false,
-        comment:   'Human-readable version string, e.g. v1, v2',
-      },
-      label: {
-        type:      Sequelize.STRING(200),
-        allowNull: false,
-        comment:   'Short human-readable title shown in consent dialogs',
-      },
-      url: {
-        type:      Sequelize.STRING(500),
-        allowNull: false,
-        comment:   'Canonical public URL for the document',
-      },
-      content_hash: {
-        type:      Sequelize.STRING(64),
-        allowNull: true,
-        comment:   'SHA-256 hex digest of the published document — set by ops',
-      },
-      effective_from: {
-        type:      Sequelize.DATE,
-        allowNull: false,
-        comment:   'Timestamp from which this version is (or becomes) binding',
-      },
-      is_active: {
-        type:         Sequelize.BOOLEAN,
-        allowNull:    false,
-        defaultValue: false,
-        comment:      'True for the currently active version of each type',
-      },
-      created_at: {
-        type:         Sequelize.DATE,
-        allowNull:    false,
-        defaultValue: Sequelize.literal('NOW()'),
-      },
-    });
+    const transaction = await queryInterface.sequelize.transaction();
 
-    // Standard lookup indexes
-    await queryInterface.addIndex('policy_versions', ['policy_type'], {
-      name: 'policy_versions_policy_type_idx',
-    });
+    try {
+      await queryInterface.sequelize.query(
+        `
+        CREATE TABLE IF NOT EXISTS policy_versions (
+          id SERIAL PRIMARY KEY,
+          policy_type VARCHAR(50) NOT NULL,
+          version VARCHAR(20) NOT NULL,
+          label VARCHAR(200) NOT NULL,
+          url VARCHAR(500) NOT NULL,
+          content_hash VARCHAR(64) NULL,
+          effective_from TIMESTAMPTZ NOT NULL,
+          is_active BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        `,
+        { transaction },
+      );
 
-    await queryInterface.addIndex('policy_versions', ['policy_type', 'version'], {
-      name:   'policy_versions_policy_type_version_key',
-      unique: true,
-    });
+      await queryInterface.sequelize.query(
+        `
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_indexes
+            WHERE schemaname = current_schema()
+              AND indexname = 'policy_versions_policy_type_idx'
+          ) THEN
+            CREATE INDEX policy_versions_policy_type_idx
+            ON policy_versions (policy_type);
+          END IF;
+        END
+        $$;
+        `,
+        { transaction },
+      );
 
-    // Partial unique index: at most one active version per policy_type.
-    // queryInterface.addIndex does not support WHERE clauses — raw SQL required.
-    await queryInterface.sequelize.query(`
-      CREATE UNIQUE INDEX policy_versions_one_active_per_type
-      ON policy_versions (policy_type)
-      WHERE is_active = true
-    `);
+      await queryInterface.sequelize.query(
+        `
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_indexes
+            WHERE schemaname = current_schema()
+              AND indexname = 'policy_versions_policy_type_version_key'
+          ) THEN
+            CREATE UNIQUE INDEX policy_versions_policy_type_version_key
+            ON policy_versions (policy_type, version);
+          END IF;
+        END
+        $$;
+        `,
+        { transaction },
+      );
+
+      await queryInterface.sequelize.query(
+        `
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_indexes
+            WHERE schemaname = current_schema()
+              AND indexname = 'policy_versions_one_active_per_type'
+          ) THEN
+            CREATE UNIQUE INDEX policy_versions_one_active_per_type
+            ON policy_versions (policy_type)
+            WHERE is_active = true;
+          END IF;
+        END
+        $$;
+        `,
+        { transaction },
+      );
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   },
 
   async down(queryInterface, _Sequelize) {
-    await queryInterface.sequelize.query(
-      'DROP INDEX IF EXISTS policy_versions_one_active_per_type'
-    );
-    await queryInterface.dropTable('policy_versions');
+    const transaction = await queryInterface.sequelize.transaction();
+
+    try {
+      await queryInterface.sequelize.query(
+        `DROP INDEX IF EXISTS policy_versions_one_active_per_type`,
+        { transaction },
+      );
+      await queryInterface.sequelize.query(
+        `DROP INDEX IF EXISTS policy_versions_policy_type_version_key`,
+        { transaction },
+      );
+      await queryInterface.sequelize.query(
+        `DROP INDEX IF EXISTS policy_versions_policy_type_idx`,
+        { transaction },
+      );
+      await queryInterface.sequelize.query(
+        `DROP TABLE IF EXISTS policy_versions`,
+        { transaction },
+      );
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   },
 };
