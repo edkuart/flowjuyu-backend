@@ -26,7 +26,12 @@
       "Bash(node -e ':*)",
       "Read(//c/Users/Dell/Projects/**)",
       "Bash(cmd /c \"cd C:\\\\Users\\\\Dell\\\\Projects\\\\Flowjuyu-1.0\\\\flowjuyu-frontend && npx tsc --noEmit 2>&1\")",
-      "Bash(bash -c \"cd '/c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend' && npx tsc --noEmit 2>&1 | head -40\")"
+      "Bash(bash -c \"cd '/c/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend' && npx tsc --noEmit 2>&1 | head -40\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8800/api/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8800/api/session)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -X POST http://localhost:8800/api/auth/social -H \"Content-Type: application/json\" -d '{\"provider\":\"google\",\"id_token\":\"test\"}')",
+      "Bash(curl -s -X POST http://localhost:8800/api/auth/social -H \"Content-Type: application/json\" -d '{\"provider\":\"google\",\"id_token\":\"eyJhbGciOiJSUzI1NiJ9.test\"}')",
+      "Bash(echo \"EXIT:$?\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\context",
