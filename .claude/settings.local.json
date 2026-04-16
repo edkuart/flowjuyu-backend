@@ -31,7 +31,8 @@
     "additionalDirectories": [
       "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\context",
       "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\app\\consent\\review",
-      "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\components\\auth"
+      "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\components\\auth",
+      "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\lib"
     ]
   }
 }
