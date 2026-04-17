@@ -1,12 +1,12 @@
 import http from "node:http";
 import https from "node:https";
 import { Resolver } from "node:dns";
-import { Router, Request, Response, NextFunction } from "express";
+import { Router, Request, Response, NextFunction, type Router as ExpressRouter } from "express";
 import supabase from "../lib/supabase";
 import { renderCategoryArtBySlug } from "../utils/categoryArt";
 import { inferContentType } from "../utils/mediaProxy";
 
-const router = Router();
+const router: ExpressRouter = Router();
 const dnsResolver = new Resolver();
 
 dnsResolver.setServers(["1.1.1.1", "8.8.8.8"]);
