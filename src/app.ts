@@ -18,6 +18,7 @@ import buyerRoutes from "./routes/buyer.routes";
 import sellerRoutes from "./routes/seller.routes";
 import productRoutes from "./routes/product.routes";
 import publicRoutes from "./routes/public.routes";
+import mediaRoutes from "./routes/media.routes";
 import analyticsRoutes from "./routes/analytics.routes";
 import adminRoutes from "./routes/admin.routes";
 import adminAnalyticsRoutes from "./routes/admin.analytics.routes";
@@ -261,6 +262,11 @@ const healthz: RequestHandler = (_req, res): void => {
 };
 
 app.get("/healthz", healthz);
+
+// ===========================
+// Media proxy
+// ===========================
+app.use("/media", mediaRoutes);
 
 // ======================================================
 // 🔥 RUTAS

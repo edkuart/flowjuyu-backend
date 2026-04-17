@@ -3,6 +3,8 @@
 // Public Product Contract (DEMO v1 - STABLE)
 // =============================================
 
+import { buildMediaProxyUrl } from "./mediaProxy";
+
 export interface PublicProductDTO {
     id: string
     nombre: string
@@ -42,7 +44,7 @@ export interface PublicProductDTO {
   const toSafeUrlOrNull = (value: any): string | null => {
     if (!value) return null
     const str = String(value).trim()
-    return str.length > 0 ? str : null
+    return str.length > 0 ? buildMediaProxyUrl(str) : null
   }
   
   const normalizeImages = (imagenes: any): string[] => {
@@ -51,8 +53,8 @@ export interface PublicProductDTO {
     return imagenes
       .map((img: any) => {
         if (!img) return null
-        if (typeof img === "string") return img
-        if (typeof img === "object" && img.url) return img.url
+        if (typeof img === "string") return buildMediaProxyUrl(img)
+        if (typeof img === "object" && img.url) return buildMediaProxyUrl(img.url)
         return null
       })
       .filter((url: string | null) => typeof url === "string")

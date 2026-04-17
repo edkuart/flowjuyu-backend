@@ -1,5 +1,7 @@
 // src/utils/buildPublicProductCardDTO.ts
 
+import { buildMediaProxyUrl } from "./mediaProxy";
+
 export interface PublicProductCardDTO {
   id: string
   nombre: string
@@ -23,7 +25,7 @@ const toSafeNumber = (value: any): number => {
 const toSafeUrlOrNull = (value: any): string | null => {
   if (!value) return null
   const str = String(value).trim()
-  return str.length > 0 ? str : null
+  return str.length > 0 ? buildMediaProxyUrl(str) : null
 }
 
 export function buildPublicProductCardDTO(row: any): PublicProductCardDTO {

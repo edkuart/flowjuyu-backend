@@ -2,6 +2,8 @@ import { Router, Request, Response } from "express"
 
 import Categoria from "../models/category.model"
 import { VendedorPerfil } from "../models/VendedorPerfil"
+import { buildCategoryArtUrl } from "../utils/categoryArt";
+import { buildMediaProxyUrl } from "../utils/mediaProxy";
 
 import { getPublicSellerStore } from "../controllers/seller.controller"
 import { createContactTicket } from "../controllers/contact.controller"
@@ -26,9 +28,14 @@ router.get("/categorias", async (req: Request, res: Response) => {
       order: [["nombre", "ASC"]],
     })
 
+    const data = categorias.map((cat: any) => ({
+      ...cat.toJSON(),
+      imagen_url: buildMediaProxyUrl(cat.imagen_url) || buildCategoryArtUrl(cat.nombre),
+    }));
+
     return res.json({
       success: true,
-      data: categorias,
+      data,
     })
 
   } catch (error) {
@@ -62,9 +69,14 @@ router.get("/vendedores/destacados", async (req: Request, res: Response) => {
       order: [["id", "DESC"]],
     })
 
+    const data = vendedores.map((seller: any) => ({
+      ...seller.toJSON(),
+      logo: buildMediaProxyUrl(seller.logo),
+    }));
+
     return res.json({
       success: true,
-      data: vendedores,
+      data,
     })
 
   } catch (error) {

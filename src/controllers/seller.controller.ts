@@ -15,6 +15,7 @@ import { logAuditEventFromRequest } from "../services/audit.service";
 import { checkKycAbuse } from "../services/abuseDetection.service";
 import { KYC_RULES } from "../config/securityRules";
 import { evaluateKycDefense } from "../services/activeDefense.service";
+import { buildMediaProxyUrl } from "../utils/mediaProxy";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/seller/entry-point
@@ -338,7 +339,7 @@ export const getSellerProfile: RequestHandler = async (
         id: perfil.id,
         nombre_comercio: perfil.nombre_comercio,
         descripcion: perfil.descripcion,
-        logo: perfil.logo,
+        logo: buildMediaProxyUrl(perfil.logo),
         departamento: perfil.departamento,
         municipio: perfil.municipio,
         rating_avg: Number(ratingData.rating_avg),
@@ -877,7 +878,12 @@ export const getSellers: RequestHandler = async (_req, res): Promise<void> => {
       LIMIT 10
     `);
 
-    res.json(rows ?? []);
+    res.json(
+      (rows ?? []).map((row: any) => ({
+        ...row,
+        logo_url: buildMediaProxyUrl(row.logo_url),
+      }))
+    );
   } catch (error: any) {
     console.error("Error al obtener tiendas:", error);
     res.status(500).json({ message: "Error al obtener tiendas", error: error.message });
@@ -919,8 +925,8 @@ export const getTopSellers = async (req: Request, res: Response) => {
     const normalized = (sellers as any[]).map((s) => ({
       id: Number(s.vendedor_id),
       nombre_comercio: s.nombre_comercio ?? null,
-      logo_url: s.logo ?? null,
-      banner_url: s.banner_url ?? null,
+      logo_url: buildMediaProxyUrl(s.logo ?? null),
+      banner_url: buildMediaProxyUrl(s.banner_url ?? null),
       departamento: s.departamento ?? null,
       municipio: s.municipio ?? null,
       total_reviews: Number(s.total_reviews),
@@ -1016,13 +1022,13 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         id:                   sellerData.id,
         nombre_comercio:      sellerData.nombre_comercio,
         descripcion:          sellerData.descripcion,
-        logo:                 sellerData.logo,
+        logo:                 buildMediaProxyUrl(sellerData.logo),
         departamento:         sellerData.departamento,
         municipio:            sellerData.municipio,
         plan:                 sellerData.plan,
         plan_activo:          sellerData.plan_activo,
         whatsapp:             sellerData.whatsapp_numero || sellerData.telefono_comercio || null,
-        banner_url:           sellerData.banner_url,
+        banner_url:           buildMediaProxyUrl(sellerData.banner_url),
         identidad_tags:       sellerData.identidad_tags       ?? [],
         productos_destacados: sellerData.productos_destacados ?? [],
         mensaje_destacado:    sellerData.mensaje_destacado    ?? null,
@@ -1034,7 +1040,10 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         // Handle both Sequelize camelCase and raw snake_case column names
         created_at:           sellerData.createdAt            ?? sellerData.created_at ?? null,
       },
-      products: products ?? [],
+      products: (products ?? []).map((product: any) => ({
+        ...product,
+        imagen_url: buildMediaProxyUrl(product.imagen_url),
+      })),
     });
 
   } catch (error) {

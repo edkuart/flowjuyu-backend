@@ -10,6 +10,8 @@ import { QueryTypes } from "sequelize";
 import { buildPublicProductDTO } from "../utils/buildPublicProductDTO";
 import { buildPublicProductCardDTO } from "../utils/buildPublicProductCardDTO"
 import { buildSearchProductDTO } from "../utils/buildSearchProductDTO";
+import { buildCategoryArtUrl } from "../utils/categoryArt";
+import { buildMediaProxyUrl } from "../utils/mediaProxy";
 import { logEvent } from "../utils/eventLogger";
 import { can } from "../services/authorization.service";
 import { createNotification } from "../utils/notifications";
@@ -108,7 +110,12 @@ export const getCategorias = async (_req: Request, res: Response): Promise<void>
       ORDER BY nombre ASC
     `);
 
-    res.json(rows);
+    res.json(
+      (rows ?? []).map((row: any) => ({
+        ...row,
+        imagen_url: buildMediaProxyUrl(row.imagen_url) || buildCategoryArtUrl(row.nombre),
+      }))
+    );
   } catch (error: any) {
       console.error("🔥 ERROR TRENDING:");
       console.error(error);
@@ -2318,7 +2325,7 @@ export const getTopProductsByCategory = async (
       id: p.id,
       nombre: p.nombre,
       precio: Number(p.precio),
-      imagen_url: p.imagen_url,
+      imagen_url: buildMediaProxyUrl(p.imagen_url),
       total_reviews: Number(p.total_reviews),
       rating_avg: Number(Number(p.rating_avg).toFixed(2)),
       weighted_score: Number(Number(p.weighted_score).toFixed(3)),
@@ -2403,7 +2410,7 @@ export const getTrendingProducts = async (req: Request, res: Response) => {
       id: p.id,
       nombre: p.nombre,
       precio: Number(p.precio),
-      imagen_url: p.imagen_url,
+      imagen_url: buildMediaProxyUrl(p.imagen_url),
       total_reviews: Number(p.total_reviews),
       rating_avg: Number(p.rating_avg),
       trending_score: Number(p.trending_score),
