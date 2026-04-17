@@ -60,6 +60,20 @@ const PgSession = pgSession(session);
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        // Allow marketplace assets served from Supabase Storage and local uploads.
+        imgSrc: [
+          "'self'",
+          "data:",
+          "http://localhost:8800",
+          "https://flowjuyu.com",
+          "https://www.flowjuyu.com",
+          "https://yjoybxvmnfwkuzrthdge.supabase.co",
+        ],
+      },
+    },
   })
 );
 
@@ -185,11 +199,55 @@ const apiLimiter = rateLimit({
 });
 
 app.use("/api", apiLimiter);
-app.use("/api/login",        rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
-app.use("/api/login/google", rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
-app.use("/api/auth/social",  rateLimit({ windowMs: 15 * 60 * 1000, max: 20 }));
-app.use("/api/refresh",         rateLimit({ windowMs: 15 * 60 * 1000, max: 60 }));
-app.use("/api/forgot-password", rateLimit({ windowMs: 60 * 60 * 1000, max: 5,  message: { ok: false, code: "RATE_LIMITED", message: "Demasiados intentos. Espera un momento." } }));
+
+// Login with credentials — count every attempt (success + failure) to prevent
+// brute-force enumeration. 20 attempts per 15 min is generous for a human.
+app.use("/api/login", rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, code: "RATE_LIMITED", message: "Demasiados intentos de inicio de sesión. Espera 15 minutos." },
+}));
+
+// Legacy Google login endpoint — same policy as /api/login.
+app.use("/api/login/google", rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, code: "RATE_LIMITED", message: "Demasiados intentos con Google. Espera 15 minutos." },
+}));
+
+// Social / OAuth auth — redirect flows can legitimately retry on network hiccups,
+// so the window is slightly wider (30 vs 20). Still counts every attempt.
+app.use("/api/auth/social", rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, code: "RATE_LIMITED", message: "Demasiados intentos con Google. Espera 15 minutos." },
+}));
+
+// Token refresh — skipSuccessfulRequests: true means only FAILED refreshes
+// (invalid/expired cookie) count toward the limit. Successful refreshes from
+// active sessions never burn through this quota.
+app.use("/api/refresh", rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, code: "RATE_LIMITED", message: "Demasiadas solicitudes de renovación. Espera 15 minutos." },
+}));
+
+app.use("/api/forgot-password", rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, code: "RATE_LIMITED", message: "Demasiados intentos. Espera un momento." },
+}));
 
 // ===========================
 // Healthcheck
