@@ -1025,18 +1025,53 @@ export const loginWithGoogle: RequestHandler = async (req, res) => {
 // POST /api/logout-all which increments token_version.
 // ────────────────────────────────────────────────────────────
 
-export const logout: RequestHandler = (req, res) => {
+export const logout: RequestHandler = async (req, res) => {
+  // Bump token_version so that any concurrent /api/refresh response that
+  // lands in the browser AFTER the cookie-clear cannot restore the session.
+  //
+  // Without this, the following race is possible:
+  //   1. apiFetch 401 → refreshSession() → POST /api/refresh (in-flight)
+  //   2. User clicks logout → POST /api/logout → browser clears fj_rt cookie
+  //   3. Browser receives /api/refresh response → sets a NEW valid fj_rt cookie
+  //   4. Page navigates to /login WITH the new cookie → session still valid → loop
+  //
+  // Incrementing token_version invalidates all existing refresh tokens for
+  // this user, so the new cookie from step 3 will fail /api/session's
+  // token_version check and return 401 — even if the cookie is present.
+  const rawToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+
+  if (rawToken) {
+    try {
+      const decoded = verifyRefreshToken(rawToken);
+      const userId   = Number(decoded.sub);
+
+      const user = await User.findByPk(userId, {
+        attributes: ["id", "token_version"],
+      });
+
+      if (user) {
+        user.token_version += 1;
+        await user.save();
+        invalidateSession(userId);
+      }
+    } catch {
+      // Token invalid or DB error — still clear the cookie and return 200.
+      // A tampered/expired token doesn't require a DB write to be invalidated.
+    }
+  }
+
   // actor context may be absent if the access token has already expired
-  const user = req.user;
+  const actor = req.user;
   void logAuditEventFromRequest(req, {
-    actor_user_id: user?.id  ?? null,
-    actor_role:    user?.role ?? "anonymous",
+    actor_user_id: actor?.id  ?? null,
+    actor_role:    actor?.role ?? "anonymous",
     action:        "auth.logout.success",
-    entity_type:   user ? "user" : null,
-    entity_id:     user ? String(user.id) : null,
+    entity_type:   actor ? "user" : null,
+    entity_id:     actor ? String(actor.id) : null,
     status:        "success",
     severity:      "low",
   });
+
   clearRefreshTokenCookie(res);
   res.status(200).json({ ok: true, message: "Sesión cerrada correctamente" });
 };
