@@ -86,7 +86,7 @@ app.use(cookieParser());
 
 const allowlist = (
   process.env.CORS_ORIGIN_ALLOWLIST ||
-  "http://localhost:3000,https://www.flowjuyu.com,https://flowjuyu.com"
+  "http://localhost:3000,https://flowjuyu.com,https://www.flowjuyu.com,https://flowjuyu-frontend.vercel.app"
 )
   .split(",")
   .map((s) => s.trim())
