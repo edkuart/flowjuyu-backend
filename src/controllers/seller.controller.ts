@@ -858,6 +858,53 @@ export const validateSellerBusiness: RequestHandler = async (req, res) => {
 };
 
 // ==============================
+// Listado público completo de vendedores (para /artesanos)
+// ==============================
+export const getAllSellers: RequestHandler = async (_req, res): Promise<void> => {
+  try {
+    const [rows]: any = await sequelize.query(`
+      SELECT
+        vp.user_id       AS id,
+        vp.nombre_comercio,
+        vp.nombre,
+        vp.logo          AS logo_url,
+        vp.banner_url,
+        vp.descripcion,
+        vp.departamento,
+        vp.municipio,
+        COUNT(r.id)      AS total_reviews,
+        COALESCE(ROUND(AVG(r.rating)::numeric, 2), 0) AS rating_avg
+      FROM vendedor_perfil vp
+      LEFT JOIN productos  p ON p.vendedor_id = vp.user_id
+      LEFT JOIN reviews    r ON r.producto_id = p.id
+      WHERE vp.estado_validacion = 'aprobado'
+        AND vp.estado_admin      = 'activo'
+      GROUP BY vp.user_id, vp.nombre_comercio, vp.nombre, vp.logo, vp.banner_url, vp.descripcion, vp.departamento, vp.municipio
+      ORDER BY rating_avg DESC NULLS LAST, total_reviews DESC
+      LIMIT 100
+    `);
+
+    res.json({
+      data: (rows ?? []).map((row: any) => ({
+        id:             Number(row.id),
+        nombre_comercio: row.nombre_comercio ?? null,
+        nombre:          row.nombre ?? null,
+        logo_url:        buildMediaProxyUrl(row.logo_url),
+        banner_url:      buildMediaProxyUrl(row.banner_url),
+        descripcion:     row.descripcion ?? null,
+        departamento:    row.departamento ?? null,
+        municipio:       row.municipio ?? null,
+        total_reviews:   Number(row.total_reviews),
+        rating_avg:      Number(Number(row.rating_avg).toFixed(2)),
+      })),
+    });
+  } catch (error: any) {
+    console.error("[getAllSellers] ERROR:", error?.message);
+    res.json({ data: [] });
+  }
+};
+
+// ==============================
 // Listado público de vendedores
 // ==============================
 export const getSellers: RequestHandler = async (_req, res): Promise<void> => {

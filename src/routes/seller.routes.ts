@@ -48,6 +48,11 @@ router.get(
 );
 
 router.get(
+  "/sellers/all",
+  asyncHandler(SellerController.getAllSellers)
+);
+
+router.get(
   "/tiendas",
   asyncHandler(SellerController.getSellers)
 );
