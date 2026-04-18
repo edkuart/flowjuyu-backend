@@ -5,7 +5,11 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { sequelize } from "../config/db";
 import { signJwt, signRefreshToken, verifyRefreshToken } from "../lib/jwt";
-import { setRefreshTokenCookie, clearRefreshTokenCookie, REFRESH_TOKEN_COOKIE } from "../lib/cookies";
+import {
+  setRefreshTokenCookie,
+  clearRefreshTokenCookie,
+  getRefreshTokenFromRequest,
+} from "../lib/cookies";
 import { User } from "../models/user.model";
 import { VendedorPerfil } from "../models/VendedorPerfil";
 import { sendResetPasswordEmail } from "../services/email.service";
@@ -1038,7 +1042,7 @@ export const logout: RequestHandler = async (req, res) => {
   // Incrementing token_version invalidates all existing refresh tokens for
   // this user, so the new cookie from step 3 will fail /api/session's
   // token_version check and return 401 — even if the cookie is present.
-  const rawToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+  const rawToken = getRefreshTokenFromRequest(req);
 
   if (rawToken) {
     try {
@@ -1089,7 +1093,7 @@ export const logout: RequestHandler = async (req, res) => {
 
 export const refresh: RequestHandler = async (req, res) => {
   try {
-    const rawToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+    const rawToken = getRefreshTokenFromRequest(req);
 
     if (!rawToken) {
       res.status(401).json({ ok: false, message: "No hay sesión activa" });
@@ -1211,7 +1215,7 @@ export const refresh: RequestHandler = async (req, res) => {
 
 export const getSession: RequestHandler = async (req, res) => {
   try {
-    const rawToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+    const rawToken = getRefreshTokenFromRequest(req);
 
     if (!rawToken) {
       console.log("[session] fj_rt cookie missing — returning 401");

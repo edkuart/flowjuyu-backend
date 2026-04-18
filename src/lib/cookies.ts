@@ -4,7 +4,7 @@
 // The refresh token lives in an HttpOnly cookie — it is never accessible
 // to JavaScript, which eliminates XSS-based token theft.
 
-import type { Response } from "express";
+import type { Request, Response } from "express";
 
 // ─── Cookie name ─────────────────────────────────────────────────────────────
 //
@@ -79,6 +79,10 @@ export function setRefreshTokenCookie(res: Response, token: string): void {
 
   const cookieDomain = process.env.COOKIE_DOMAIN || undefined;
 
+  // Clear any legacy host-only/domain-scoped variants first so the browser
+  // doesn't keep multiple fj_rt cookies and send them together.
+  clearRefreshTokenCookie(res);
+
   res.cookie(REFRESH_TOKEN_COOKIE, token, {
     httpOnly: true,
     sameSite: getSameSite(),
@@ -98,12 +102,55 @@ export function setRefreshTokenCookie(res: Response, token: string): void {
  */
 export function clearRefreshTokenCookie(res: Response): void {
   const cookieDomain = process.env.COOKIE_DOMAIN || undefined;
+  const candidateDomains = [
+    undefined,
+    cookieDomain,
+    cookieDomain?.startsWith(".") ? cookieDomain.slice(1) : cookieDomain ? `.${cookieDomain}` : undefined,
+  ].filter((value, index, array): value is string | undefined =>
+    array.findIndex((item) => item === value) === index,
+  );
 
-  res.clearCookie(REFRESH_TOKEN_COOKIE, {
-    httpOnly: true,
-    sameSite: getSameSite(),
-    path:     "/",
-    secure:   isProduction,
-    ...(cookieDomain ? { domain: cookieDomain } : {}),
-  });
+  for (const domain of candidateDomains) {
+    res.clearCookie(REFRESH_TOKEN_COOKIE, {
+      httpOnly: true,
+      sameSite: getSameSite(),
+      path:     "/",
+      secure:   isProduction,
+      ...(domain ? { domain } : {}),
+    });
+  }
+}
+
+export function getRefreshTokenFromRequest(req: Pick<Request, "cookies" | "headers">): string | undefined {
+  const rawCookieHeader = req.headers?.cookie;
+
+  if (typeof rawCookieHeader === "string" && rawCookieHeader.trim()) {
+    const values = rawCookieHeader
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .flatMap((part) => {
+        const eqIndex = part.indexOf("=");
+        if (eqIndex === -1) return [];
+
+        const name = part.slice(0, eqIndex).trim();
+        if (name !== REFRESH_TOKEN_COOKIE) return [];
+
+        const value = part.slice(eqIndex + 1).trim();
+        if (!value) return [];
+
+        try {
+          return [decodeURIComponent(value)];
+        } catch {
+          return [value];
+        }
+      });
+
+    if (values.length > 0) {
+      return values[values.length - 1];
+    }
+  }
+
+  const parsed = req.cookies?.[REFRESH_TOKEN_COOKIE];
+  return typeof parsed === "string" && parsed.trim() ? parsed : undefined;
 }

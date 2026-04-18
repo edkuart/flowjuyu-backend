@@ -10,7 +10,7 @@ import Product from "../models/product.model";
 import { getSellerAnalyticsData } from "../services/analytics.service";
 import { v4 as uuidv4 } from "uuid";
 import { verifyRefreshToken } from "../lib/jwt";
-import { REFRESH_TOKEN_COOKIE } from "../lib/cookies";
+import { getRefreshTokenFromRequest } from "../lib/cookies";
 import { logAuditEventFromRequest } from "../services/audit.service";
 import { checkKycAbuse } from "../services/abuseDetection.service";
 import { KYC_RULES } from "../config/securityRules";
@@ -32,7 +32,7 @@ import { buildMediaProxyUrl } from "../utils/mediaProxy";
 export const getSellerEntryData: RequestHandler = async (req, res): Promise<void> => {
   try {
     // ── Validate refresh cookie ──
-    const rawToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+    const rawToken = getRefreshTokenFromRequest(req);
 
     if (!rawToken) {
       res.status(401).json({ ok: false, message: "No hay sesión activa" });
