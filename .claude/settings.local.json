@@ -31,7 +31,15 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8800/api/session)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" -X POST http://localhost:8800/api/auth/social -H \"Content-Type: application/json\" -d '{\"provider\":\"google\",\"id_token\":\"test\"}')",
       "Bash(curl -s -X POST http://localhost:8800/api/auth/social -H \"Content-Type: application/json\" -d '{\"provider\":\"google\",\"id_token\":\"eyJhbGciOiJSUzI1NiJ9.test\"}')",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(grep -l \"safeRedirect\\\\|safeAppRedirect\" \"c:\\\\Users\\\\Dell\\\\Projects\\\\Flowjuyu-1.0\\\\flowjuyu-frontend\\\\src\\\\lib\"*)",
+      "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend\" log --oneline origin/main..HEAD)",
+      "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend\" log --oneline -3)",
+      "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend\" status --short -b)",
+      "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend\" rev-parse HEAD)",
+      "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend\" rev-parse origin/main)",
+      "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-backend\" rev-parse HEAD)",
+      "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-backend\" rev-parse origin/main)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\context",
