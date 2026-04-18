@@ -12,8 +12,10 @@ import {
 } from "../lib/cookies";
 import { User } from "../models/user.model";
 import { VendedorPerfil } from "../models/VendedorPerfil";
+import AdminAuditEvent from "../models/adminAuditEvent.model";
 import { sendResetPasswordEmail } from "../services/email.service";
 import { runKYCAnalysis } from "../services/kyc.service";
+import { resolveKycIdentitySignals } from "../services/kycIdentityVerification.service";
 import { v4 as uuidv4 } from "uuid";
 import { uploadKycFile, uploadPublicFile } from "../lib/kycStorage";
 import {
@@ -303,21 +305,61 @@ export const registerVendedor = async (
       logo = await uploadLogoPub(files["logo"][0]);
     }
 
+    const identitySignals = await resolveKycIdentitySignals({
+      sellerName: nombre.trim(),
+      dpi: dpi.trim(),
+      fotoFrente: files["foto_dpi_frente"]?.[0]
+        ? {
+            buffer: files["foto_dpi_frente"][0].buffer,
+            mimeType: files["foto_dpi_frente"][0].mimetype,
+            originalName: files["foto_dpi_frente"][0].originalname,
+          }
+        : null,
+      fotoReverso: files["foto_dpi_reverso"]?.[0]
+        ? {
+            buffer: files["foto_dpi_reverso"][0].buffer,
+            mimeType: files["foto_dpi_reverso"][0].mimetype,
+            originalName: files["foto_dpi_reverso"][0].originalname,
+          }
+        : null,
+      selfie: files["selfie_con_dpi"]?.[0]
+        ? {
+            buffer: files["selfie_con_dpi"][0].buffer,
+            mimeType: files["selfie_con_dpi"][0].mimetype,
+            originalName: files["selfie_con_dpi"][0].originalname,
+          }
+        : null,
+    });
+
+    const duplicateDpiCount = await VendedorPerfil.count({
+      where: { dpi: dpi.trim() },
+      transaction: t,
+    });
+
     // ── Automated KYC scoring ──
     const kyc = runKYCAnalysis({
+      sellerName: nombre.trim(),
       dpi:        dpi.trim(),
       fotoFrente,
       fotoReverso,
       selfie,
+      duplicateDpiCount,
+      providerName: identitySignals.provider,
+      providerStatus: identitySignals.providerStatus,
+      extractedDocument: identitySignals.extractedDocument,
+      documentAssessment: identitySignals.documentAssessment,
+      faceMatch: identitySignals.faceMatch,
+      faceMatchScore: identitySignals.faceMatchScore,
     });
 
-    const autoApproved      = kyc.score >= 80;
-    const estadoValidacion  = autoApproved
-      ? "aprobado"
-      : (fotoFrente || fotoReverso || selfie) ? "en_revision" : "pendiente";
-    const estadoAdmin = autoApproved ? "activo" : "inactivo";
+    const automaticObservation =
+      kyc.decision.reason === "document_not_dpi"
+        ? "Deteccion automatica: las imagenes cargadas no parecen corresponder a un DPI valido."
+        : kyc.evidence.review_reasons.includes("document_not_dpi")
+          ? "Alerta automatica: las imagenes cargadas no parecen corresponder claramente a un DPI."
+          : null;
 
-    await VendedorPerfil.create(
+    const sellerProfile = await VendedorPerfil.create(
       {
         user_id:          newUser.id,
         nombre:           nombre.trim(),
@@ -338,13 +380,21 @@ export const registerVendedor = async (
         foto_dpi_frente:  fotoFrente,
         foto_dpi_reverso: fotoReverso,
         selfie_con_dpi:   selfie,
-        estado_validacion: estadoValidacion,
-        estado_admin:     estadoAdmin,
-        observaciones:    null,
+        estado_validacion: kyc.decision.estadoValidacion,
+        estado_admin:     kyc.decision.estadoAdmin,
+        observaciones:    automaticObservation,
         actualizado_en:   new Date(),
         kyc_score:        kyc.score,
         kyc_riesgo:       kyc.riesgo,
         kyc_checklist:    kyc.checklist,
+        kyc_provider:     kyc.evidence.provider,
+        kyc_provider_status: kyc.evidence.provider_status,
+        kyc_decision_reason: kyc.decision.reason,
+        kyc_evidence:     {
+          ...kyc.evidence,
+          provider_diagnostics: identitySignals.diagnostics,
+        },
+        kyc_verified_at:  kyc.decision.autoApproved ? new Date() : null,
       } as any,
       { transaction: t }
     );
@@ -379,13 +429,37 @@ export const registerVendedor = async (
       metadata: {
         kyc_score:          kyc.score,
         kyc_riesgo:         kyc.riesgo,
-        estado_validacion:  estadoValidacion,
+        estado_validacion:  kyc.decision.estadoValidacion,
+        kyc_provider:       kyc.evidence.provider,
+        kyc_provider_status: kyc.evidence.provider_status,
+        kyc_decision_reason: kyc.decision.reason,
+        kyc_provider_diagnostics: identitySignals.diagnostics,
         has_dpi_frente:     !!fotoFrente,
         has_dpi_reverso:    !!fotoReverso,
         has_selfie:         !!selfie,
+        duplicate_dpi_count: duplicateDpiCount,
         has_logo:           !!logo,
       },
     });
+
+    if (automaticObservation) {
+      AdminAuditEvent.create({
+        entity_type: "seller",
+        entity_id: Number((sellerProfile as any).id),
+        action: kyc.decision.reason === "document_not_dpi" ? "KYC_AUTO_REJECTED" : "KYC_AUTO_FLAGGED",
+        performed_by: 0,
+        comment: automaticObservation,
+        metadata: {
+          kyc_score: kyc.score,
+          kyc_riesgo: kyc.riesgo,
+          estado_validacion: kyc.decision.estadoValidacion,
+          review_reasons: kyc.evidence.review_reasons,
+          document_assessment: kyc.evidence.document_assessment ?? null,
+        } as any,
+      }).catch((auditErr) =>
+        console.error("[adminAudit] seller automatic KYC audit failed:", auditErr),
+      );
+    }
 
     // Clear the refresh cookie immediately after registration so the seller
     // is forced back through a clean login before accessing their dashboard.

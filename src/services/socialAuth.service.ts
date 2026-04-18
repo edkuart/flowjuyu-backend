@@ -49,6 +49,10 @@ export async function verifyGoogleToken(id_token: string): Promise<SocialProfile
   try {
     payload = await admin.auth().verifyIdToken(id_token, /* checkRevoked */ true);
   } catch (err: any) {
+    console.error("[firebaseAdmin] verifyIdToken failed:", {
+      code:    err?.code,
+      message: err?.message,
+    });
     const code =
       err?.code === "auth/id-token-revoked" ? "TOKEN_REVOKED" : "TOKEN_INVALID";
     throw new SocialAuthError(

@@ -1115,6 +1115,13 @@ export const getSellerAccountStatus: RequestHandler = async (req, res) => {
         estado_admin,
         observaciones,
         actualizado_en,
+        kyc_score,
+        kyc_riesgo,
+        kyc_provider,
+        kyc_provider_status,
+        kyc_decision_reason,
+        kyc_verified_at,
+        kyc_evidence,
         foto_dpi_frente,
         foto_dpi_reverso,
         selfie_con_dpi
@@ -1144,6 +1151,16 @@ export const getSellerAccountStatus: RequestHandler = async (req, res) => {
         estado_admin: perfil.estado_admin,
         ultima_revision: perfil.actualizado_en,
         observaciones_generales: perfil.observaciones,
+        kyc: {
+          score: perfil.kyc_score,
+          riesgo: perfil.kyc_riesgo,
+          provider: perfil.kyc_provider,
+          provider_status: perfil.kyc_provider_status,
+          decision_reason: perfil.kyc_decision_reason,
+          verified_at: perfil.kyc_verified_at,
+          review_reasons: perfil.kyc_evidence?.review_reasons ?? [],
+          missing_capabilities: perfil.kyc_evidence?.missing_capabilities ?? [],
+        },
 
         documentos: {
           dpi_frente: { subido: !!perfil.foto_dpi_frente },

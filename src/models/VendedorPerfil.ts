@@ -15,6 +15,7 @@ export type PhoneNumber = {
 ====================================================== */
 export type EstadoValidacion =
   | "pendiente"
+  | "en_revision"
   | "aprobado"
   | "rechazado";
 
@@ -86,6 +87,11 @@ interface VendedorPerfilAttrs {
   kyc_checklist?: any;
   kyc_score: number;
   kyc_riesgo: KycRiesgo;
+  kyc_provider?: string | null;
+  kyc_provider_status?: string | null;
+  kyc_decision_reason?: string | null;
+  kyc_evidence?: any;
+  kyc_verified_at?: Date | null;
   kyc_revisado_por?: number | null;
   kyc_revisado_en?: Date | null;
   notas_internas?: string | null;
@@ -144,6 +150,11 @@ type Creation = Optional<
   | "kyc_checklist"
   | "kyc_score"
   | "kyc_riesgo"
+  | "kyc_provider"
+  | "kyc_provider_status"
+  | "kyc_decision_reason"
+  | "kyc_evidence"
+  | "kyc_verified_at"
   | "kyc_revisado_por"
   | "kyc_revisado_en"
   | "notas_internas"
@@ -206,6 +217,11 @@ export class VendedorPerfil
   public kyc_checklist?: any;
   public kyc_score!: number;
   public kyc_riesgo!: KycRiesgo;
+  public kyc_provider?: string | null;
+  public kyc_provider_status?: string | null;
+  public kyc_decision_reason?: string | null;
+  public kyc_evidence?: any;
+  public kyc_verified_at?: Date | null;
   public kyc_revisado_por?: number | null;
   public kyc_revisado_en?: Date | null;
   public notas_internas?: string | null;
@@ -329,6 +345,32 @@ VendedorPerfil.init(
       validate: {
         isIn: [["bajo", "medio", "alto"]],
       },
+    },
+
+    kyc_provider: {
+      type: DataTypes.STRING(80),
+      allowNull: true,
+    },
+
+    kyc_provider_status: {
+      type: DataTypes.STRING(40),
+      allowNull: true,
+    },
+
+    kyc_decision_reason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    kyc_evidence: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: {},
+    },
+
+    kyc_verified_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
 
     kyc_revisado_por: {

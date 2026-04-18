@@ -36,6 +36,102 @@ interface Alert {
   level: "info" | "warning" | "critical";
 }
 
+type SellerJson = Record<string, any>;
+let sellerProfileColumnsPromise: Promise<Set<string>> | null = null;
+
+async function getSellerProfileColumns(): Promise<Set<string>> {
+  if (!sellerProfileColumnsPromise) {
+    sellerProfileColumnsPromise = sequelize
+      .getQueryInterface()
+      .describeTable("vendedor_perfil")
+      .then((columns) => new Set(Object.keys(columns)))
+      .catch((error) => {
+        sellerProfileColumnsPromise = null;
+        throw error;
+      });
+  }
+
+  return sellerProfileColumnsPromise;
+}
+
+async function hasSellerProfileColumn(column: string): Promise<boolean> {
+  const columns = await getSellerProfileColumns();
+  return columns.has(column);
+}
+
+async function getSelectableSellerAttributes(): Promise<string[]> {
+  const columns = await getSellerProfileColumns();
+  return [...columns];
+}
+
+function extractReviewReasons(seller: SellerJson): string[] {
+  const reasons = seller.kyc_evidence?.review_reasons;
+  return Array.isArray(reasons) ? reasons.filter((item) => typeof item === "string") : [];
+}
+
+function extractMissingCapabilities(seller: SellerJson): string[] {
+  const capabilities = seller.kyc_evidence?.missing_capabilities;
+  return Array.isArray(capabilities)
+    ? capabilities.filter((item) => typeof item === "string")
+    : [];
+}
+
+function buildAdminKycSummary(seller: SellerJson) {
+  return {
+    score: seller.kyc_score ?? 0,
+    riesgo: seller.kyc_riesgo ?? null,
+    checklist: seller.kyc_checklist ?? {},
+    provider: seller.kyc_provider ?? null,
+    provider_status: seller.kyc_provider_status ?? null,
+    decision_reason: seller.kyc_decision_reason ?? null,
+    verified_at: seller.kyc_verified_at ?? null,
+    reviewed_at: seller.kyc_revisado_en ?? null,
+    reviewed_by: seller.kyc_revisado_por ?? null,
+    review_reasons: extractReviewReasons(seller),
+    missing_capabilities: extractMissingCapabilities(seller),
+  };
+}
+
+function buildAdminIdentityVerification(seller: SellerJson) {
+  const evidence = seller.kyc_evidence ?? {};
+  return {
+    provider: seller.kyc_provider ?? null,
+    provider_status: seller.kyc_provider_status ?? null,
+    decision_reason: seller.kyc_decision_reason ?? null,
+    verified_at: seller.kyc_verified_at ?? null,
+    submitted_name: evidence.submitted_name ?? seller.nombre ?? null,
+    submitted_dpi: evidence.submitted_dpi ?? seller.dpi ?? null,
+    normalized_submitted_name: evidence.normalized_submitted_name ?? null,
+    normalized_submitted_dpi: evidence.normalized_submitted_dpi ?? null,
+    extracted_document: evidence.extracted_document ?? null,
+    extracted_name_match: evidence.extracted_name_match ?? null,
+    extracted_dpi_match: evidence.extracted_dpi_match ?? null,
+    face_match: evidence.face_match ?? null,
+    face_match_score: evidence.face_match_score ?? null,
+    review_reasons: extractReviewReasons(seller),
+    missing_capabilities: extractMissingCapabilities(seller),
+    diagnostics: Array.isArray(evidence.provider_diagnostics)
+      ? evidence.provider_diagnostics.filter((item: unknown) => typeof item === "string")
+      : [],
+    duplicate_dpi_count: evidence.duplicate_dpi_count ?? null,
+    document_assessment: evidence.document_assessment ?? null,
+    documents: {
+      dpi_frente: {
+        uploaded: Boolean(seller.foto_dpi_frente),
+        storage_key: seller.foto_dpi_frente ?? null,
+      },
+      dpi_reverso: {
+        uploaded: Boolean(seller.foto_dpi_reverso),
+        storage_key: seller.foto_dpi_reverso ?? null,
+      },
+      selfie_con_dpi: {
+        uploaded: Boolean(seller.selfie_con_dpi),
+        storage_key: seller.selfie_con_dpi ?? null,
+      },
+    },
+  };
+}
+
 function computeRiskScore(
   flags: string[],
   missingDocuments: boolean,
@@ -46,6 +142,8 @@ function computeRiskScore(
   if (flags.includes("duplicate_dpi"))        score += 40;
   if (flags.includes("shared_phone"))         score += 20;
   if (flags.includes("suspicious_documents")) score += 30;
+  if (flags.includes("document_not_dpi"))     score += 45;
+  if (flags.includes("document_type_unconfirmed")) score += 20;
   if (missingDocuments)                       score += 15;
   if (totalProducts === 0)                    score += 10;
   else if (productosActivos === 0)            score += 5;
@@ -110,6 +208,13 @@ function computeInsights(
       severity: "critical",
     });
   }
+  if (riskFlags.includes("document_not_dpi")) {
+    insights.push({
+      type: "document_not_dpi",
+      message: "Uploaded KYC images do not appear to be a valid DPI document. Immediate identity review required.",
+      severity: "critical",
+    });
+  }
   if (metrics.conversion_rate >= 50 && metrics.total_views >= 10 && seller.estado_validacion === "aprobado") {
     insights.push({
       type: "top_performer",
@@ -156,6 +261,19 @@ function computeAlerts(
       level: "warning",
     });
   }
+  if (seller.kyc_evidence?.review_reasons?.includes?.("document_not_dpi")) {
+    alerts.push({
+      type: "document_not_dpi",
+      message: "Automatic verification indicates the uploaded images likely are not a DPI.",
+      level: "critical",
+    });
+  } else if (seller.kyc_evidence?.review_reasons?.includes?.("document_type_not_confirmed")) {
+    alerts.push({
+      type: "document_type_unconfirmed",
+      message: "Automatic verification could not confirm that the uploaded images are a DPI document.",
+      level: "warning",
+    });
+  }
   if (seller.estado_admin === "suspendido" && seller.estado_validacion === "aprobado") {
     alerts.push({
       type: "suspended_approved",
@@ -171,7 +289,11 @@ function computeAlerts(
 ====================================================== */
 export const getAllSellers: RequestHandler = async (req, res) => {
   try {
-    const { estado_validacion, estado_admin } = req.query;
+    const { estado_validacion, estado_admin, kyc_provider_status, q } = req.query;
+    const [sellerAttributes, supportsProviderStatus] = await Promise.all([
+      getSelectableSellerAttributes(),
+      hasSellerProfileColumn("kyc_provider_status"),
+    ]);
 
 
     const where: any = {};
@@ -186,8 +308,23 @@ export const getAllSellers: RequestHandler = async (req, res) => {
       where.estado_admin = estado_admin;
     }
 
+    if (kyc_provider_status && supportsProviderStatus) {
+      where.kyc_provider_status = kyc_provider_status;
+    }
+
+    if (q && String(q).trim()) {
+      const term = `%${String(q).trim()}%`;
+      where[Op.or] = [
+        { nombre: { [Op.iLike]: term } },
+        { nombre_comercio: { [Op.iLike]: term } },
+        { email: { [Op.iLike]: term } },
+        { dpi: { [Op.iLike]: term } },
+      ];
+    }
+
 
     const sellers = await VendedorPerfil.findAll({
+      attributes: sellerAttributes,
       where,
       include: [
         {
@@ -226,6 +363,18 @@ export const getAllSellers: RequestHandler = async (req, res) => {
 
         return {
           ...seller.toJSON(),
+          kyc_summary: buildAdminKycSummary(seller.toJSON() as SellerJson),
+          identity_verification: {
+            provider: seller.kyc_provider ?? null,
+            provider_status: seller.kyc_provider_status ?? null,
+            decision_reason: seller.kyc_decision_reason ?? null,
+            review_reasons: extractReviewReasons(seller.toJSON() as SellerJson),
+          },
+          documents_status: {
+            dpi_frente_uploaded: Boolean(seller.foto_dpi_frente),
+            dpi_reverso_uploaded: Boolean(seller.foto_dpi_reverso),
+            selfie_uploaded: Boolean(seller.selfie_con_dpi),
+          },
           total_productos: totalProductos,
           productos_publicados: publicadosReales,
         };
@@ -251,8 +400,10 @@ export const getSellerDetail: RequestHandler = async (req, res) => {
   try {
     const userId = Number(req.params.id);
     if (!Number.isFinite(userId)) return res.status(400).json({ message: "ID inválido" });
+    const sellerAttributes = await getSelectableSellerAttributes();
 
     const seller = await VendedorPerfil.findOne({
+      attributes: sellerAttributes,
       where: { user_id: userId },
       include: [{ model: User, as: "user", attributes: ["id", "nombre", "correo", "telefono"] }],
     });
@@ -344,6 +495,11 @@ export const getSellerDetail: RequestHandler = async (req, res) => {
     if (dupDPI > 0)   riskFlagsList.push("duplicate_dpi");
     if (dupPhone > 0) riskFlagsList.push("shared_phone");
     if (dupDoc > 0)   riskFlagsList.push("suspicious_documents");
+    if (sellerData.kyc_evidence?.review_reasons?.includes?.("document_not_dpi")) {
+      riskFlagsList.push("document_not_dpi");
+    } else if (sellerData.kyc_evidence?.review_reasons?.includes?.("document_type_not_confirmed")) {
+      riskFlagsList.push("document_type_unconfirmed");
+    }
 
     // ── Metrics ───────────────────────────────────────────────────────────────
     const conversionRate    = totalViews > 0 ? Math.round((uniqueBuyers / totalViews) * 100) : 0;
@@ -382,6 +538,9 @@ export const getSellerDetail: RequestHandler = async (req, res) => {
     // ── Timeline ──────────────────────────────────────────────────────────────
     const timeline = [
       { type: "registration", label: "Seller registered", date: sellerData.createdAt },
+      ...(seller.kyc_verified_at
+        ? [{ type: "kyc_verified", label: "Automated identity verification reached verified state", date: seller.kyc_verified_at }]
+        : []),
       ...(latestProduct
         ? [{ type: "product_activity", label: `Latest product: ${(latestProduct as any).nombre}`, date: (latestProduct as any).created_at }]
         : []),
@@ -398,6 +557,17 @@ export const getSellerDetail: RequestHandler = async (req, res) => {
         metrics,
         insights,
         alerts,
+        kyc_summary: buildAdminKycSummary(sellerData as SellerJson),
+        identity_verification: buildAdminIdentityVerification(sellerData as SellerJson),
+        kyc_debug: {
+          review_reasons: extractReviewReasons(sellerData as SellerJson),
+          missing_capabilities: extractMissingCapabilities(sellerData as SellerJson),
+          diagnostics: Array.isArray(sellerData.kyc_evidence?.provider_diagnostics)
+            ? sellerData.kyc_evidence.provider_diagnostics.filter((item: unknown) => typeof item === "string")
+            : [],
+          document_assessment: sellerData.kyc_evidence?.document_assessment ?? null,
+          extracted_document: sellerData.kyc_evidence?.extracted_document ?? null,
+        },
         tickets: {
           open_count:       openTicketsCount,
           last_ticket_date: lastTicket ? (lastTicket as any).createdAt : null,
@@ -430,6 +600,15 @@ export const approveSeller: RequestHandler = async (req, res) => {
   try {
     const userId = Number(req.params.id);
     const adminId = Number(req.user!.id);
+    const [
+      supportsProviderStatus,
+      supportsDecisionReason,
+      supportsVerifiedAt,
+    ] = await Promise.all([
+      hasSellerProfileColumn("kyc_provider_status"),
+      hasSellerProfileColumn("kyc_decision_reason"),
+      hasSellerProfileColumn("kyc_verified_at"),
+    ]);
 
 
     const seller = await VendedorPerfil.findOne({
@@ -468,6 +647,9 @@ export const approveSeller: RequestHandler = async (req, res) => {
 
     seller.estado_validacion = "aprobado";
     seller.estado_admin = "activo";
+    if (supportsProviderStatus) seller.kyc_provider_status = "verified";
+    if (supportsDecisionReason) seller.kyc_decision_reason = "approved_by_admin";
+    if (supportsVerifiedAt) seller.kyc_verified_at = seller.kyc_verified_at ?? new Date();
 
 
     await seller.save();
@@ -531,6 +713,10 @@ export const rejectSeller: RequestHandler = async (req, res) => {
     const userId = Number(req.params.id);
     const adminId = Number(req.user!.id);
     const { comment } = req.body;
+    const [supportsProviderStatus, supportsDecisionReason] = await Promise.all([
+      hasSellerProfileColumn("kyc_provider_status"),
+      hasSellerProfileColumn("kyc_decision_reason"),
+    ]);
 
 
     if (!comment) {
@@ -569,6 +755,8 @@ export const rejectSeller: RequestHandler = async (req, res) => {
     seller.estado_validacion = "rechazado";
     seller.estado_admin = "inactivo";
     seller.observaciones = comment;
+    if (supportsProviderStatus) seller.kyc_provider_status = "failed";
+    if (supportsDecisionReason) seller.kyc_decision_reason = "rejected_by_admin";
 
 
     await seller.save();
@@ -844,6 +1032,10 @@ export const requestKycDocuments: RequestHandler = async (req, res) => {
     const userId  = Number(req.params.id);
     const adminId = Number(req.user!.id);
     const { comment } = req.body;
+    const [supportsProviderStatus, supportsDecisionReason] = await Promise.all([
+      hasSellerProfileColumn("kyc_provider_status"),
+      hasSellerProfileColumn("kyc_decision_reason"),
+    ]);
 
     if (!comment) {
       return res.status(400).json({
@@ -867,6 +1059,8 @@ export const requestKycDocuments: RequestHandler = async (req, res) => {
     // 🔁 Forzar reenvío
     seller.estado_validacion = "pendiente";
     seller.estado_admin = "inactivo";
+    if (supportsProviderStatus) seller.kyc_provider_status = "pending_manual_review";
+    if (supportsDecisionReason) seller.kyc_decision_reason = "additional_documents_requested_by_admin";
 
     await seller.save();
 
@@ -981,6 +1175,15 @@ export const reviewSellerKYC: RequestHandler = async (req, res) => {
   try {
     const profileId = Number(req.params.id);
     const adminId   = Number(req.user!.id);
+    const [
+      supportsProviderStatus,
+      supportsDecisionReason,
+      supportsVerifiedAt,
+    ] = await Promise.all([
+      hasSellerProfileColumn("kyc_provider_status"),
+      hasSellerProfileColumn("kyc_decision_reason"),
+      hasSellerProfileColumn("kyc_verified_at"),
+    ]);
 
     console.log("PARAM ID:", req.params.id);
 
@@ -1005,6 +1208,15 @@ export const reviewSellerKYC: RequestHandler = async (req, res) => {
     seller.kyc_riesgo       = riesgo;
     seller.kyc_revisado_por = adminId;
     seller.kyc_revisado_en  = new Date();
+    if (supportsProviderStatus) {
+      seller.kyc_provider_status = score >= 80 ? "verified" : "pending_manual_review";
+    }
+    if (supportsDecisionReason) {
+      seller.kyc_decision_reason = "kyc_review_updated_by_admin";
+    }
+    if (supportsVerifiedAt) {
+      seller.kyc_verified_at = score >= 80 ? (seller.kyc_verified_at ?? new Date()) : null;
+    }
 
     await seller.save();
 
