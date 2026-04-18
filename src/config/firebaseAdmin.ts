@@ -1,75 +1,117 @@
 import admin from "firebase-admin";
 
-// ─── Fail-fast initialization ────────────────────────────────────────────────
-// Google auth is a first-class login path, so the backend must never boot in a
-// half-configured state where the route exists but session exchange always
-// fails at runtime.
+// ─── Firebase Admin SDK initialization ───────────────────────────────────────
 //
-// Required env vars (Firebase Console → Project Settings → Service Accounts):
-//   FIREBASE_PROJECT_ID
-//   FIREBASE_CLIENT_EMAIL
-//   FIREBASE_PRIVATE_KEY_BASE64  (PEM key encoded as base64 for Railway-safe transport)
+// Requires ONE environment variable:
+//
+//   FIREBASE_PRIVATE_KEY_BASE64  — the entire service-account JSON base64-encoded
+//
+// How to generate it (PowerShell):
+//
+//   $json = Get-Content "service-account.json" -Raw
+//   [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
+//
+// How to generate it (bash):
+//
+//   base64 -w 0 service-account.json
+//
+// Set the output as FIREBASE_PRIVATE_KEY_BASE64 in .env and in Railway.
 
-// ── Private key resolution ───────────────────────────────────────────────────
-// Accepts either format:
-//   FIREBASE_PRIVATE_KEY_BASE64  — PEM key base64-encoded (Railway-safe)
-//   FIREBASE_PRIVATE_KEY         — raw PEM key (legacy / direct paste)
-// Base64 variant takes precedence when both are present.
+interface ServiceAccount {
+  project_id: string;
+  client_email: string;
+  private_key: string;
+  [key: string]: unknown;
+}
 
-function resolvePrivateKey(): string {
+function createFirebaseAdminError(message: string, cause?: unknown): Error {
+  const error = new Error(message) as Error & { cause?: unknown };
+
+  if (cause !== undefined) {
+    error.cause = cause;
+  }
+
+  return error;
+}
+
+function decodeServiceAccount(): ServiceAccount {
   const base64 = process.env["FIREBASE_PRIVATE_KEY_BASE64"]?.trim();
-  const raw    = process.env["FIREBASE_PRIVATE_KEY"]?.trim();
 
-  if (base64) {
-    let decoded: string;
-    try {
-      decoded = Buffer.from(base64, "base64").toString("utf-8").trim();
-    } catch (err) {
-      throw new Error(
-        `[firebaseAdmin] FIREBASE_PRIVATE_KEY_BASE64 is not valid base64: ${(err as Error).message}`,
-      );
-    }
-    if (!decoded.includes("-----BEGIN PRIVATE KEY-----")) {
-      throw new Error(
-        "[firebaseAdmin] FIREBASE_PRIVATE_KEY_BASE64 decoded but does not contain a valid PEM key.",
-      );
-    }
-    return decoded;
+  if (!base64) {
+    throw new Error(
+      "[firebaseAdmin] Missing required env var: FIREBASE_PRIVATE_KEY_BASE64. " +
+      "Set it to the base64-encoded contents of your Firebase service account JSON.",
+    );
   }
 
-  if (raw) {
-    // Railway / shell sometimes stores \n as a literal backslash-n — normalise it.
-    const normalised = raw.replace(/\\n/g, "\n");
-    if (!normalised.includes("-----BEGIN PRIVATE KEY-----")) {
-      throw new Error(
-        "[firebaseAdmin] FIREBASE_PRIVATE_KEY does not contain a valid PEM key.",
-      );
-    }
-    return normalised;
+  // ── Step 1: base64 → raw JSON string ────────────────────────────────────────
+  let jsonString: string;
+  try {
+    jsonString = Buffer.from(base64, "base64").toString("utf-8");
+  } catch (err) {
+    throw createFirebaseAdminError(
+      "[firebaseAdmin] FIREBASE_PRIVATE_KEY_BASE64 is not valid base64.",
+      err,
+    );
   }
 
-  throw new Error(
-    "[firebaseAdmin] Neither FIREBASE_PRIVATE_KEY_BASE64 nor FIREBASE_PRIVATE_KEY is set. " +
-    "Google Auth requires a Firebase service-account private key.",
-  );
+  // ── Step 2: parse JSON ───────────────────────────────────────────────────────
+  let account: ServiceAccount;
+  try {
+    account = JSON.parse(jsonString) as ServiceAccount;
+  } catch (err) {
+    throw createFirebaseAdminError(
+      "[firebaseAdmin] Failed to parse service account JSON. Make sure FIREBASE_PRIVATE_KEY_BASE64 contains the full JSON file encoded in base64.",
+      err,
+    );
+  }
+
+  // ── Step 3: validate required fields ────────────────────────────────────────
+  if (typeof account.project_id !== "string" || account.project_id.trim() === "") {
+    throw new Error("[firebaseAdmin] Service account JSON is missing 'project_id'.");
+  }
+  if (typeof account.client_email !== "string" || account.client_email.trim() === "") {
+    throw new Error("[firebaseAdmin] Service account JSON is missing 'client_email'.");
+  }
+  if (typeof account.private_key !== "string" || account.private_key.trim() === "") {
+    throw new Error("[firebaseAdmin] Service account JSON is missing 'private_key'.");
+  }
+
+  // JSON.parse already turns the escaped \n sequences stored in the service
+  // account JSON into real newline characters, so no manual .replace(/\\n/g)
+  // normalization is needed when we decode and parse the full JSON payload.
+  if (!account.private_key.includes("-----BEGIN PRIVATE KEY-----")) {
+    throw new Error(
+      "[firebaseAdmin] private_key does not contain a valid PEM block. " +
+      "Check that the service account JSON was not corrupted during encoding.",
+    );
+  }
+
+  return account;
 }
 
 if (!admin.apps.length) {
-  const projectId = process.env["FIREBASE_PROJECT_ID"]?.trim();
-  const clientEmail = process.env["FIREBASE_CLIENT_EMAIL"]?.trim();
-
-  if (!projectId)   throw new Error("[firebaseAdmin] Missing FIREBASE_PROJECT_ID");
-  if (!clientEmail) throw new Error("[firebaseAdmin] Missing FIREBASE_CLIENT_EMAIL");
-
-  const privateKey = resolvePrivateKey();
+  const account = decodeServiceAccount();
 
   try {
     admin.initializeApp({
-      credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
+      credential: admin.credential.cert({
+        projectId: account.project_id,
+        clientEmail: account.client_email,
+        privateKey: account.private_key,
+      }),
     });
-  } catch (error) {
-    throw new Error(
-      `[firebaseAdmin] Failed to initialize Firebase Admin SDK: ${(error as Error).message}`,
+    console.log(`[firebaseAdmin] Initialized — project: ${account.project_id}`);
+  } catch (err) {
+    console.error("[firebaseAdmin] Initialization failed", {
+      error: err instanceof Error ? err.message : String(err),
+      projectId: account.project_id,
+      clientEmail: account.client_email,
+    });
+
+    throw createFirebaseAdminError(
+      "[firebaseAdmin] Failed to initialize Firebase Admin SDK.",
+      err,
     );
   }
 }
