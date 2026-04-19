@@ -902,14 +902,12 @@ export const forgotPassword: RequestHandler = async (req, res) => {
     const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
     const resetLink   = `${frontendUrl}/restablecer-password?token=${rawToken}`;
 
-    // Send email in a separate try/catch so a delivery failure never returns
-    // HTTP 500 to the caller — that would confirm the email exists (enumeration).
+    process.stdout.write(`[forgotPassword] sending email to ${user.correo}, FRONTEND_URL=${process.env.FRONTEND_URL}\n`);
     try {
       await sendResetPasswordEmail(user.correo, resetLink, user.nombre);
+      process.stdout.write(`[forgotPassword] email sent ok\n`);
     } catch (emailError) {
-      // Already logged inside sendResetPasswordEmail. Token is saved in DB;
-      // the user can request again. We still return 200 below.
-      console.error("forgotPassword — email delivery failed (token saved):", emailError);
+      process.stdout.write(`[forgotPassword] email failed: ${(emailError as Error).message}\n`);
     }
 
     res.status(200).json({
