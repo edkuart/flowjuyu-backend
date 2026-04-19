@@ -29,6 +29,7 @@ import {
   flagSellerManually,
   getSellerTickets,
   getSellerKycUrls,
+  rerunSellerKycAutomation,
 } from "../controllers/admin.seller.governance.controller";
 
 import { getSellerLeads } from "../controllers/admin.leads.controller";
@@ -324,6 +325,11 @@ router.patch(
 router.patch(
   "/sellers/:id/kyc-review",
   asyncHandler(reviewSellerKYC)
+);
+
+router.post(
+  "/sellers/:id/kyc-rerun",
+  asyncHandler(rerunSellerKycAutomation)
 );
 
 // 📄 REQUEST MORE DOCUMENTS

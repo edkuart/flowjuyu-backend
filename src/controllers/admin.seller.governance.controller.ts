@@ -11,8 +11,10 @@ import { Ticket } from "../models/ticket.model";
 import { TicketMessage } from "../models/ticketMessage.model";
 import supabase from "../lib/supabase";
 import { scoreFromChecklist, sanitizeChecklist } from "../services/kyc.service";
-import { getKycSignedUrl } from "../lib/kycStorage";
+import { downloadKycFile, getKycSignedUrl } from "../lib/kycStorage";
 import { logAuditEventFromRequest } from "../services/audit.service";
+import { resolveKycIdentitySignals } from "../services/kycIdentityVerification.service";
+import { runKYCAnalysis } from "../services/kyc.service";
 
 /* ======================================================
    🔹 HELPER INTERFACES & ENGINES
@@ -62,6 +64,15 @@ async function hasSellerProfileColumn(column: string): Promise<boolean> {
 async function getSelectableSellerAttributes(): Promise<string[]> {
   const columns = await getSellerProfileColumns();
   return [...columns];
+}
+
+function pickExistingSellerColumns(
+  payload: Record<string, unknown>,
+  columns: Set<string>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([key]) => columns.has(key))
+  );
 }
 
 function extractReviewReasons(seller: SellerJson): string[] {
@@ -634,6 +645,13 @@ export const approveSeller: RequestHandler = async (req, res) => {
     if (seller.kyc_score < 80) {
       res.status(400).json({
         message: "No se puede aprobar. Riesgo demasiado alto.",
+      });
+      return;
+    }
+
+    if (seller.kyc_evidence?.review_reasons?.includes?.("document_not_dpi")) {
+      res.status(400).json({
+        message: "No se puede aprobar. La automatizacion detecto que las imagenes no parecen un DPI.",
       });
       return;
     }
@@ -1395,5 +1413,145 @@ export const getSellerKycUrls: RequestHandler = async (req, res) => {
   } catch (error) {
     console.error("getSellerKycUrls error:", error);
     res.status(500).json({ ok: false, message: "Error interno al generar URLs" });
+  }
+};
+
+export const rerunSellerKycAutomation: RequestHandler = async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const adminId = Number(req.user!.id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      res.status(400).json({ ok: false, message: "ID inválido" });
+      return;
+    }
+
+    const [sellerAttributes, sellerColumns] = await Promise.all([
+      getSelectableSellerAttributes(),
+      getSellerProfileColumns(),
+    ]);
+
+    const seller = await VendedorPerfil.findOne({
+      attributes: sellerAttributes,
+      where: { user_id: userId },
+    });
+
+    if (!seller) {
+      res.status(404).json({ ok: false, message: "Vendedor no encontrado" });
+      return;
+    }
+
+    const files = await Promise.all([
+      seller.foto_dpi_frente ? downloadKycFile(seller.foto_dpi_frente).catch(() => null) : Promise.resolve(null),
+      seller.foto_dpi_reverso ? downloadKycFile(seller.foto_dpi_reverso).catch(() => null) : Promise.resolve(null),
+      seller.selfie_con_dpi ? downloadKycFile(seller.selfie_con_dpi).catch(() => null) : Promise.resolve(null),
+    ]);
+
+    const [frontFile, backFile, selfieFile] = files;
+
+    const identitySignals = await resolveKycIdentitySignals({
+      sellerName: seller.nombre,
+      dpi: seller.dpi ?? "",
+      fotoFrente: frontFile
+        ? { buffer: frontFile.buffer, mimeType: frontFile.mimeType ?? "image/jpeg" }
+        : null,
+      fotoReverso: backFile
+        ? { buffer: backFile.buffer, mimeType: backFile.mimeType ?? "image/jpeg" }
+        : null,
+      selfie: selfieFile
+        ? { buffer: selfieFile.buffer, mimeType: selfieFile.mimeType ?? "image/jpeg" }
+        : null,
+    });
+
+    const duplicateDpiCount = seller.dpi
+      ? await VendedorPerfil.count({ where: { dpi: seller.dpi, id: { [Op.ne]: seller.id } } })
+      : 0;
+
+    const kyc = runKYCAnalysis({
+      sellerName: seller.nombre,
+      dpi: seller.dpi ?? "",
+      fotoFrente: seller.foto_dpi_frente ?? null,
+      fotoReverso: seller.foto_dpi_reverso ?? null,
+      selfie: seller.selfie_con_dpi ?? null,
+      duplicateDpiCount,
+      providerName: identitySignals.provider,
+      providerStatus: identitySignals.providerStatus,
+      extractedDocument: identitySignals.extractedDocument,
+      documentAssessment: identitySignals.documentAssessment,
+      faceMatch: identitySignals.faceMatch,
+      faceMatchScore: identitySignals.faceMatchScore,
+    });
+
+    const automaticObservation =
+      kyc.decision.reason === "document_not_dpi"
+        ? "Deteccion automatica: las imagenes cargadas no parecen corresponder a un DPI valido."
+        : kyc.evidence.review_reasons.includes("document_not_dpi")
+          ? "Alerta automatica: las imagenes cargadas no parecen corresponder claramente a un DPI."
+          : null;
+
+    const before = {
+      estado_validacion: seller.estado_validacion,
+      estado_admin: seller.estado_admin,
+      kyc_score: seller.kyc_score,
+      kyc_riesgo: seller.kyc_riesgo,
+    };
+
+    const updates = pickExistingSellerColumns(
+      {
+        estado_validacion: kyc.decision.estadoValidacion,
+        estado_admin: kyc.decision.estadoAdmin,
+        observaciones: automaticObservation,
+        actualizado_en: new Date(),
+        kyc_score: kyc.score,
+        kyc_riesgo: kyc.riesgo,
+        kyc_checklist: kyc.checklist,
+        kyc_provider: kyc.evidence.provider,
+        kyc_provider_status: kyc.evidence.provider_status,
+        kyc_decision_reason: kyc.decision.reason,
+        kyc_evidence: {
+          ...kyc.evidence,
+          provider_diagnostics: identitySignals.diagnostics,
+        },
+        kyc_verified_at: kyc.decision.autoApproved ? new Date() : null,
+      },
+      sellerColumns,
+    );
+
+    await seller.update(updates);
+
+    await logAdminEvent({
+      entityType: "seller",
+      entityId: seller.id,
+      action: "KYC_AUTOMATION_RERUN",
+      performedBy: adminId,
+      comment: automaticObservation ?? undefined,
+      metadata: {
+        before,
+        after: {
+          estado_validacion: seller.estado_validacion,
+          estado_admin: seller.estado_admin,
+          kyc_score: seller.kyc_score,
+          kyc_riesgo: seller.kyc_riesgo,
+          kyc_decision_reason: (seller as any).kyc_decision_reason ?? null,
+        },
+        review_reasons: kyc.evidence.review_reasons,
+        diagnostics: identitySignals.diagnostics,
+      },
+    });
+
+    res.json({
+      ok: true,
+      message: "KYC automatico re-ejecutado correctamente",
+      data: {
+        estado_validacion: seller.estado_validacion,
+        estado_admin: seller.estado_admin,
+        kyc_score: seller.kyc_score,
+        kyc_riesgo: seller.kyc_riesgo,
+        review_reasons: kyc.evidence.review_reasons,
+        diagnostics: identitySignals.diagnostics,
+      },
+    });
+  } catch (error) {
+    console.error("rerunSellerKycAutomation error:", error);
+    res.status(500).json({ ok: false, message: "Error interno al re-ejecutar KYC" });
   }
 };

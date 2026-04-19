@@ -81,6 +81,32 @@ export async function uploadKycFile(
 }
 
 /**
+ * Downloads a private KYC file from storage.
+ *
+ * Returns the raw bytes so internal services can re-run OCR / identity checks
+ * without exposing the file publicly.
+ */
+export async function downloadKycFile(
+  storagePath: string,
+): Promise<{ buffer: Buffer; mimeType: string | null }> {
+  const { data, error } = await supabase.storage
+    .from(KYC_BUCKET)
+    .download(storagePath);
+
+  if (error || !data) {
+    throw new Error(
+      `kycStorage: download failed for "${storagePath}": ${error?.message ?? "no data"}`
+    );
+  }
+
+  const arrayBuffer = await data.arrayBuffer();
+  return {
+    buffer: Buffer.from(arrayBuffer),
+    mimeType: data.type || null,
+  };
+}
+
+/**
  * Uploads a non-PII file (e.g. seller logo) to the KYC bucket and returns
  * a permanent public URL.
  *

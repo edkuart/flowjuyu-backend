@@ -39,6 +39,32 @@ import { checkLoginAbuse } from "../services/abuseDetection.service";
 import { LOGIN_RULES } from "../config/securityRules";
 import { evaluateLoginDefense } from "../services/activeDefense.service";
 
+let sellerProfileColumnsPromise: Promise<Set<string>> | null = null;
+
+async function getSellerProfileColumns(): Promise<Set<string>> {
+  if (!sellerProfileColumnsPromise) {
+    sellerProfileColumnsPromise = sequelize
+      .getQueryInterface()
+      .describeTable("vendedor_perfil")
+      .then((columns) => new Set(Object.keys(columns)))
+      .catch((error) => {
+        sellerProfileColumnsPromise = null;
+        throw error;
+      });
+  }
+
+  return sellerProfileColumnsPromise;
+}
+
+function pickExistingSellerColumns(
+  payload: Record<string, unknown>,
+  columns: Set<string>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([key]) => columns.has(key))
+  );
+}
+
 const USER_AUTH_READ_ATTRIBUTES = [
   "id",
   "nombre",
@@ -359,7 +385,8 @@ export const registerVendedor = async (
           ? "Alerta automatica: las imagenes cargadas no parecen corresponder claramente a un DPI."
           : null;
 
-    const sellerProfile = await VendedorPerfil.create(
+    const sellerProfileColumns = await getSellerProfileColumns();
+    const sellerProfilePayload = pickExistingSellerColumns(
       {
         user_id:          newUser.id,
         nombre:           nombre.trim(),
@@ -395,7 +422,12 @@ export const registerVendedor = async (
           provider_diagnostics: identitySignals.diagnostics,
         },
         kyc_verified_at:  kyc.decision.autoApproved ? new Date() : null,
-      } as any,
+      },
+      sellerProfileColumns,
+    );
+
+    const sellerProfile = await VendedorPerfil.create(
+      sellerProfilePayload as any,
       { transaction: t }
     );
 
