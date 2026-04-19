@@ -899,7 +899,7 @@ export const forgotPassword: RequestHandler = async (req, res) => {
     await user.save();
 
     // Build the full reset URL the user will click in the email.
-    const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+    const frontendUrl = (process.env.FRONTEND_URL || "https://flowjuyu.com").replace(/\/$/, "");
     const resetLink   = `${frontendUrl}/restablecer-password?token=${rawToken}`;
 
     process.stdout.write(`[forgotPassword] sending email to ${user.correo}, FRONTEND_URL=${process.env.FRONTEND_URL}\n`);
