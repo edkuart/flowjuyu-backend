@@ -2,9 +2,13 @@
 
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let _resend: Resend | null = null;
+function getResend(): Resend {
+  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
+  return _resend;
+}
 
-const FROM_ADDRESS = process.env.EMAIL_FROM ?? "Flowjuyu <onboarding@resend.dev>";
+const FROM_ADDRESS = () => process.env.EMAIL_FROM ?? "Flowjuyu <noreply@flowjuyu.com>";
 
 // ── Generic send ─────────────────────────────────────────────────────────────
 // Low-level wrapper used by lifecycle email functions.
@@ -27,8 +31,8 @@ export async function sendEmail(
     return;
   }
 
-  const { data, error } = await resend.emails.send({
-    from: FROM_ADDRESS,
+  const { data, error } = await getResend().emails.send({
+    from: FROM_ADDRESS(),
     to,
     subject,
     html,
@@ -67,8 +71,8 @@ export async function sendResetPasswordEmail(
   // ── Send via Resend ──────────────────────────────────────────────────────
   console.log(`📧 Sending reset email to: ${to}`);
 
-  const { data, error } = await resend.emails.send({
-    from: process.env.EMAIL_FROM ?? "Flowjuyu <noreply@flowjuyu.com>",
+  const { data, error } = await getResend().emails.send({
+    from: FROM_ADDRESS(),
     to,
     subject: "Restablecer tu contraseña - Flowjuyu",
     html: `
