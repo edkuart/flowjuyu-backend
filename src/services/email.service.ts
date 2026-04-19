@@ -65,7 +65,7 @@ export async function sendResetPasswordEmail(
   console.log(`📧 Sending reset email to: ${to}`);
 
   const { data, error } = await resend.emails.send({
-    from: "Flowjuyu <onboarding@resend.dev>",
+    from: process.env.EMAIL_FROM ?? "Flowjuyu <noreply@flowjuyu.com>",
     to,
     subject: "Restablecer tu contraseña - Flowjuyu",
     html: `
