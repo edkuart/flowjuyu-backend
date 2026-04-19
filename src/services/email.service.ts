@@ -56,8 +56,11 @@ export async function sendResetPasswordEmail(
     console.log("─────────────────────────────────────────");
   }
 
-  if (!process.env.RESEND_API_KEY) {
-    console.warn("⚠️  RESEND_API_KEY is not set — email not sent.");
+  const apiKey = process.env.RESEND_API_KEY;
+  console.log(`[email] RESEND_API_KEY present: ${!!apiKey}, NODE_ENV: ${process.env.NODE_ENV}`);
+
+  if (!apiKey) {
+    console.error("❌ RESEND_API_KEY is not set — email not sent.");
     return;
   }
 
