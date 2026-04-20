@@ -14,7 +14,7 @@ import { buildCategoryArtUrl } from "../utils/categoryArt";
 import { buildMediaProxyUrl } from "../utils/mediaProxy";
 import { logEvent } from "../utils/eventLogger";
 import { can } from "../services/authorization.service";
-import { createNotification } from "../utils/notifications";
+import { emitAppEvent } from "../lib/appEvents";
 import { notifyNewProductInCategory } from "../services/suggestions.service";
 import { generateProductCode } from "../services/productCode.service";
 import { createReviewFromPurchase, listProductReviews } from "../services/review.service";
@@ -1567,7 +1567,7 @@ export const toggleProductActive = async (
     // =====================================================
     const producto: any = await sequelize.query(
       `
-      SELECT id
+      SELECT id, nombre
       FROM productos
       WHERE id = :id AND vendedor_id = :vid
       `,
@@ -1600,6 +1600,15 @@ export const toggleProductActive = async (
         },
       }
     );
+
+    // Notify followers only when activating — deactivation is not a feed event
+    if (activar) {
+      emitAppEvent("product.created", {
+        sellerId:    u.id,
+        productId:   productId as string,
+        productName: producto[0].nombre,
+      });
+    }
 
     res.json({
       success: true,
@@ -2196,15 +2205,14 @@ export const createProductReview = async (
     // ── Analytics (non-blocking) ─────────────────────────────────────────────
     logEvent({ type: "review_created", user_id: userId, product_id: productId }).catch(() => {});
 
-    // ── Seller notification (non-blocking) ───────────────────────────────────
+    // ── Review notifications (non-blocking) ──────────────────────────────────
     if (created.seller_id) {
-      createNotification(
-        Number(created.seller_id),
-        "review",
-        "Nueva reseña en tu producto",
-        `Un comprador calificó tu pieza con ${ratingNumber} ${ratingNumber === 1 ? "estrella" : "estrellas"}.`,
-        `/seller/products`
-      ).catch(() => {});
+      emitAppEvent("review.created", {
+        buyerId:   userId,
+        sellerId:  Number(created.seller_id),
+        productId,
+        rating:    ratingNumber,
+      });
     }
 
     res.status(201).json({

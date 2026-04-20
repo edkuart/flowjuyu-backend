@@ -22,12 +22,17 @@ import {
   updateInboundMessageTranscription,
 } from "./conversationMessage.service";
 import type { NormalizedInboundMessage } from "../integrations/whatsapp/whatsapp.types";
-import { resolveSellerByPhone } from "../integrations/whatsapp/whatsappSellerResolver.service";
+import {
+  resolveSellerByPhone,
+  resolveSellerByProfileWhatsappPhone,
+} from "../integrations/whatsapp/whatsappSellerResolver.service";
 import { sendTextMessage } from "../integrations/whatsapp/whatsappOutbound.service";
 import {
   consumeSellerWhatsappLinkingToken,
   extractWhatsappLinkingCode,
+  getSellerWhatsappLinkStatus,
 } from "../integrations/whatsapp/whatsappLinking.service";
+import { recordWhatsappUnlinkedAttempt } from "../integrations/whatsapp/whatsappUnlinkedAudit.service";
 import {
   appendImageToDraft,
   buildDraftPreview,
@@ -87,6 +92,7 @@ import {
   buildNoEditChangesMessage,
   buildNoPendingEditConfirmationMessage,
   buildOnboardingMessage,
+  buildRecognizedUnlinkedSellerMessage,
   buildEditSummaryMessage,
   buildSaveSuccessMessage,
 } from "./ux/conversationUxBuilder.service";
@@ -410,6 +416,10 @@ function parseStock(text: string): number | null {
 
 function buildUnlinkedPhoneMessage(): string {
   return buildOnboardingMessage();
+}
+
+function buildRecognizedButUnlinkedPhoneMessage(nombreComercio: string): string {
+  return buildRecognizedUnlinkedSellerMessage(nombreComercio);
 }
 
 function buildEditFeedbackItems(
@@ -1181,6 +1191,43 @@ export async function handleInboundMessage(
           );
           return;
         }
+      }
+
+      const sellerByProfilePhone = await resolveSellerByProfileWhatsappPhone(
+        message.phone
+      );
+
+      if (sellerByProfilePhone && !sellerByProfilePhone.has_active_link) {
+        const linkStatus = await getSellerWhatsappLinkStatus(
+          sellerByProfilePhone.user_id
+        );
+        const reason = linkStatus.activeToken
+          ? "profile_phone_match_link_token_pending"
+          : "profile_phone_match_unlinked";
+
+        await recordWhatsappUnlinkedAttempt({
+          sessionId: session.id,
+          sellerUserId: sellerByProfilePhone.user_id,
+          phoneE164: message.phone,
+          waMessageId: message.waMessageId,
+          messageType: message.type,
+          messageText: message.type === "text" ? message.text ?? null : null,
+          reason,
+          metadata: {
+            nombre_comercio: sellerByProfilePhone.nombre_comercio,
+            active_token_expires_at: linkStatus.activeToken?.expiresAt ?? null,
+            linked_phone: linkStatus.linkedPhone,
+          },
+        });
+
+        await markMessageProcessed(record, "processed");
+        await sendReply(
+          session,
+          buildRecognizedButUnlinkedPhoneMessage(
+            sellerByProfilePhone.nombre_comercio
+          )
+        );
+        return;
       }
 
       await markMessageProcessed(record, "ignored");

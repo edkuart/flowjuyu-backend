@@ -3,6 +3,7 @@
 import { Router } from "express";
 import { verifyToken } from "../middleware/auth";
 import {
+  streamNotifications,
   getNotifications,
   markAllNotificationsRead,
   markNotificationRead,
@@ -10,14 +11,18 @@ import {
 
 const router: ReturnType<typeof Router> = Router();
 
-// All routes require a valid JWT (buyer role)
+// All routes require a valid JWT (cookie or Bearer header)
 router.use(verifyToken(["buyer", "seller", "admin", "support"]));
 
-router.get("/", getNotifications);
+// IMPORTANT: route registration order matters here.
+//
+//   /stream    — must come before /:id/read (no collision risk, but explicit is better)
+//   /read-all  — must come before /:id/read to prevent "read-all" matching as :id
+//   /:id/read  — catch-all param, always last
 
-// IMPORTANT: read-all MUST be registered before /:id/read
-// otherwise "read-all" would be captured as an :id param
-router.patch("/read-all", markAllNotificationsRead);
-router.patch("/:id/read", markNotificationRead);
+router.get("/stream",    streamNotifications);
+router.get("/",          getNotifications);
+router.patch("/read-all",      markAllNotificationsRead);
+router.patch("/:id/read",      markNotificationRead);
 
 export default router;

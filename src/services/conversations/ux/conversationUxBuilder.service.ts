@@ -34,6 +34,21 @@ export function buildOnboardingMessage(): string {
   ]);
 }
 
+export function buildRecognizedUnlinkedSellerMessage(
+  nombreComercio: string
+): string {
+  return lines([
+    "👋 Ya te reconocí como vendedor",
+    "",
+    `Este número coincide con la tienda ${nombreComercio}, pero todavía no está vinculado al bot.`,
+    "Para activar tu espacio de trabajo, genera tu código en la web y envíamelo por este chat.",
+    "",
+    "Siguiente paso:",
+    "👉 genera el código en la web",
+    "👉 pégalo aquí tal como aparece",
+  ]);
+}
+
 export function buildLinkSuccessMessage(
   nombreComercio: string,
   alreadyLinked = false

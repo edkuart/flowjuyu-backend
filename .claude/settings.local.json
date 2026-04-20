@@ -39,7 +39,13 @@
       "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend\" rev-parse HEAD)",
       "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-frontend\" rev-parse origin/main)",
       "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-backend\" rev-parse HEAD)",
-      "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-backend\" rev-parse origin/main)"
+      "Bash(git -C \"c:/Users/Dell/Projects/Flowjuyu-1.0/flowjuyu-backend\" rev-parse origin/main)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(npm run *)",
+      "Bash(git push *)",
+      "Bash(grep -E \"\\\\.\\(ts|js|tsx|jsx\\)$\")",
+      "Bash(grep \"\\\\.tsx$\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\context",
@@ -53,7 +59,8 @@
       "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\components\\product\\discovery",
       "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\hooks",
       "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\components\\product\\view",
-      "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\components\\layout"
+      "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\components\\layout",
+      "c:\\Users\\Dell\\Projects\\Flowjuyu-1.0\\flowjuyu-frontend\\src\\app\\seller\\collections"
     ]
   }
 }

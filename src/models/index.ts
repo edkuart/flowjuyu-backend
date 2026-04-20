@@ -57,7 +57,12 @@ import ConversationMessage  from "./ConversationMessage.model";
 import ListingDraft         from "./ListingDraft.model";
 import WhatsappLinkingToken from "./WhatsappLinkingToken.model";
 import WhatsappLinkedIdentity from "./WhatsappLinkedIdentity.model";
+import WhatsappUnlinkedSellerAttempt from "./WhatsappUnlinkedSellerAttempt.model";
 import AnalyticsEvent from "./AnalyticsEvent.model";
+
+// Collections feature
+import Collection from "./Collection.model";
+import CollectionItem from "./CollectionItem.model";
 
 // Consent Layer (Block 2)
 import PolicyVersion from "./PolicyVersion.model";
@@ -621,6 +626,44 @@ function setupAssociations() {
       as:         "order",
     });
   }
+
+  /* ============================
+     🎨 Collection ↔ CollectionItem
+  ============================ */
+
+  if (!Collection.associations.items) {
+    Collection.hasMany(CollectionItem, {
+      foreignKey: "collection_id",
+      as: "items",
+      onDelete: "CASCADE",
+    });
+  }
+
+  if (!CollectionItem.associations.collection) {
+    CollectionItem.belongsTo(Collection, {
+      foreignKey: "collection_id",
+      as: "collection",
+    });
+  }
+
+  /* ============================
+     👤 User ↔ Collection
+  ============================ */
+
+  if (!(User as any).associations?.collections) {
+    User.hasMany(Collection, {
+      foreignKey: "seller_id",
+      as: "collections",
+      onDelete: "CASCADE",
+    });
+  }
+
+  if (!Collection.associations.seller) {
+    Collection.belongsTo(User, {
+      foreignKey: "seller_id",
+      as: "seller",
+    });
+  }
 }
 
 setupAssociations();
@@ -676,6 +719,7 @@ export {
   ListingDraft,
   WhatsappLinkingToken,
   WhatsappLinkedIdentity,
+  WhatsappUnlinkedSellerAttempt,
   AnalyticsEvent,
   // Consent Layer
   PolicyVersion,
@@ -728,12 +772,16 @@ export const models = {
   ListingDraft,
   WhatsappLinkingToken,
   WhatsappLinkedIdentity,
+  WhatsappUnlinkedSellerAttempt,
   AnalyticsEvent,
   // Consent Layer
   PolicyVersion,
   UserConsent,
   CurrentConsent,
   UserMarketingPromptState,
+  // Collections
+  Collection,
+  CollectionItem,
 };
 
 

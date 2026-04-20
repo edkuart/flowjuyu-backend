@@ -5,7 +5,7 @@ import { VendedorPerfil } from "../models/VendedorPerfil"
 import { buildCategoryArtUrl } from "../utils/categoryArt";
 import { buildMediaProxyUrl } from "../utils/mediaProxy";
 
-import { getPublicSellerStore } from "../controllers/seller.controller"
+import { getLiveSellers, getPublicSellerStore } from "../controllers/seller.controller"
 import { createContactTicket } from "../controllers/contact.controller"
 
 const router: ReturnType<typeof Router> = Router()
@@ -89,6 +89,12 @@ router.get("/vendedores/destacados", async (req: Request, res: Response) => {
     })
   }
 })
+
+/* ======================================================
+   🔴 SELLERS EN VIVO
+====================================================== */
+
+router.get("/public/sellers/live", getLiveSellers)
 
 /* ======================================================
    🏪 TIENDA PÚBLICA

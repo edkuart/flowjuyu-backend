@@ -3,11 +3,12 @@ import "./config/env";
 
 import app from "./app";
 import { assertDbConnection } from "./config/db";
-import { setupConsentTables, setupPhase2Tables } from "./utils/setupTables";
+import { setupConsentTables, setupPhase2Tables, setupCollectionTables } from "./utils/setupTables";
 import { verifyFailureIntelligenceInfra } from "./services/conversations/conversationInfraHealth.service";
 
-// Register onboarding event listeners (side-effects only — import once here)
+// Register event listeners (side-effects only — import once here)
 import "./lib/onboardingListeners";
+import "./lib/appEventListeners";
 import { getLoadedEnvFiles } from "./config/env";
 
 const PORT = Number(process.env.PORT || 8800);
@@ -46,6 +47,7 @@ async function bootstrap() {
     await assertDbConnection();
     await setupPhase2Tables();
     await setupConsentTables();
+    await setupCollectionTables();
     await verifyFailureIntelligenceInfra();
 
     app.listen(PORT, () => {

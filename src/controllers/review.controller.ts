@@ -4,7 +4,7 @@ import { RequestHandler } from "express";
 import rateLimit from "express-rate-limit";
 import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/db";
-import { createNotification } from "../utils/notifications";
+import { emitAppEvent } from "../lib/appEvents";
 import { logAuditEventFromRequest } from "../services/audit.service";
 import { checkReviewAbuse } from "../services/abuseDetection.service";
 import { REVIEW_RULES } from "../config/securityRules";
@@ -230,13 +230,12 @@ export const createReview: RequestHandler = async (req, res) => {
         comentario: comment ?? null,
       });
 
-      createNotification(
-        buyer_id,
-        "review",
-        "Dejaste una reseña",
-        "Tu opinión ayuda a otros compradores.",
-        `/product/${producto_id}`
-      ).catch(() => {});
+      emitAppEvent("review.created", {
+        buyerId:   buyer_id,
+        sellerId:  sellerIdNum,
+        productId: producto_id,
+        rating:    ratingNumber,
+      });
 
       void logAuditEventFromRequest(req, {
         actor_user_id:  buyer_id,

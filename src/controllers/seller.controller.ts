@@ -13,6 +13,7 @@ import { verifyRefreshToken } from "../lib/jwt";
 import { getRefreshTokenFromRequest } from "../lib/cookies";
 import { logAuditEventFromRequest } from "../services/audit.service";
 import { checkKycAbuse } from "../services/abuseDetection.service";
+import { emitAppEvent } from "../lib/appEvents";
 import { KYC_RULES } from "../config/securityRules";
 import { evaluateKycDefense } from "../services/activeDefense.service";
 import { buildMediaProxyUrl } from "../utils/mediaProxy";
@@ -992,6 +993,280 @@ export const getTopSellers = async (req: Request, res: Response) => {
 };
 
 // ==============================
+// 🔴 LIVE — start / end
+// ==============================
+
+export const startLive: RequestHandler = async (req, res) => {
+  const userId    = (req as any).user?.id as number;
+  const startedAt = new Date();
+  try {
+    const [updated] = await VendedorPerfil.update(
+      { is_live: true, live_started_at: startedAt },
+      { where: { user_id: userId } }
+    );
+
+    if (updated === 0) {
+      res.status(404).json({ message: "Perfil de vendedor no encontrado" });
+      return;
+    }
+
+    emitAppEvent("seller.went_live", { sellerId: userId, startedAt });
+
+    res.json({ success: true, is_live: true });
+  } catch (err) {
+    console.error("startLive error:", err);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const endLive: RequestHandler = async (req, res) => {
+  const userId = (req as any).user?.id as number;
+  try {
+    const [updated] = await VendedorPerfil.update(
+      { is_live: false, live_started_at: null },
+      { where: { user_id: userId } }
+    );
+
+    if (updated === 0) {
+      res.status(404).json({ message: "Perfil de vendedor no encontrado" });
+      return;
+    }
+
+    res.json({ success: true, is_live: false });
+  } catch (err) {
+    console.error("endLive error:", err);
+    res.status(500).json({ message: "Error interno" });
+  }
+};
+
+export const updateLiveConfig: RequestHandler = async (req, res) => {
+  try {
+    const userId = (req as any).user?.id as number | undefined;
+
+    if (!userId) {
+      res.status(401).json({ success: false, message: "No autenticado" });
+      return;
+    }
+
+    const perfil = await VendedorPerfil.findOne({ where: { user_id: userId } });
+
+    if (!perfil) {
+      res.status(404).json({ success: false, message: "Perfil de vendedor no encontrado" });
+      return;
+    }
+
+    let nextMessage = perfil.live_message ?? null;
+    let nextFeaturedIds = Array.isArray(perfil.live_featured_product_ids)
+      ? perfil.live_featured_product_ids
+      : null;
+
+    if (Object.prototype.hasOwnProperty.call(req.body, "live_message")) {
+      const rawMessage = req.body.live_message;
+      const normalizedMessage =
+        typeof rawMessage === "string" ? rawMessage.trim() : "";
+
+      if (rawMessage !== null && typeof rawMessage !== "string") {
+        res.status(400).json({ success: false, message: "live_message debe ser string o null" });
+        return;
+      }
+
+      if (normalizedMessage.length > 160) {
+        res.status(400).json({ success: false, message: "live_message no puede exceder 160 caracteres" });
+        return;
+      }
+
+      nextMessage = normalizedMessage || null;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, "live_featured_product_ids")) {
+      const rawIds = req.body.live_featured_product_ids;
+
+      if (rawIds !== null && !Array.isArray(rawIds)) {
+        res.status(400).json({ success: false, message: "live_featured_product_ids debe ser un arreglo o null" });
+        return;
+      }
+
+      const normalizedIds =
+        rawIds === null
+          ? []
+          : Array.from(
+              new Set(
+                (rawIds as unknown[])
+                  .map((value) => (typeof value === "string" || typeof value === "number" ? String(value).trim() : ""))
+                  .filter(Boolean)
+              )
+            );
+
+      if (normalizedIds.length > 3) {
+        res.status(400).json({ success: false, message: "Solo puedes destacar hasta 3 productos en vivo" });
+        return;
+      }
+
+      if (normalizedIds.length === 0) {
+        nextFeaturedIds = null;
+      } else {
+        const validProducts = await sequelize.query(
+          `
+          SELECT id
+          FROM productos
+          WHERE vendedor_id = :sellerId
+            AND id IN (:productIds)
+          `,
+          {
+            replacements: {
+              sellerId: userId,
+              productIds: normalizedIds,
+            },
+            type: QueryTypes.SELECT,
+          }
+        ) as Array<{ id: string }>;
+
+        const validIds = validProducts.map((product) => String(product.id));
+
+        if (validIds.length !== normalizedIds.length) {
+          res.status(400).json({ success: false, message: "Uno o más productos no pertenecen a tu tienda" });
+          return;
+        }
+
+        nextFeaturedIds = normalizedIds;
+      }
+    }
+
+    await perfil.update({
+      live_message: nextMessage,
+      live_featured_product_ids: nextFeaturedIds,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        live_message: nextMessage,
+        live_featured_product_ids: nextFeaturedIds ?? [],
+      },
+    });
+  } catch (error) {
+    console.error("updateLiveConfig error:", error);
+    res.status(500).json({ success: false, message: "Error interno" });
+  }
+};
+
+export const updateLiveCurrentProduct: RequestHandler = async (req, res) => {
+  try {
+    const userId = (req as any).user?.id as number | undefined;
+
+    if (!userId) {
+      res.status(401).json({ success: false, message: "No autenticado" });
+      return;
+    }
+
+    const perfil = await VendedorPerfil.findOne({ where: { user_id: userId } });
+
+    if (!perfil) {
+      res.status(404).json({ success: false, message: "Perfil de vendedor no encontrado" });
+      return;
+    }
+
+    const rawProductId = req.body?.product_id;
+
+    if (rawProductId !== null && rawProductId !== undefined && typeof rawProductId !== "string") {
+      res.status(400).json({ success: false, message: "product_id debe ser string o null" });
+      return;
+    }
+
+    const productId = typeof rawProductId === "string" ? rawProductId.trim() : "";
+
+    if (!productId) {
+      await perfil.update({ live_current_product_id: null });
+      res.json({
+        success: true,
+        data: {
+          live_current_product_id: null,
+        },
+      });
+      return;
+    }
+
+    const productRows = await sequelize.query(
+      `
+      SELECT id
+      FROM productos
+      WHERE vendedor_id = :sellerId
+        AND id = :productId
+        AND activo = true
+      LIMIT 1
+      `,
+      {
+        replacements: {
+          sellerId: userId,
+          productId,
+        },
+        type: QueryTypes.SELECT,
+      }
+    ) as Array<{ id: string }>;
+
+    if (!productRows.length) {
+      res.status(400).json({
+        success: false,
+        message: "El producto seleccionado debe pertenecer a tu tienda y estar activo",
+      });
+      return;
+    }
+
+    await perfil.update({ live_current_product_id: productId });
+
+    res.json({
+      success: true,
+      data: {
+        live_current_product_id: productId,
+      },
+    });
+  } catch (error) {
+    console.error("updateLiveCurrentProduct error:", error);
+    res.status(500).json({ success: false, message: "Error interno" });
+  }
+};
+
+export const getLiveSellers: RequestHandler = async (_req, res) => {
+  try {
+    const sellers = await sequelize.query(
+      `
+      SELECT
+        vp.user_id AS id,
+        vp.nombre_comercio,
+        vp.logo,
+        vp.banner_url,
+        vp.departamento,
+        vp.municipio,
+        vp.live_started_at,
+        vp.live_message
+      FROM vendedor_perfil vp
+      JOIN users u ON u.id = vp.user_id
+      WHERE vp.is_live = true
+      ORDER BY vp.live_started_at DESC NULLS LAST
+      LIMIT 8
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    const data = (sellers as any[]).map((seller) => ({
+      id: Number(seller.id),
+      nombre_comercio: seller.nombre_comercio ?? null,
+      logo: buildMediaProxyUrl(seller.logo ?? null),
+      banner_url: buildMediaProxyUrl(seller.banner_url ?? null),
+      departamento: seller.departamento ?? null,
+      municipio: seller.municipio ?? null,
+      live_started_at: seller.live_started_at ?? null,
+      live_message: seller.live_message ?? null,
+    }));
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error("Error getLiveSellers:", error);
+    res.status(500).json({ success: false, message: "Error interno del servidor" });
+  }
+};
+
+// ==============================
 // Vista pública completa de tienda
 // ==============================
 export const getPublicSellerStore: RequestHandler = async (req, res) => {
@@ -1025,6 +1300,11 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         vp.facebook,
         vp.tiktok,
         vp.header_style,
+        vp.is_live,
+        vp.live_started_at,
+        vp.live_message,
+        vp.live_featured_product_ids,
+        vp.live_current_product_id,
         vp."createdAt"
       FROM vendedor_perfil vp
       WHERE vp.user_id = :id
@@ -1051,6 +1331,7 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         p.precio,
         p.imagen_url,
         p.internal_code,
+        p.seller_sku,
         p.created_at
       FROM productos p
       WHERE p.vendedor_id = :id
@@ -1063,6 +1344,32 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
       }
     );
 
+    const liveFeaturedIds = Array.isArray(sellerData.live_featured_product_ids)
+      ? sellerData.live_featured_product_ids.map((id: unknown) => String(id))
+      : [];
+
+    const liveFeaturedProducts = liveFeaturedIds.length
+      ? (products ?? [])
+          .filter((product: any) => liveFeaturedIds.includes(String(product.id)))
+          .slice(0, 3)
+          .map((product: any) => ({
+            id: product.id,
+            nombre: product.nombre,
+            precio: product.precio,
+            imagen_url: buildMediaProxyUrl(product.imagen_url),
+            internal_code: product.internal_code ?? null,
+            sku: product.seller_sku ?? null,
+          }))
+      : [];
+
+    const currentLiveProductId =
+      typeof sellerData.live_current_product_id === "string" && sellerData.live_current_product_id.trim()
+        ? sellerData.live_current_product_id.trim()
+        : null;
+
+    const currentLiveProduct = currentLiveProductId
+      ? (products ?? []).find((product: any) => String(product.id) === currentLiveProductId)
+      : null;
 
     res.json({
       seller: {
@@ -1084,6 +1391,19 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         facebook:             sellerData.facebook             ?? null,
         tiktok:               sellerData.tiktok               ?? null,
         header_style:         sellerData.header_style         ?? null,
+        is_live:              sellerData.is_live              ?? false,
+        live_started_at:      sellerData.live_started_at      ?? null,
+        live_message:         sellerData.live_message         ?? null,
+        live_featured_products: liveFeaturedProducts,
+        live_current_product: currentLiveProduct
+          ? {
+              id: currentLiveProduct.id,
+              nombre: currentLiveProduct.nombre,
+              precio: currentLiveProduct.precio,
+              imagen_url: buildMediaProxyUrl(currentLiveProduct.imagen_url),
+              internal_code: currentLiveProduct.internal_code ?? null,
+            }
+          : null,
         // Handle both Sequelize camelCase and raw snake_case column names
         created_at:           sellerData.createdAt            ?? sellerData.created_at ?? null,
       },

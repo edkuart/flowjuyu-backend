@@ -137,6 +137,29 @@ router.put(
 );
 
 // ==============================
+// 🔴 LIVE
+// ==============================
+router.post(
+  "/live/start",
+  asyncHandler(SellerController.startLive)
+);
+
+router.post(
+  "/live/end",
+  asyncHandler(SellerController.endLive)
+);
+
+router.patch(
+  "/live/config",
+  asyncHandler(SellerController.updateLiveConfig)
+);
+
+router.patch(
+  "/live/current-product",
+  asyncHandler(SellerController.updateLiveCurrentProduct)
+);
+
+// ==============================
 // 🏛 Validación legal (KYC)
 // ==============================
 router.post(

@@ -30,6 +30,7 @@ import categoriesRoutes from "./routes/categories.routes";
 import reviewRoutes from "./routes/review.routes";
 import favoritesRoutes from "./routes/favorites.routes";
 import notificationsRoutes from "./routes/notifications.routes";
+import followsRoutes from "./routes/follows.routes";
 import recommendationsRoutes from "./routes/recommendations.routes";
 import orderRoutes         from "./routes/order.routes";
 import paymentRoutes       from "./routes/payment.routes";
@@ -37,6 +38,7 @@ import sellerBillingRoutes from "./routes/sellerBilling.routes";
 import adminBillingRoutes  from "./routes/adminBilling.routes";
 import whatsappIntegrationRoutes from "./routes/whatsappIntegration.routes";
 import consentRoutes from "./routes/consent.routes";
+import collectionsRoutes from "./routes/collections.routes";
 
 // Initialize Sequelize associations (must run before any query uses `include`)
 import "./models";
@@ -305,6 +307,8 @@ app.use("/api/seller/billing", sellerBillingRoutes); // Phase 3: Seller Billing 
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/favorites", favoritesRoutes);
 app.use("/api/notifications", notificationsRoutes);
+app.use("/api/follows", followsRoutes);
+app.use("/api/collections", collectionsRoutes);
 
 // Phase 5: Payment Security
 // IMPORTANT: /api/payments must be mounted BEFORE express.json() would affect

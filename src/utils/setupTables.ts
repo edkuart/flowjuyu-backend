@@ -63,6 +63,40 @@ export async function setupPhase2Tables(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_wa_clicks_seller_id ON whatsapp_clicks (seller_id)`
   );
 
+  await run(
+    "whatsapp_unlinked_seller_attempts table",
+    `
+    CREATE TABLE IF NOT EXISTS whatsapp_unlinked_seller_attempts (
+      id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+      session_id      UUID,
+      seller_user_id  INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+      phone_e164      VARCHAR(20)  NOT NULL,
+      wa_message_id   VARCHAR(255) NOT NULL UNIQUE,
+      message_type    VARCHAR(30)  NOT NULL,
+      message_preview VARCHAR(280),
+      reason          VARCHAR(50)  NOT NULL,
+      metadata        JSONB,
+      created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMP    NOT NULL DEFAULT NOW()
+    )
+    `
+  );
+
+  await run(
+    "whatsapp_unlinked_seller_attempts index seller",
+    `CREATE INDEX IF NOT EXISTS idx_wa_unlinked_attempts_seller ON whatsapp_unlinked_seller_attempts (seller_user_id)`
+  );
+
+  await run(
+    "whatsapp_unlinked_seller_attempts index phone",
+    `CREATE INDEX IF NOT EXISTS idx_wa_unlinked_attempts_phone ON whatsapp_unlinked_seller_attempts (phone_e164)`
+  );
+
+  await run(
+    "whatsapp_unlinked_seller_attempts index reason",
+    `CREATE INDEX IF NOT EXISTS idx_wa_unlinked_attempts_reason ON whatsapp_unlinked_seller_attempts (reason)`
+  );
+
   // ── favorites ─────────────────────────────────────────────────────────────
   await run(
     "favorites table",
@@ -111,7 +145,170 @@ export async function setupPhase2Tables(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications (user_id, is_read) WHERE is_read = false`
   );
 
+  // ── notifications: engagement extension ──────────────────────────────────
+  // All columns are nullable (or have safe defaults) so existing rows are
+  // unaffected. ADD COLUMN IF NOT EXISTS is a no-op when columns exist.
+
+  await run(
+    "notifications col metadata",
+    `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS metadata     JSONB`
+  );
+
+  await run(
+    "notifications col actor_id",
+    `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS actor_id     INTEGER`
+  );
+
+  await run(
+    "notifications col actor_type",
+    `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS actor_type   VARCHAR(20)`
+  );
+
+  await run(
+    "notifications col subject_type",
+    `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS subject_type VARCHAR(30)`
+  );
+
+  await run(
+    "notifications col subject_id",
+    `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS subject_id   VARCHAR(50)`
+  );
+
+  // is_feed_item defaults false → existing rows stay out of the feed
+  await run(
+    "notifications col is_feed_item",
+    `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS is_feed_item BOOLEAN NOT NULL DEFAULT false`
+  );
+
+  // channel defaults 'ui' → existing rows were all UI-only
+  await run(
+    "notifications col channel",
+    `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS channel      VARCHAR(20) NOT NULL DEFAULT 'ui'`
+  );
+
+  // Partial index: only covers feed rows → small and fast
+  await run(
+    "notifications index feed",
+    `CREATE INDEX IF NOT EXISTS idx_notifications_feed ON notifications (user_id, created_at DESC) WHERE is_feed_item = true`
+  );
+
+  // ── seller_follows ────────────────────────────────────────────────────────
+  await run(
+    "seller_follows table",
+    `
+    CREATE TABLE IF NOT EXISTS seller_follows (
+      id                    UUID      PRIMARY KEY DEFAULT gen_random_uuid(),
+      follower_user_id      INTEGER   NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      seller_user_id        INTEGER   NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      notifications_enabled BOOLEAN   NOT NULL DEFAULT true,
+      created_at            TIMESTAMP NOT NULL DEFAULT NOW(),
+      CONSTRAINT seller_follows_unique UNIQUE (follower_user_id, seller_user_id),
+      CONSTRAINT no_self_follow        CHECK  (follower_user_id <> seller_user_id)
+    )
+    `
+  );
+
+  // Fan-out hot path: "dame todos los followers de este seller con notifs activas"
+  await run(
+    "seller_follows index seller",
+    `CREATE INDEX IF NOT EXISTS idx_seller_follows_seller ON seller_follows (seller_user_id, notifications_enabled)`
+  );
+
+  // Buyer list: "¿a quién sigo yo?"
+  await run(
+    "seller_follows index follower",
+    `CREATE INDEX IF NOT EXISTS idx_seller_follows_follower ON seller_follows (follower_user_id)`
+  );
+
+  // ── vendedor_perfil: live columns ─────────────────────────────────────────
+  // is_live defaults false → existing sellers start offline.
+  // live_started_at is nullable → no data loss on existing rows.
+  await run(
+    "vendedor_perfil col is_live",
+    `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS is_live BOOLEAN NOT NULL DEFAULT false`
+  );
+
+  await run(
+    "vendedor_perfil col live_started_at",
+    `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS live_started_at TIMESTAMP NULL`
+  );
+
+  await run(
+    "vendedor_perfil col live_message",
+    `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS live_message VARCHAR(160) NULL`
+  );
+
+  await run(
+    "vendedor_perfil col live_featured_product_ids",
+    `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS live_featured_product_ids JSONB`
+  );
+
+  await run(
+    "vendedor_perfil col live_current_product_id",
+    `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS live_current_product_id UUID NULL`
+  );
+
   console.log("🔧 setupPhase2Tables: done.");
+}
+
+export async function setupCollectionTables(): Promise<void> {
+  console.log("🔧 setupCollectionTables: checking tables...");
+
+  // ── collections ───────────────────────────────────────────────────────────
+  await run(
+    "collections table",
+    `
+    CREATE TABLE IF NOT EXISTS collections (
+      id                   SERIAL        PRIMARY KEY,
+      seller_id            INTEGER       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name                 VARCHAR(120)  NOT NULL,
+      description          TEXT,
+      background_color     VARCHAR(20)   NOT NULL DEFAULT '#FFFFFF',
+      background_image_url TEXT,
+      canvas_width         INTEGER       NOT NULL DEFAULT 800,
+      canvas_height        INTEGER       NOT NULL DEFAULT 600,
+      status               VARCHAR(20)   NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+      created_at           TIMESTAMP     NOT NULL DEFAULT NOW(),
+      updated_at           TIMESTAMP     NOT NULL DEFAULT NOW()
+    )
+    `
+  );
+
+  await run(
+    "collections index seller_id",
+    `CREATE INDEX IF NOT EXISTS idx_collections_seller_id ON collections (seller_id)`
+  );
+
+  await run(
+    "collections index status",
+    `CREATE INDEX IF NOT EXISTS idx_collections_status ON collections (seller_id, status)`
+  );
+
+  // ── collection_items ──────────────────────────────────────────────────────
+  await run(
+    "collection_items table",
+    `
+    CREATE TABLE IF NOT EXISTS collection_items (
+      id             SERIAL    PRIMARY KEY,
+      collection_id  INTEGER   NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+      product_id     UUID      NOT NULL REFERENCES productos(id)   ON DELETE CASCADE,
+      pos_x          FLOAT     NOT NULL DEFAULT 0,
+      pos_y          FLOAT     NOT NULL DEFAULT 0,
+      width          FLOAT     NOT NULL DEFAULT 150,
+      height         FLOAT     NOT NULL DEFAULT 150,
+      z_index        INTEGER   NOT NULL DEFAULT 0,
+      created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at     TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+    `
+  );
+
+  await run(
+    "collection_items index collection_id",
+    `CREATE INDEX IF NOT EXISTS idx_collection_items_collection_id ON collection_items (collection_id)`
+  );
+
+  console.log("🔧 setupCollectionTables: done.");
 }
 
 export async function setupConsentTables(): Promise<void> {

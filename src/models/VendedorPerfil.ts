@@ -124,6 +124,13 @@ interface VendedorPerfilAttrs {
   first_product_id?: string | null;
   activation_at?: Date | null;
 
+  /* 🔴 LIVE */
+  is_live?: boolean;
+  live_started_at?: Date | null;
+  live_message?: string | null;
+  live_featured_product_ids?: string[] | null;
+  live_current_product_id?: string | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -175,6 +182,11 @@ type Creation = Optional<
   | "onboarding_completed_at"
   | "first_product_id"
   | "activation_at"
+  | "is_live"
+  | "live_started_at"
+  | "live_message"
+  | "live_featured_product_ids"
+  | "live_current_product_id"
 >;
 
 /* ======================================================
@@ -245,6 +257,13 @@ export class VendedorPerfil
   public onboarding_completed_at?: Date | null;
   public first_product_id?: string | null;
   public activation_at?: Date | null;
+
+  /* 🔴 LIVE */
+  public is_live?: boolean;
+  public live_started_at?: Date | null;
+  public live_message?: string | null;
+  public live_featured_product_ids?: string[] | null;
+  public live_current_product_id?: string | null;
 
   public readonly createdAt?: Date;
   public readonly updatedAt?: Date;
@@ -493,6 +512,34 @@ VendedorPerfil.init(
 
     activation_at: {
       type: DataTypes.DATE,
+      allowNull: true,
+    },
+
+    /* 🔴 LIVE */
+    is_live: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+
+    live_started_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+
+    live_message: {
+      type: DataTypes.STRING(160),
+      allowNull: true,
+    },
+
+    live_featured_product_ids: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: [],
+    },
+
+    live_current_product_id: {
+      type: DataTypes.UUID,
       allowNull: true,
     },
 
