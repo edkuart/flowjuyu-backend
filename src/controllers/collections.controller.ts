@@ -3,6 +3,8 @@
 import { RequestHandler } from "express";
 import { sequelize } from "../config/db";
 import { QueryTypes } from "sequelize";
+import { v4 as uuidv4 } from "uuid";
+import supabase from "../lib/supabase";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: verify that a collection belongs to the requesting seller
@@ -93,24 +95,27 @@ export const getCollectionById: RequestHandler = async (req, res): Promise<void>
     if (!collection) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
 
     const items = await sequelize.query<{
-      id: number; product_id: string;
+      id: number; element_type: string; content: any;
+      product_id: string | null;
       pos_x: number; pos_y: number; width: number; height: number; z_index: number;
-      product_name: string; product_image: string | null; product_price: number;
+      product_name: string | null; product_image: string | null; product_price: number | null;
     }>(
       `
       SELECT
         ci.id,
+        ci.element_type,
+        ci.content,
         ci.product_id,
         ci.pos_x,
         ci.pos_y,
         ci.width,
         ci.height,
         ci.z_index,
-        p.nombre  AS product_name,
+        p.nombre     AS product_name,
         p.imagen_url AS product_image,
-        p.precio  AS product_price
+        p.precio     AS product_price
       FROM collection_items ci
-      JOIN productos p ON p.id = ci.product_id
+      LEFT JOIN productos p ON p.id = ci.product_id
       WHERE ci.collection_id = :collectionId
       ORDER BY ci.z_index ASC
       `,
@@ -194,6 +199,7 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
       description,
       background_color,
       background_image_url,
+      background_style,
       canvas_width,
       canvas_height,
     } = req.body;
@@ -205,6 +211,7 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
         description          = COALESCE(:description, description),
         background_color     = COALESCE(:backgroundColor, background_color),
         background_image_url = COALESCE(:backgroundImageUrl, background_image_url),
+        background_style     = CASE WHEN :hasStyle THEN :backgroundStyle ELSE background_style END,
         canvas_width         = COALESCE(:canvasWidth, canvas_width),
         canvas_height        = COALESCE(:canvasHeight, canvas_height),
         updated_at           = NOW()
@@ -217,6 +224,8 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
           description: description ?? null,
           backgroundColor: background_color ?? null,
           backgroundImageUrl: background_image_url ?? null,
+          hasStyle: background_style !== undefined,
+          backgroundStyle: background_style ?? null,
           canvasWidth: canvas_width ?? null,
           canvasHeight: canvas_height ?? null,
         },
@@ -301,7 +310,9 @@ export const addItem: RequestHandler = async (req, res): Promise<void> => {
     if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
 
     const {
-      product_id,
+      product_id = null,
+      element_type = "product",
+      content = null,
       pos_x = 50,
       pos_y = 50,
       width = 150,
@@ -309,34 +320,41 @@ export const addItem: RequestHandler = async (req, res): Promise<void> => {
       z_index = 0,
     } = req.body;
 
-    if (!product_id) {
-      res.status(400).json({ ok: false, message: "product_id es requerido" });
+    const validTypes = ["product", "text", "shape", "image"];
+    if (!validTypes.includes(element_type)) {
+      res.status(400).json({ ok: false, message: "element_type inválido" });
       return;
     }
 
-    // Verify the product belongs to this seller
-    const [product] = await sequelize.query<{ id: string }>(
-      `SELECT id FROM productos WHERE id = :productId AND vendedor_id = :sellerId AND activo = true LIMIT 1`,
-      { replacements: { productId: product_id, sellerId: user.id }, type: QueryTypes.SELECT }
-    );
-
-    if (!product) {
-      res.status(400).json({ ok: false, message: "Producto no válido para esta colección" });
-      return;
+    if (element_type === "product") {
+      if (!product_id) {
+        res.status(400).json({ ok: false, message: "product_id es requerido para tipo producto" });
+        return;
+      }
+      const [product] = await sequelize.query<{ id: string }>(
+        `SELECT id FROM productos WHERE id = :productId AND vendedor_id = :sellerId AND activo = true LIMIT 1`,
+        { replacements: { productId: product_id, sellerId: user.id }, type: QueryTypes.SELECT }
+      );
+      if (!product) {
+        res.status(400).json({ ok: false, message: "Producto no válido para esta colección" });
+        return;
+      }
     }
 
     const [item] = await sequelize.query<{ id: number }>(
       `
       INSERT INTO collection_items
-        (collection_id, product_id, pos_x, pos_y, width, height, z_index, created_at, updated_at)
+        (collection_id, product_id, element_type, content, pos_x, pos_y, width, height, z_index, created_at, updated_at)
       VALUES
-        (:collectionId, :productId, :posX, :posY, :width, :height, :zIndex, NOW(), NOW())
+        (:collectionId, :productId, :elementType, CAST(:content AS jsonb), :posX, :posY, :width, :height, :zIndex, NOW(), NOW())
       RETURNING id
       `,
       {
         replacements: {
           collectionId,
           productId: product_id,
+          elementType: element_type,
+          content: content !== null ? JSON.stringify(content) : null,
           posX: pos_x,
           posY: pos_y,
           width,
@@ -369,7 +387,7 @@ export const updateItem: RequestHandler = async (req, res): Promise<void> => {
     const owned = await assertOwnership(collectionId, user.id);
     if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
 
-    const { pos_x, pos_y, width, height, z_index } = req.body;
+    const { pos_x, pos_y, width, height, z_index, content } = req.body;
 
     await sequelize.query(
       `
@@ -379,6 +397,7 @@ export const updateItem: RequestHandler = async (req, res): Promise<void> => {
         width      = COALESCE(:width, width),
         height     = COALESCE(:height, height),
         z_index    = COALESCE(:zIndex, z_index),
+        content    = CASE WHEN :contentJson IS NULL THEN content ELSE CAST(:contentJson AS jsonb) END,
         updated_at = NOW()
       WHERE id = :itemId AND collection_id = :collectionId
       `,
@@ -391,6 +410,7 @@ export const updateItem: RequestHandler = async (req, res): Promise<void> => {
           width: width ?? null,
           height: height ?? null,
           zIndex: z_index ?? null,
+          contentJson: content !== undefined ? JSON.stringify(content) : null,
         },
         type: QueryTypes.UPDATE,
       }
@@ -431,6 +451,52 @@ export const removeItem: RequestHandler = async (req, res): Promise<void> => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /api/collections/:id/images
+// Uploads an image to Supabase and returns its public URL.
+// Used by the collection editor to add image elements to the canvas.
+// ─────────────────────────────────────────────────────────────────────────────
+export const uploadCollectionImage: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+
+    const collectionId = Number(req.params.id);
+    const owned = await assertOwnership(collectionId, user.id);
+    if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
+
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) {
+      res.status(400).json({ ok: false, message: "No se recibió ninguna imagen" });
+      return;
+    }
+
+    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];
+    if (!allowed.includes(file.mimetype)) {
+      res.status(400).json({ ok: false, message: "Formato no permitido (jpg, png, webp, gif)" });
+      return;
+    }
+
+    const ext = file.originalname.split(".").pop() ?? "jpg";
+    const fileName = `collections/${collectionId}/${uuidv4()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("colecciones_imagenes")
+      .upload(fileName, file.buffer, { contentType: file.mimetype });
+
+    if (uploadError) throw uploadError;
+
+    const { data: publicUrlData } = supabase.storage
+      .from("colecciones_imagenes")
+      .getPublicUrl(fileName);
+
+    res.status(201).json({ ok: true, url: publicUrlData.publicUrl });
+  } catch (err) {
+    console.error("[collections] uploadCollectionImage:", err);
+    res.status(500).json({ ok: false, message: "Error al subir imagen" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/collections/public/seller/:sellerId
 // Public: returns published collections by numeric seller user_id
 // Used by the store frontend which only has seller.id (user id)
@@ -446,6 +512,7 @@ export const getPublicCollectionsBySellerId: RequestHandler = async (req, res): 
     const collections = await sequelize.query<{
       id: number; name: string; description: string | null;
       background_color: string; background_image_url: string | null;
+      background_style: string | null;
       canvas_width: number; canvas_height: number; created_at: Date;
       items: any;
     }>(
@@ -456,6 +523,7 @@ export const getPublicCollectionsBySellerId: RequestHandler = async (req, res): 
         c.description,
         c.background_color,
         c.background_image_url,
+        c.background_style,
         c.canvas_width,
         c.canvas_height,
         c.created_at,
@@ -463,16 +531,18 @@ export const getPublicCollectionsBySellerId: RequestHandler = async (req, res): 
           json_agg(
             json_build_object(
               'id',            ci.id,
+              'element_type',  ci.element_type,
+              'content',       ci.content,
               'product_id',    ci.product_id,
               'pos_x',         ci.pos_x,
               'pos_y',         ci.pos_y,
               'width',         ci.width,
               'height',        ci.height,
               'z_index',       ci.z_index,
-              'product_name',    p.nombre,
-              'product_image',   p.imagen_url,
-              'product_price',   p.precio,
-              'internal_code',   p.internal_code
+              'product_name',  p.nombre,
+              'product_image', p.imagen_url,
+              'product_price', p.precio,
+              'internal_code', p.internal_code
             ) ORDER BY ci.z_index ASC
           ) FILTER (WHERE ci.id IS NOT NULL),
           '[]'
@@ -506,6 +576,7 @@ export const getPublicCollections: RequestHandler = async (req, res): Promise<vo
     const collections = await sequelize.query<{
       id: number; name: string; description: string | null;
       background_color: string; background_image_url: string | null;
+      background_style: string | null;
       canvas_width: number; canvas_height: number; created_at: Date;
       items: any;
     }>(
@@ -516,6 +587,7 @@ export const getPublicCollections: RequestHandler = async (req, res): Promise<vo
         c.description,
         c.background_color,
         c.background_image_url,
+        c.background_style,
         c.canvas_width,
         c.canvas_height,
         c.created_at,
@@ -523,16 +595,18 @@ export const getPublicCollections: RequestHandler = async (req, res): Promise<vo
           json_agg(
             json_build_object(
               'id',            ci.id,
+              'element_type',  ci.element_type,
+              'content',       ci.content,
               'product_id',    ci.product_id,
               'pos_x',         ci.pos_x,
               'pos_y',         ci.pos_y,
               'width',         ci.width,
               'height',        ci.height,
               'z_index',       ci.z_index,
-              'product_name',    p.nombre,
-              'product_image',   p.imagen_url,
-              'product_price',   p.precio,
-              'internal_code',   p.internal_code
+              'product_name',  p.nombre,
+              'product_image', p.imagen_url,
+              'product_price', p.precio,
+              'internal_code', p.internal_code
             ) ORDER BY ci.z_index ASC
           ) FILTER (WHERE ci.id IS NOT NULL),
           '[]'

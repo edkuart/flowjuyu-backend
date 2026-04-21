@@ -3,6 +3,7 @@
 // Each statement is isolated: one failure never prevents others from running.
 
 import { sequelize } from "../config/db";
+import supabase from "../lib/supabase";
 
 async function run(label: string, sql: string): Promise<void> {
   try {
@@ -248,6 +249,21 @@ export async function setupPhase2Tables(): Promise<void> {
     `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS live_current_product_id UUID NULL`
   );
 
+  await run(
+    "vendedor_perfil col live_external_url",
+    `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS live_external_url TEXT NULL`
+  );
+
+  await run(
+    "vendedor_perfil col live_platform",
+    `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS live_platform VARCHAR(20) NULL`
+  );
+
+  await run(
+    "vendedor_perfil col live_collection_id",
+    `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS live_collection_id INTEGER NULL`
+  );
+
   console.log("🔧 setupPhase2Tables: done.");
 }
 
@@ -284,6 +300,13 @@ export async function setupCollectionTables(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_collections_status ON collections (seller_id, status)`
   );
 
+  // background_style stores a full CSS background string (gradient or solid).
+  // When set, it overrides background_color in the frontend.
+  await run(
+    "collections col background_style",
+    `ALTER TABLE collections ADD COLUMN IF NOT EXISTS background_style TEXT`
+  );
+
   // ── collection_items ──────────────────────────────────────────────────────
   await run(
     "collection_items table",
@@ -307,6 +330,39 @@ export async function setupCollectionTables(): Promise<void> {
     "collection_items index collection_id",
     `CREATE INDEX IF NOT EXISTS idx_collection_items_collection_id ON collection_items (collection_id)`
   );
+
+  // ── collection_items: text / shape / animation support ────────────────────
+  // product_id was NOT NULL; make it nullable so text/shape items can omit it.
+  await run(
+    "collection_items col product_id nullable",
+    `ALTER TABLE collection_items ALTER COLUMN product_id DROP NOT NULL`
+  );
+
+  await run(
+    "collection_items col element_type",
+    `ALTER TABLE collection_items ADD COLUMN IF NOT EXISTS element_type VARCHAR(20) NOT NULL DEFAULT 'product'`
+  );
+
+  await run(
+    "collection_items col content",
+    `ALTER TABLE collection_items ADD COLUMN IF NOT EXISTS content JSONB`
+  );
+
+  // ── Supabase storage bucket for collection images ─────────────────────────
+  try {
+    const { error } = await supabase.storage.createBucket("colecciones_imagenes", {
+      public: true,
+      allowedMimeTypes: ["image/jpeg", "image/png", "image/webp", "image/gif"],
+      fileSizeLimit: 8 * 1024 * 1024,
+    });
+    if (!error || error.message?.includes("already exists") || (error as any)?.error === "Duplicate") {
+      console.log("  ✅ colecciones_imagenes bucket (ready)");
+    } else {
+      console.error("  ❌ colecciones_imagenes bucket:", error.message);
+    }
+  } catch (err: any) {
+    console.error("  ❌ colecciones_imagenes bucket:", err?.message ?? err);
+  }
 
   console.log("🔧 setupCollectionTables: done.");
 }

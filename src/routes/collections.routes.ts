@@ -1,10 +1,13 @@
 // src/routes/collections.routes.ts
 
 import { Router } from "express";
+import multer from "multer";
 import asyncHandler from "../middleware/asyncHandler";
 import { verifyToken, requireRole } from "../middleware/auth";
 import { requireActiveSeller } from "../middleware/requireActiveSeller";
 import * as CollectionsController from "../controllers/collections.controller";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -78,6 +81,13 @@ router.put(
 router.delete(
   "/:id/items/:itemId",
   asyncHandler(CollectionsController.removeItem)
+);
+
+// Image upload for canvas elements
+router.post(
+  "/:id/images",
+  upload.single("image"),
+  asyncHandler(CollectionsController.uploadCollectionImage)
 );
 
 export default router;

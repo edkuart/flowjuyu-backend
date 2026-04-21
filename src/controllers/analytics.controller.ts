@@ -373,6 +373,82 @@ export const trackAnalyticsEvent: RequestHandler = async (req, res) => {
   res.status(200).json({ ok: true });
 };
 
+export const getLiveViewerCount: RequestHandler = async (req, res) => {
+  try {
+    const sellerId = Number(req.params.sellerId);
+
+    if (!Number.isInteger(sellerId) || sellerId <= 0) {
+      res.status(400).json({ success: false, message: "sellerId inválido" });
+      return;
+    }
+
+    const rows = await sequelize.query<{
+      viewer_count: number;
+      buyer_viewer_count: number;
+      guest_viewer_count: number;
+      internal_viewer_count: number;
+    }>(
+      `
+      WITH active_viewers AS (
+        SELECT
+          CASE
+            WHEN ae.payload->>'role' = 'buyer'
+              AND NULLIF(ae.payload->>'user_id', '') IS NOT NULL
+              THEN CONCAT('buyer:', ae.payload->>'user_id')
+            WHEN NULLIF(ae.payload->>'user_id', '') IS NULL
+              AND NULLIF(ae.payload->>'session_id', '') IS NOT NULL
+              THEN CONCAT('guest:', ae.payload->>'session_id')
+            WHEN ae.payload->>'role' IN ('seller', 'admin')
+              AND NULLIF(ae.payload->>'user_id', '') IS NOT NULL
+              THEN CONCAT('internal:', ae.payload->>'role', ':', ae.payload->>'user_id')
+            ELSE NULL
+          END AS viewer_key,
+          CASE
+            WHEN ae.payload->>'role' = 'buyer'
+              AND NULLIF(ae.payload->>'user_id', '') IS NOT NULL
+              THEN 'buyer'
+            WHEN NULLIF(ae.payload->>'user_id', '') IS NULL
+              AND NULLIF(ae.payload->>'session_id', '') IS NOT NULL
+              THEN 'guest'
+            WHEN ae.payload->>'role' IN ('seller', 'admin')
+              AND NULLIF(ae.payload->>'user_id', '') IS NOT NULL
+              THEN 'internal'
+            ELSE NULL
+          END AS viewer_type
+        FROM analytics_events ae
+        WHERE ae.seller_id = :sellerId
+          AND ae.event_name IN ('live_store_view', 'live_store_heartbeat')
+          AND ae.created_at >= NOW() - INTERVAL '90 seconds'
+      )
+      SELECT
+        COUNT(DISTINCT viewer_key) FILTER (WHERE viewer_type IN ('buyer', 'guest'))::int AS viewer_count,
+        COUNT(DISTINCT viewer_key) FILTER (WHERE viewer_type = 'buyer')::int AS buyer_viewer_count,
+        COUNT(DISTINCT viewer_key) FILTER (WHERE viewer_type = 'guest')::int AS guest_viewer_count,
+        COUNT(DISTINCT viewer_key) FILTER (WHERE viewer_type = 'internal')::int AS internal_viewer_count
+      FROM active_viewers
+      WHERE viewer_key IS NOT NULL
+      `,
+      {
+        replacements: { sellerId },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        viewer_count: Number(rows[0]?.viewer_count) || 0,
+        buyer_viewer_count: Number(rows[0]?.buyer_viewer_count) || 0,
+        guest_viewer_count: Number(rows[0]?.guest_viewer_count) || 0,
+        internal_viewer_count: Number(rows[0]?.internal_viewer_count) || 0,
+      },
+    });
+  } catch (error) {
+    console.error("Error getLiveViewerCount:", error);
+    res.status(500).json({ success: false, message: "Error interno" });
+  }
+};
+
 export const getSellerAnalyticsOverview: RequestHandler = async (req, res) => {
   try {
     const sellerId = req.user?.id;
@@ -405,5 +481,60 @@ export const getSellerAnalyticsOverview: RequestHandler = async (req, res) => {
     res.status(500).json({
       message: "Error interno del servidor",
     });
+  }
+};
+
+export const getSellerLiveMetrics: RequestHandler = async (req, res) => {
+  try {
+    const sellerId = req.user?.id;
+
+    if (!sellerId) {
+      res.status(401).json({ message: "No autenticado" });
+      return;
+    }
+
+    const rows = await sequelize.query<{
+      external_clicks_total: number;
+      external_clicks_last_24h: number;
+      product_clicks_total: number;
+      whatsapp_clicks_total: number;
+    }>(
+      `
+      SELECT
+        COUNT(*) FILTER (WHERE event_name = 'live_external_click')::int AS external_clicks_total,
+        COUNT(*) FILTER (
+          WHERE event_name = 'live_external_click'
+            AND created_at >= NOW() - INTERVAL '24 hours'
+        )::int AS external_clicks_last_24h,
+        COUNT(*) FILTER (WHERE event_name = 'live_product_click')::int AS product_clicks_total,
+        COUNT(*) FILTER (WHERE event_name = 'live_whatsapp_click')::int AS whatsapp_clicks_total
+      FROM analytics_events
+      WHERE seller_id = :sellerId
+      `,
+      {
+        replacements: { sellerId: Number(sellerId) },
+        type: QueryTypes.SELECT,
+      },
+    );
+
+    const metrics = rows[0] ?? {
+      external_clicks_total: 0,
+      external_clicks_last_24h: 0,
+      product_clicks_total: 0,
+      whatsapp_clicks_total: 0,
+    };
+
+    res.json({
+      success: true,
+      data: {
+        external_clicks_total: Number(metrics.external_clicks_total ?? 0),
+        external_clicks_last_24h: Number(metrics.external_clicks_last_24h ?? 0),
+        product_clicks_total: Number(metrics.product_clicks_total ?? 0),
+        whatsapp_clicks_total: Number(metrics.whatsapp_clicks_total ?? 0),
+      },
+    });
+  } catch (error) {
+    console.error("Error getSellerLiveMetrics:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
   }
 };

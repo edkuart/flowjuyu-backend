@@ -155,6 +155,11 @@ router.patch(
 );
 
 router.patch(
+  "/live/external",
+  asyncHandler(SellerController.updateLiveExternal)
+);
+
+router.patch(
   "/live/current-product",
   asyncHandler(SellerController.updateLiveCurrentProduct)
 );

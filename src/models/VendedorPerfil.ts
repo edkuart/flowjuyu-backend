@@ -130,6 +130,9 @@ interface VendedorPerfilAttrs {
   live_message?: string | null;
   live_featured_product_ids?: string[] | null;
   live_current_product_id?: string | null;
+  live_external_url?: string | null;
+  live_platform?: "tiktok" | "instagram" | "facebook" | null;
+  live_collection_id?: number | null;
 
   createdAt?: Date;
   updatedAt?: Date;
@@ -187,6 +190,9 @@ type Creation = Optional<
   | "live_message"
   | "live_featured_product_ids"
   | "live_current_product_id"
+  | "live_external_url"
+  | "live_platform"
+  | "live_collection_id"
 >;
 
 /* ======================================================
@@ -264,6 +270,9 @@ export class VendedorPerfil
   public live_message?: string | null;
   public live_featured_product_ids?: string[] | null;
   public live_current_product_id?: string | null;
+  public live_external_url?: string | null;
+  public live_platform?: "tiktok" | "instagram" | "facebook" | null;
+  public live_collection_id?: number | null;
 
   public readonly createdAt?: Date;
   public readonly updatedAt?: Date;
@@ -540,6 +549,24 @@ VendedorPerfil.init(
 
     live_current_product_id: {
       type: DataTypes.UUID,
+      allowNull: true,
+    },
+
+    live_external_url: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    live_platform: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      validate: {
+        isIn: [["tiktok", "instagram", "facebook"]],
+      },
+    },
+
+    live_collection_id: {
+      type: DataTypes.INTEGER,
       allowNull: true,
     },
 

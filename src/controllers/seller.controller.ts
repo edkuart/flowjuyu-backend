@@ -17,6 +17,37 @@ import { emitAppEvent } from "../lib/appEvents";
 import { KYC_RULES } from "../config/securityRules";
 import { evaluateKycDefense } from "../services/activeDefense.service";
 import { buildMediaProxyUrl } from "../utils/mediaProxy";
+import { getLiveExternalPreview } from "../utils/liveExternalPreview";
+
+const LIVE_PLATFORMS = ["tiktok", "instagram", "facebook"] as const;
+type LivePlatform = (typeof LIVE_PLATFORMS)[number];
+
+function normalizeLivePlatform(value: unknown): LivePlatform | null {
+  if (typeof value !== "string") return null;
+
+  const normalized = value.trim().toLowerCase();
+  return LIVE_PLATFORMS.includes(normalized as LivePlatform)
+    ? (normalized as LivePlatform)
+    : null;
+}
+
+function normalizeLiveExternalUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+
+  const normalized = value.trim();
+  if (!normalized) return null;
+
+  try {
+    const parsed = new URL(normalized);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return null;
+    }
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/seller/entry-point
@@ -1059,6 +1090,10 @@ export const updateLiveConfig: RequestHandler = async (req, res) => {
     let nextFeaturedIds = Array.isArray(perfil.live_featured_product_ids)
       ? perfil.live_featured_product_ids
       : null;
+    let nextCollectionId =
+      Number.isInteger(Number(perfil.live_collection_id)) && Number(perfil.live_collection_id) > 0
+        ? Number(perfil.live_collection_id)
+        : null;
 
     if (Object.prototype.hasOwnProperty.call(req.body, "live_message")) {
       const rawMessage = req.body.live_message;
@@ -1132,9 +1167,49 @@ export const updateLiveConfig: RequestHandler = async (req, res) => {
       }
     }
 
+    if (Object.prototype.hasOwnProperty.call(req.body, "live_collection_id")) {
+      const rawCollectionId = req.body.live_collection_id;
+
+      if (rawCollectionId !== null && rawCollectionId !== undefined && rawCollectionId !== "" && !Number.isInteger(Number(rawCollectionId))) {
+        res.status(400).json({ success: false, message: "live_collection_id debe ser número o null" });
+        return;
+      }
+
+      const normalizedCollectionId = Number(rawCollectionId);
+
+      if (rawCollectionId === null || rawCollectionId === undefined || rawCollectionId === "" || !Number.isInteger(normalizedCollectionId) || normalizedCollectionId <= 0) {
+        nextCollectionId = null;
+      } else {
+        const collectionRows = await sequelize.query(
+          `
+          SELECT id
+          FROM collections
+          WHERE id = :collectionId
+            AND seller_id = :sellerId
+          LIMIT 1
+          `,
+          {
+            replacements: {
+              collectionId: normalizedCollectionId,
+              sellerId: userId,
+            },
+            type: QueryTypes.SELECT,
+          }
+        ) as Array<{ id: number }>;
+
+        if (!collectionRows.length) {
+          res.status(400).json({ success: false, message: "La colección seleccionada no pertenece a tu tienda" });
+          return;
+        }
+
+        nextCollectionId = normalizedCollectionId;
+      }
+    }
+
     await perfil.update({
       live_message: nextMessage,
       live_featured_product_ids: nextFeaturedIds,
+      live_collection_id: nextCollectionId,
     });
 
     res.json({
@@ -1142,10 +1217,100 @@ export const updateLiveConfig: RequestHandler = async (req, res) => {
       data: {
         live_message: nextMessage,
         live_featured_product_ids: nextFeaturedIds ?? [],
+        live_collection_id: nextCollectionId,
       },
     });
   } catch (error) {
     console.error("updateLiveConfig error:", error);
+    res.status(500).json({ success: false, message: "Error interno" });
+  }
+};
+
+export const updateLiveExternal: RequestHandler = async (req, res) => {
+  try {
+    const userId = (req as any).user?.id as number | undefined;
+
+    if (!userId) {
+      res.status(401).json({ success: false, message: "No autenticado" });
+      return;
+    }
+
+    const perfil = await VendedorPerfil.findOne({ where: { user_id: userId } });
+
+    if (!perfil) {
+      res.status(404).json({ success: false, message: "Perfil de vendedor no encontrado" });
+      return;
+    }
+
+    let nextPlatform = perfil.live_platform ?? null;
+    let nextExternalUrl = perfil.live_external_url ?? null;
+
+    if (Object.prototype.hasOwnProperty.call(req.body, "live_platform")) {
+      const rawPlatform = req.body.live_platform;
+
+      if (rawPlatform !== null && typeof rawPlatform !== "string") {
+        res.status(400).json({ success: false, message: "live_platform debe ser string o null" });
+        return;
+      }
+
+      if (rawPlatform === null || (typeof rawPlatform === "string" && !rawPlatform.trim())) {
+        nextPlatform = null;
+      } else {
+        const normalizedPlatform = normalizeLivePlatform(rawPlatform);
+
+        if (!normalizedPlatform) {
+          res.status(400).json({ success: false, message: "live_platform no es válido" });
+          return;
+        }
+
+        nextPlatform = normalizedPlatform;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, "live_external_url")) {
+      const rawUrl = req.body.live_external_url;
+
+      if (rawUrl !== null && typeof rawUrl !== "string") {
+        res.status(400).json({ success: false, message: "live_external_url debe ser string o null" });
+        return;
+      }
+
+      if (rawUrl === null || (typeof rawUrl === "string" && !rawUrl.trim())) {
+        nextExternalUrl = null;
+      } else {
+        const normalizedUrl = normalizeLiveExternalUrl(rawUrl);
+
+        if (!normalizedUrl) {
+          res.status(400).json({ success: false, message: "live_external_url debe ser una URL válida" });
+          return;
+        }
+
+        nextExternalUrl = normalizedUrl;
+      }
+    }
+
+    if ((nextPlatform && !nextExternalUrl) || (!nextPlatform && nextExternalUrl)) {
+      res.status(400).json({
+        success: false,
+        message: "Debes enviar plataforma y URL juntas, o limpiar ambas",
+      });
+      return;
+    }
+
+    await perfil.update({
+      live_platform: nextPlatform,
+      live_external_url: nextExternalUrl,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        live_platform: nextPlatform,
+        live_external_url: nextExternalUrl,
+      },
+    });
+  } catch (error) {
+    console.error("updateLiveExternal error:", error);
     res.status(500).json({ success: false, message: "Error interno" });
   }
 };
@@ -1238,7 +1403,9 @@ export const getLiveSellers: RequestHandler = async (_req, res) => {
         vp.departamento,
         vp.municipio,
         vp.live_started_at,
-        vp.live_message
+        vp.live_message,
+        vp.live_platform,
+        vp.live_external_url
       FROM vendedor_perfil vp
       JOIN users u ON u.id = vp.user_id
       WHERE vp.is_live = true
@@ -1248,7 +1415,13 @@ export const getLiveSellers: RequestHandler = async (_req, res) => {
       { type: QueryTypes.SELECT }
     );
 
-    const data = (sellers as any[]).map((seller) => ({
+    const previews = await Promise.all(
+      (sellers as any[]).map((seller) =>
+        getLiveExternalPreview(seller.live_external_url ?? null),
+      ),
+    );
+
+    const data = (sellers as any[]).map((seller, index) => ({
       id: Number(seller.id),
       nombre_comercio: seller.nombre_comercio ?? null,
       logo: buildMediaProxyUrl(seller.logo ?? null),
@@ -1257,6 +1430,9 @@ export const getLiveSellers: RequestHandler = async (_req, res) => {
       municipio: seller.municipio ?? null,
       live_started_at: seller.live_started_at ?? null,
       live_message: seller.live_message ?? null,
+      live_platform: seller.live_platform ?? null,
+      live_external_url: seller.live_external_url ?? null,
+      live_external_preview: previews[index] ?? null,
     }));
 
     res.json({ success: true, data });
@@ -1304,7 +1480,10 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         vp.live_started_at,
         vp.live_message,
         vp.live_featured_product_ids,
+        vp.live_collection_id,
         vp.live_current_product_id,
+        vp.live_external_url,
+        vp.live_platform,
         vp."createdAt"
       FROM vendedor_perfil vp
       WHERE vp.user_id = :id
@@ -1322,6 +1501,9 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
     }
 
     const sellerData = seller[0];
+    const liveExternalPreview = await getLiveExternalPreview(
+      sellerData.live_external_url ?? null,
+    );
 
     const products: any[] = await sequelize.query(
       `
@@ -1348,7 +1530,65 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
       ? sellerData.live_featured_product_ids.map((id: unknown) => String(id))
       : [];
 
-    const liveFeaturedProducts = liveFeaturedIds.length
+    const liveCollectionId =
+      Number.isInteger(Number(sellerData.live_collection_id)) && Number(sellerData.live_collection_id) > 0
+        ? Number(sellerData.live_collection_id)
+        : null;
+
+    const liveCollectionProducts = liveCollectionId
+      ? await sequelize.query(
+          `
+          SELECT
+            p.id,
+            p.nombre,
+            p.precio,
+            p.imagen_url,
+            p.internal_code,
+            p.seller_sku,
+            ci.z_index
+          FROM collection_items ci
+          JOIN productos p ON p.id = ci.product_id
+          WHERE ci.collection_id = :collectionId
+            AND ci.element_type = 'product'
+            AND p.vendedor_id = :sellerId
+            AND p.activo = true
+          ORDER BY ci.z_index ASC, p.created_at DESC
+          `,
+          {
+            replacements: {
+              collectionId: liveCollectionId,
+              sellerId,
+            },
+            type: QueryTypes.SELECT,
+          }
+        ) as Array<{
+          id: string;
+          nombre: string;
+          precio: number | string;
+          imagen_url: string | null;
+          internal_code: string | null;
+          seller_sku: string | null;
+          z_index: number;
+        }>
+      : [];
+
+    const liveFeaturedProducts = liveCollectionProducts.length
+      ? Array.from(
+          new Map(
+            liveCollectionProducts.map((product) => [
+              String(product.id),
+              {
+                id: product.id,
+                nombre: product.nombre,
+                precio: product.precio,
+                imagen_url: buildMediaProxyUrl(product.imagen_url),
+                internal_code: product.internal_code ?? null,
+                sku: product.seller_sku ?? null,
+              },
+            ])
+          ).values()
+        ).slice(0, 3)
+      : liveFeaturedIds.length
       ? (products ?? [])
           .filter((product: any) => liveFeaturedIds.includes(String(product.id)))
           .slice(0, 3)
@@ -1394,6 +1634,10 @@ export const getPublicSellerStore: RequestHandler = async (req, res) => {
         is_live:              sellerData.is_live              ?? false,
         live_started_at:      sellerData.live_started_at      ?? null,
         live_message:         sellerData.live_message         ?? null,
+        live_external_url:    sellerData.live_external_url    ?? null,
+        live_platform:        sellerData.live_platform        ?? null,
+        live_external_preview: liveExternalPreview,
+        live_collection_id:   liveCollectionId,
         live_featured_products: liveFeaturedProducts,
         live_current_product: currentLiveProduct
           ? {
