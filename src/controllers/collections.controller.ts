@@ -20,6 +20,22 @@ async function assertOwnership(
   return rows.length > 0;
 }
 
+function deriveTemplateThumbnail(
+  backgroundImageUrl: string | null | undefined,
+  thumbnailUrl: string | null | undefined,
+  itemsSnapshot: any[]
+): string | null {
+  if (thumbnailUrl) return thumbnailUrl;
+  if (backgroundImageUrl) return backgroundImageUrl;
+
+  for (const item of itemsSnapshot) {
+    if (item?.element_type === "image" && item?.content?.url) return String(item.content.url);
+    if (item?.element_type === "product" && item?.product_image) return String(item.product_image);
+  }
+
+  return null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/collections
 // Returns all collections for the authenticated seller
@@ -210,7 +226,7 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
         name                 = COALESCE(:name, name),
         description          = COALESCE(:description, description),
         background_color     = COALESCE(:backgroundColor, background_color),
-        background_image_url = COALESCE(:backgroundImageUrl, background_image_url),
+        background_image_url = CASE WHEN :hasBackgroundImage THEN :backgroundImageUrl ELSE background_image_url END,
         background_style     = CASE WHEN :hasStyle THEN :backgroundStyle ELSE background_style END,
         canvas_width         = COALESCE(:canvasWidth, canvas_width),
         canvas_height        = COALESCE(:canvasHeight, canvas_height),
@@ -224,6 +240,7 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
           description: description ?? null,
           backgroundColor: background_color ?? null,
           backgroundImageUrl: background_image_url ?? null,
+          hasBackgroundImage: background_image_url !== undefined,
           hasStyle: background_style !== undefined,
           backgroundStyle: background_style ?? null,
           canvasWidth: canvas_width ?? null,
@@ -236,6 +253,420 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
     res.json({ ok: true });
   } catch (err) {
     console.error("[collections] updateCollection:", err);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/collections/:id/templates
+// Save the current canvas state as a reusable template
+// ─────────────────────────────────────────────────────────────────────────────
+export const saveCollectionAsTemplate: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+
+    const collectionId = Number(req.params.id);
+    const owned = await assertOwnership(collectionId, user.id);
+    if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
+
+    const {
+      name,
+      thumbnail_url = null,
+      items_snapshot = [],
+      canvas_width = 800,
+      canvas_height = 600,
+      background_color = "#FFFFFF",
+      background_style = null,
+      background_image_url = null,
+      is_public = true,
+    } = req.body ?? {};
+
+    if (!name || typeof name !== "string" || !name.trim()) {
+      res.status(400).json({ ok: false, message: "El nombre de la plantilla es requerido" });
+      return;
+    }
+
+    if (!Array.isArray(items_snapshot)) {
+      res.status(400).json({ ok: false, message: "items_snapshot debe ser un arreglo" });
+      return;
+    }
+
+    const finalThumbnail = deriveTemplateThumbnail(background_image_url, thumbnail_url, items_snapshot);
+
+    const [created] = await sequelize.query<{ id: number }>(
+      `
+      INSERT INTO collection_templates
+        (seller_id, name, thumbnail_url, items_snapshot, canvas_width, canvas_height, background_color, background_style, background_image_url, is_public, created_at, updated_at)
+      VALUES
+        (:sellerId, :name, :thumbnailUrl, CAST(:itemsSnapshot AS jsonb), :canvasWidth, :canvasHeight, :backgroundColor, :backgroundStyle, :backgroundImageUrl, :isPublic, NOW(), NOW())
+      RETURNING id
+      `,
+      {
+        replacements: {
+          sellerId: user.id,
+          name: name.trim().slice(0, 120),
+          thumbnailUrl: finalThumbnail,
+          itemsSnapshot: JSON.stringify(items_snapshot),
+          canvasWidth: Number(canvas_width) || 800,
+          canvasHeight: Number(canvas_height) || 600,
+          backgroundColor: background_color ?? "#FFFFFF",
+          backgroundStyle: background_style ?? null,
+          backgroundImageUrl: background_image_url ?? null,
+          isPublic: Boolean(is_public),
+        },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    res.status(201).json({ ok: true, data: { id: created.id } });
+  } catch (err) {
+    console.error("[collections] saveCollectionAsTemplate:", err);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/collections/templates
+// Public list of reusable templates
+// ─────────────────────────────────────────────────────────────────────────────
+export const getPublicCollectionTemplates: RequestHandler = async (_req, res): Promise<void> => {
+  try {
+    const templates = await sequelize.query<{
+      id: number;
+      name: string;
+      thumbnail_url: string | null;
+      items_snapshot: any[];
+      canvas_width: number;
+      canvas_height: number;
+      background_color: string;
+      background_style: string | null;
+      background_image_url: string | null;
+      is_public: boolean;
+      item_count: number;
+      created_at: Date;
+    }>(
+      `
+      SELECT
+        id,
+        name,
+        thumbnail_url,
+        items_snapshot,
+        canvas_width,
+        canvas_height,
+        background_color,
+        background_style,
+        background_image_url,
+        is_public,
+        jsonb_array_length(items_snapshot)::int AS item_count,
+        created_at
+      FROM collection_templates
+      WHERE is_public = true
+      ORDER BY created_at DESC
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    res.json({ ok: true, data: templates });
+  } catch (err) {
+    console.error("[collections] getPublicCollectionTemplates:", err);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/collections/templates/mine
+// Returns system public templates plus seller-owned templates
+// ─────────────────────────────────────────────────────────────────────────────
+export const getMyCollectionTemplates: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+
+    const templates = await sequelize.query<{
+      id: number;
+      name: string;
+      thumbnail_url: string | null;
+      canvas_width: number;
+      canvas_height: number;
+      background_color: string;
+      background_style: string | null;
+      background_image_url: string | null;
+      is_public: boolean;
+      item_count: number;
+      created_at: Date;
+      owner_scope: "system" | "mine";
+    }>(
+      `
+      SELECT
+        id,
+        name,
+        thumbnail_url,
+        canvas_width,
+        canvas_height,
+        background_color,
+        background_style,
+        background_image_url,
+        is_public,
+        jsonb_array_length(items_snapshot)::int AS item_count,
+        created_at,
+        CASE WHEN seller_id IS NULL THEN 'system' ELSE 'mine' END AS owner_scope
+      FROM collection_templates
+      WHERE seller_id IS NULL
+         OR seller_id = :sellerId
+      ORDER BY
+        CASE WHEN seller_id IS NULL THEN 0 ELSE 1 END,
+        created_at DESC
+      `,
+      {
+        replacements: { sellerId: user.id },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    res.json({ ok: true, data: templates });
+  } catch (err) {
+    console.error("[collections] getMyCollectionTemplates:", err);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/collections/templates/:templateId
+// Full template detail for preview/apply flows
+// ─────────────────────────────────────────────────────────────────────────────
+export const getCollectionTemplateById: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+
+    const templateId = Number(req.params.templateId);
+    if (!templateId || Number.isNaN(templateId)) {
+      res.status(400).json({ ok: false, message: "templateId inválido" });
+      return;
+    }
+
+    const [template] = await sequelize.query<{
+      id: number;
+      name: string;
+      thumbnail_url: string | null;
+      items_snapshot: any[];
+      canvas_width: number;
+      canvas_height: number;
+      background_color: string;
+      background_style: string | null;
+      background_image_url: string | null;
+      is_public: boolean;
+      created_at: Date;
+    }>(
+      `
+      SELECT
+        id,
+        name,
+        thumbnail_url,
+        items_snapshot,
+        canvas_width,
+        canvas_height,
+        background_color,
+        background_style,
+        background_image_url,
+        is_public,
+        created_at
+      FROM collection_templates
+      WHERE id = :templateId
+        AND (seller_id IS NULL OR seller_id = :sellerId)
+      LIMIT 1
+      `,
+      {
+        replacements: { templateId, sellerId: user.id },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    if (!template) {
+      res.status(404).json({ ok: false, message: "Plantilla no encontrada" });
+      return;
+    }
+
+    res.json({ ok: true, data: template });
+  } catch (err) {
+    console.error("[collections] getCollectionTemplateById:", err);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/collections/:id/apply-template
+// Apply a reusable template to the current collection
+// ─────────────────────────────────────────────────────────────────────────────
+export const applyCollectionTemplate: RequestHandler = async (req, res): Promise<void> => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      await transaction.rollback();
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
+
+    const collectionId = Number(req.params.id);
+    const templateId = Number(req.body?.template_id);
+
+    if (!templateId || Number.isNaN(templateId)) {
+      await transaction.rollback();
+      res.status(400).json({ ok: false, message: "template_id inválido" });
+      return;
+    }
+
+    const owned = await assertOwnership(collectionId, user.id);
+    if (!owned) {
+      await transaction.rollback();
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
+
+    const [template] = await sequelize.query<{
+      id: number;
+      seller_id: number;
+      name: string;
+      items_snapshot: any[];
+      canvas_width: number;
+      canvas_height: number;
+      background_color: string;
+      background_style: string | null;
+      background_image_url: string | null;
+      is_public: boolean;
+    }>(
+      `
+      SELECT *
+      FROM collection_templates
+      WHERE id = :templateId
+        AND (is_public = true OR seller_id = :sellerId)
+      LIMIT 1
+      `,
+      {
+        replacements: { templateId, sellerId: user.id },
+        type: QueryTypes.SELECT,
+        transaction,
+      }
+    );
+
+    if (!template) {
+      await transaction.rollback();
+      res.status(404).json({ ok: false, message: "Plantilla no encontrada" });
+      return;
+    }
+
+    const itemsSnapshot = Array.isArray(template.items_snapshot) ? template.items_snapshot : [];
+    const productIds = itemsSnapshot
+      .filter((item) => item?.element_type === "product" && item?.product_id)
+      .map((item) => String(item.product_id));
+
+    let validProductIds = new Set<string>();
+    if (productIds.length > 0) {
+      const rows = await sequelize.query<{ id: string }>(
+        `
+        SELECT id
+        FROM productos
+        WHERE vendedor_id = :sellerId
+          AND activo = true
+          AND id IN (:productIds)
+        `,
+        {
+          replacements: { sellerId: user.id, productIds },
+          type: QueryTypes.SELECT,
+          transaction,
+        }
+      );
+      validProductIds = new Set(rows.map((row) => String(row.id)));
+    }
+
+    await sequelize.query(
+      `
+      UPDATE collections SET
+        background_color     = :backgroundColor,
+        background_style     = :backgroundStyle,
+        background_image_url = :backgroundImageUrl,
+        canvas_width         = :canvasWidth,
+        canvas_height        = :canvasHeight,
+        updated_at           = NOW()
+      WHERE id = :collectionId
+      `,
+      {
+        replacements: {
+          collectionId,
+          backgroundColor: template.background_color ?? "#FFFFFF",
+          backgroundStyle: template.background_style ?? null,
+          backgroundImageUrl: template.background_image_url ?? null,
+          canvasWidth: template.canvas_width ?? 800,
+          canvasHeight: template.canvas_height ?? 600,
+        },
+        type: QueryTypes.UPDATE,
+        transaction,
+      }
+    );
+
+    await sequelize.query(
+      `DELETE FROM collection_items WHERE collection_id = :collectionId`,
+      { replacements: { collectionId }, type: QueryTypes.DELETE, transaction }
+    );
+
+    let insertedCount = 0;
+    let skippedProducts = 0;
+
+    for (const rawItem of itemsSnapshot) {
+      const elementType = rawItem?.element_type ?? "product";
+      const isProduct = elementType === "product";
+      const productId = rawItem?.product_id ? String(rawItem.product_id) : null;
+
+      if (isProduct && (!productId || !validProductIds.has(productId))) {
+        skippedProducts += 1;
+        continue;
+      }
+
+      await sequelize.query(
+        `
+        INSERT INTO collection_items
+          (collection_id, product_id, element_type, content, pos_x, pos_y, width, height, z_index, created_at, updated_at)
+        VALUES
+          (:collectionId, :productId, :elementType, CAST(:content AS jsonb), :posX, :posY, :width, :height, :zIndex, NOW(), NOW())
+        `,
+        {
+          replacements: {
+            collectionId,
+            productId,
+            elementType,
+            content: JSON.stringify(rawItem?.content ?? null),
+            posX: Number(rawItem?.pos_x ?? 0),
+            posY: Number(rawItem?.pos_y ?? 0),
+            width: Number(rawItem?.width ?? 150),
+            height: Number(rawItem?.height ?? 150),
+            zIndex: Number(rawItem?.z_index ?? insertedCount),
+          },
+          type: QueryTypes.INSERT,
+          transaction,
+        }
+      );
+      insertedCount += 1;
+    }
+
+    await transaction.commit();
+    res.json({
+      ok: true,
+      data: {
+        inserted_count: insertedCount,
+        skipped_products: skippedProducts,
+        canvas_width: template.canvas_width,
+        canvas_height: template.canvas_height,
+        background_color: template.background_color,
+        background_style: template.background_style,
+        background_image_url: template.background_image_url,
+      },
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("[collections] applyCollectionTemplate:", err);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };

@@ -28,6 +28,11 @@ router.get(
   asyncHandler(CollectionsController.getPublicCollections)
 );
 
+router.get(
+  "/templates",
+  asyncHandler(CollectionsController.getPublicCollectionTemplates)
+);
+
 /* ==================================================
    🔐 RUTAS PRIVADAS (vendedor autenticado)
 ================================================== */
@@ -40,6 +45,16 @@ router.use(requireActiveSeller);
 router.get(
   "/",
   asyncHandler(CollectionsController.getMyCollections)
+);
+
+router.get(
+  "/templates/mine",
+  asyncHandler(CollectionsController.getMyCollectionTemplates)
+);
+
+router.get(
+  "/templates/:templateId",
+  asyncHandler(CollectionsController.getCollectionTemplateById)
 );
 
 router.post(
@@ -88,6 +103,16 @@ router.post(
   "/:id/images",
   upload.single("image"),
   asyncHandler(CollectionsController.uploadCollectionImage)
+);
+
+router.post(
+  "/:id/templates",
+  asyncHandler(CollectionsController.saveCollectionAsTemplate)
+);
+
+router.post(
+  "/:id/apply-template",
+  asyncHandler(CollectionsController.applyCollectionTemplate)
 );
 
 export default router;
