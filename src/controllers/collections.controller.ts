@@ -51,12 +51,14 @@ export const getMyCollections: RequestHandler = async (req, res): Promise<void> 
       description: string | null;
       status: string;
       background_color: string;
+      background_style: string | null;
       background_image_url: string | null;
       canvas_width: number;
       canvas_height: number;
       created_at: Date;
       updated_at: Date;
       item_count: number;
+      items: any[];
     }>(
       `
       SELECT
@@ -65,12 +67,36 @@ export const getMyCollections: RequestHandler = async (req, res): Promise<void> 
         c.description,
         c.status,
         c.background_color,
+        c.background_style,
         c.background_image_url,
         c.canvas_width,
         c.canvas_height,
         c.created_at,
         c.updated_at,
-        COUNT(ci.id)::int AS item_count
+        COUNT(ci.id)::int AS item_count,
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_object(
+                'id', ci2.id,
+                'element_type', ci2.element_type,
+                'content', ci2.content,
+                'product_id', ci2.product_id,
+                'pos_x', ci2.pos_x,
+                'pos_y', ci2.pos_y,
+                'width', ci2.width,
+                'height', ci2.height,
+                'z_index', ci2.z_index,
+                'product_image', p.imagen_url
+              )
+              ORDER BY ci2.z_index ASC
+            )
+            FROM collection_items ci2
+            LEFT JOIN productos p ON p.id = ci2.product_id
+            WHERE ci2.collection_id = c.id
+          ),
+          '[]'::json
+        ) AS items
       FROM collections c
       LEFT JOIN collection_items ci ON ci.collection_id = c.id
       WHERE c.seller_id = :sellerId

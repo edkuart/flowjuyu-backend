@@ -26,6 +26,7 @@ function tplText({
   y,
   w,
   h,
+  z = 1,
   color = "#1a1a1a",
   fontFamily = "inherit",
   fontWeight = "bold",
@@ -43,6 +44,7 @@ function tplText({
   y: number;
   w: number;
   h: number;
+  z?: number;
   color?: string;
   fontFamily?: string;
   fontWeight?: "normal" | "bold";
@@ -61,7 +63,7 @@ function tplText({
     pos_y: y,
     width: w,
     height: h,
-    z_index: 0,
+    z_index: z,
     content: {
       text,
       fontSize,
@@ -143,173 +145,262 @@ function tplShape({
   };
 }
 
+const LEGACY_COLLECTION_TEMPLATE_NAMES = [
+  "Lanzamiento Editorial Nocturno",
+  "Artesania Tierra Viva",
+  "Drop Vibrante Boutique",
+  "Lujo Marfil y Oro",
+  "Mercado Textil Solar",
+  "Capsula Minimal Terracota",
+  "Oferta de Estreno Esmeralda",
+  "Story de Coleccion Bohemia",
+];
+
 const DEFAULT_COLLECTION_TEMPLATES = [
   {
-    name: "Lanzamiento Editorial Nocturno",
+    name: "Maison Editorial / Portrait",
     thumbnail_url: null,
-    background_color: "#0E0F14",
-    background_style: "linear-gradient(135deg, #0E0F14, #232634)",
-    background_image_url: null,
-    canvas_width: 1080,
-    canvas_height: 1080,
-    is_public: true,
-    items_snapshot: [
-      tplShape({ fillColor: "#D6B36A", x: 70, y: 78, w: 180, h: 8, z: 1, borderRadius: 99 }),
-      tplText({ text: "NUEVA COLECCION", fontSize: 88, x: 72, y: 110, w: 620, h: 180, color: "#F8F3E8", letterSpacing: 1.5, lineHeight: 0.95 }),
-      tplText({ text: "Siluetas que convierten textura en deseo.", fontSize: 28, x: 78, y: 300, w: 480, h: 90, color: "#D8D1C0", lineHeight: 1.2 }),
-      tplShape({ fillColor: "#151824", x: 640, y: 96, w: 340, h: 760, z: 0, borderRadius: 36 }),
-      tplShape({ fillColor: "#D6B36A", x: 708, y: 164, w: 204, h: 540, z: 1, borderRadius: 120, opacity: 0.16 }),
-      tplText({ text: "Arrastra aqui\nla pieza hero", fontSize: 34, x: 690, y: 360, w: 240, h: 130, color: "#F8F3E8", textAlign: "center", lineHeight: 1.15 }),
-      tplShape({ fillColor: "#F8F3E8", x: 72, y: 842, w: 280, h: 92, z: 1, borderRadius: 999 }),
-      tplText({ text: "Disponible ahora", fontSize: 28, x: 102, y: 862, w: 220, h: 50, color: "#0E0F14", textAlign: "center" }),
-    ],
-  },
-  {
-    name: "Artesania Tierra Viva",
-    thumbnail_url: null,
-    background_color: "#E8D7C5",
-    background_style: "linear-gradient(160deg, #F2E7D8, #D7B89C)",
+    background_color: "#FBF7F0",
+    background_style: "linear-gradient(180deg, #FBF7F0, #F0E4D5)",
     background_image_url: null,
     canvas_width: 1080,
     canvas_height: 1350,
     is_public: true,
     items_snapshot: [
-      tplShape({ fillColor: "#8A4B2A", x: 70, y: 76, w: 420, h: 420, z: 0, borderRadius: 220, opacity: 0.12 }),
-      tplShape({ fillColor: "#2E6A57", x: 780, y: 1040, w: 220, h: 220, z: 0, borderRadius: 999, opacity: 0.16 }),
-      tplText({ text: "HECHO CON\nALMA Y TELAR", fontSize: 86, x: 70, y: 108, w: 620, h: 210, color: "#6A321D", fontFamily: "'Abril Fatface', serif", lineHeight: 0.95 }),
-      tplText({ text: "Lanzamiento de coleccion inspirada en oficio, textura y origen.", fontSize: 28, x: 78, y: 344, w: 540, h: 120, color: "#5F463D", lineHeight: 1.25 }),
-      tplShape({ fillColor: "#FBF6EF", x: 618, y: 180, w: 360, h: 520, z: 0, borderRadius: 28 }),
-      tplText({ text: "Foto principal", fontSize: 32, x: 680, y: 410, w: 236, h: 60, color: "#A67B5B", textAlign: "center" }),
-      tplShape({ fillColor: "#2E6A57", x: 80, y: 560, w: 920, h: 270, z: 0, borderRadius: 28, opacity: 0.94 }),
-      tplText({ text: "3 piezas destacadas", fontSize: 38, x: 120, y: 605, w: 320, h: 52, color: "#FFF9F1" }),
-      tplText({ text: "Arrastra productos aqui y cambia el copy por una promesa clara de valor artesanal.", fontSize: 24, x: 122, y: 676, w: 590, h: 96, color: "#DDEBDE", lineHeight: 1.25 }),
-      tplShape({ fillColor: "#C77C4E", x: 738, y: 618, w: 188, h: 64, z: 1, borderRadius: 999 }),
-      tplText({ text: "Edicion especial", fontSize: 22, x: 752, y: 635, w: 160, h: 28, color: "#FFF6EA", textAlign: "center" }),
+      tplShape({ fillColor: "#D0B07A", x: 86, y: 92, w: 180, h: 8, z: 1, borderRadius: 999 }),
+      tplText({ text: "COLECCION\nMAISON", fontSize: 92, x: 88, y: 124, w: 520, h: 176, z: 2, color: "#171717", fontFamily: "'Playfair Display', serif", lineHeight: 0.94 }),
+      tplText({ text: "Texturas nobles, siluetas limpias y una presencia pensada para vender valor percibido.", fontSize: 28, x: 94, y: 336, w: 420, h: 112, z: 2, color: "#62584E", lineHeight: 1.24 }),
+      tplShape({ fillColor: "#F6EFE5", x: 612, y: 136, w: 352, h: 760, z: 1, borderRadius: 38 }),
+      tplShape({ fillColor: "#DCCCB7", x: 646, y: 176, w: 284, h: 680, z: 2, borderRadius: 140, opacity: 0.42 }),
+      tplText({ text: "Hero image", fontSize: 34, x: 700, y: 468, w: 176, h: 50, z: 3, color: "#8C7963", textAlign: "center" }),
+      tplShape({ fillColor: "#171717", x: 88, y: 1098, w: 278, h: 82, z: 2, borderRadius: 999 }),
+      tplText({ text: "Descubrir ahora", fontSize: 24, x: 116, y: 1122, w: 220, h: 34, z: 3, color: "#F9F5EE", textAlign: "center" }),
+      tplText({ text: "Edicion inaugural", fontSize: 22, x: 702, y: 1122, w: 174, h: 28, z: 3, color: "#6A5D52", textAlign: "center", letterSpacing: 1 }),
     ],
   },
   {
-    name: "Drop Vibrante Boutique",
+    name: "Maison Editorial / Square",
     thumbnail_url: null,
-    background_color: "#F7F6F1",
-    background_style: "linear-gradient(145deg, #F7F6F1, #F1C7B8)",
+    background_color: "#F7F1E8",
+    background_style: "linear-gradient(135deg, #F7F1E8, #E7DDD0)",
     background_image_url: null,
     canvas_width: 1080,
     canvas_height: 1080,
     is_public: true,
     items_snapshot: [
-      tplShape({ fillColor: "#EF6B57", x: 640, y: 54, w: 270, h: 270, z: 0, borderRadius: 999, opacity: 0.18 }),
-      tplShape({ fillColor: "#0F3D3A", x: 110, y: 680, w: 260, h: 260, z: 0, borderRadius: 999, opacity: 0.1 }),
-      tplText({ text: "DROP\nLIMITADO", fontSize: 106, x: 76, y: 84, w: 560, h: 220, color: "#13212B", fontFamily: "'Bebas Neue', sans-serif", lineHeight: 0.92, letterSpacing: 1 }),
-      tplText({ text: "Color, textura y energia para un lanzamiento imposible de ignorar.", fontSize: 30, x: 82, y: 326, w: 490, h: 92, color: "#42505C", lineHeight: 1.18 }),
-      tplShape({ fillColor: "#13212B", x: 642, y: 370, w: 300, h: 360, z: 0, borderRadius: 38 }),
-      tplText({ text: "Imagen o\nproducto hero", fontSize: 34, x: 686, y: 492, w: 212, h: 96, color: "#F7F6F1", textAlign: "center" }),
-      tplShape({ fillColor: "#EF6B57", x: 80, y: 826, w: 420, h: 120, z: 1, borderRadius: 30 }),
-      tplText({ text: "Disponible hoy", fontSize: 34, x: 110, y: 862, w: 360, h: 42, color: "#FFF8F5", textAlign: "center" }),
-      tplText({ text: "Ideal para capsulas, novedades o ediciones cortas.", fontSize: 22, x: 556, y: 846, w: 410, h: 62, color: "#3E4752", lineHeight: 1.2 }),
+      tplText({ text: "MAISON\nCOLLECTION", fontSize: 90, x: 72, y: 92, w: 470, h: 168, z: 2, color: "#151515", fontFamily: "'Playfair Display', serif", lineHeight: 0.94 }),
+      tplText({ text: "Lanzamiento premium con una pieza hero y narrativa minima.", fontSize: 28, x: 78, y: 294, w: 406, h: 94, z: 2, color: "#64584D", lineHeight: 1.22 }),
+      tplShape({ fillColor: "#F5EEE4", x: 610, y: 94, w: 360, h: 758, z: 1, borderRadius: 34 }),
+      tplShape({ fillColor: "#D8CEC0", x: 638, y: 126, w: 304, h: 694, z: 2, borderRadius: 128, opacity: 0.46 }),
+      tplText({ text: "Hero image", fontSize: 34, x: 698, y: 420, w: 184, h: 48, z: 3, color: "#8B7863", textAlign: "center" }),
+      tplShape({ fillColor: "#C7A56A", x: 72, y: 838, w: 248, h: 74, z: 2, borderRadius: 999 }),
+      tplText({ text: "Disponible hoy", fontSize: 24, x: 96, y: 858, w: 200, h: 32, z: 3, color: "#171717", textAlign: "center" }),
+      tplText({ text: "Signature line", fontSize: 22, x: 72, y: 944, w: 180, h: 28, z: 2, color: "#5F564C", letterSpacing: 1.5 }),
     ],
   },
   {
-    name: "Lujo Marfil y Oro",
+    name: "Maison Editorial / Landscape",
     thumbnail_url: null,
-    background_color: "#F6F1E7",
-    background_style: "linear-gradient(135deg, #F9F5EE, #E8DDCB)",
+    background_color: "#F8F4EC",
+    background_style: "linear-gradient(120deg, #F8F4EC, #E6DCCF)",
+    background_image_url: null,
+    canvas_width: 1600,
+    canvas_height: 900,
+    is_public: true,
+    items_snapshot: [
+      tplText({ text: "MAISON\nEDITORIAL", fontSize: 102, x: 112, y: 110, w: 500, h: 180, z: 2, color: "#131313", fontFamily: "'Playfair Display', serif", lineHeight: 0.92 }),
+      tplText({ text: "Una portada pensada para escaparate digital, con mas aire y menos ruido visual.", fontSize: 32, x: 118, y: 336, w: 474, h: 108, z: 2, color: "#63574D", lineHeight: 1.22 }),
+      tplShape({ fillColor: "#F6EFE4", x: 940, y: 84, w: 472, h: 732, z: 1, borderRadius: 34 }),
+      tplShape({ fillColor: "#CFC1B0", x: 978, y: 120, w: 396, h: 658, z: 2, borderRadius: 180, opacity: 0.44 }),
+      tplText({ text: "Hero image", fontSize: 36, x: 1088, y: 402, w: 216, h: 50, z: 3, color: "#8A775F", textAlign: "center" }),
+      tplShape({ fillColor: "#131313", x: 118, y: 680, w: 250, h: 76, z: 2, borderRadius: 999 }),
+      tplText({ text: "Ver coleccion", fontSize: 24, x: 142, y: 702, w: 202, h: 32, z: 3, color: "#FAF5ED", textAlign: "center" }),
+    ],
+  },
+  {
+    name: "Signature Drop / Portrait",
+    thumbnail_url: null,
+    background_color: "#0F1114",
+    background_style: "linear-gradient(180deg, #0F1114, #221A1D)",
     background_image_url: null,
     canvas_width: 1080,
     canvas_height: 1350,
     is_public: true,
     items_snapshot: [
-      tplShape({ fillColor: "#D4AF68", x: 83, y: 88, w: 914, h: 1174, z: 0, borderRadius: 44, opacity: 0.17 }),
-      tplShape({ fillColor: "#FEFBF5", x: 112, y: 118, w: 856, h: 1114, z: 1, borderRadius: 36 }),
-      tplText({ text: "COLECCION\nSIGNATURE", fontSize: 88, x: 182, y: 208, w: 500, h: 190, color: "#181818", fontFamily: "'Playfair Display', serif", lineHeight: 0.96 }),
-      tplText({ text: "Una composicion pensada para destacar piezas premium, sets regalo y lanzamientos con tono aspiracional.", fontSize: 27, x: 186, y: 428, w: 440, h: 118, color: "#61594F", lineHeight: 1.25 }),
-      tplShape({ fillColor: "#EEE4D4", x: 646, y: 214, w: 200, h: 520, z: 1, borderRadius: 110 }),
-      tplText({ text: "Pieza hero", fontSize: 30, x: 665, y: 438, w: 160, h: 44, color: "#8B744C", textAlign: "center" }),
-      tplShape({ fillColor: "#161616", x: 188, y: 1040, w: 260, h: 82, z: 2, borderRadius: 999 }),
-      tplText({ text: "Descubrir ahora", fontSize: 26, x: 214, y: 1064, w: 208, h: 34, color: "#F6F1E7", textAlign: "center" }),
-      tplText({ text: "Textura fina, tonos neutros, contraste elegante.", fontSize: 23, x: 560, y: 1048, w: 250, h: 60, color: "#665C50", lineHeight: 1.2 }),
+      tplShape({ fillColor: "#8C2330", x: 82, y: 84, w: 184, h: 50, z: 1, borderRadius: 999 }),
+      tplText({ text: "LIMITED DROP", fontSize: 22, x: 100, y: 98, w: 148, h: 24, z: 2, color: "#F5F1EA", textAlign: "center", letterSpacing: 1.8 }),
+      tplText({ text: "SIGNATURE\nDROP", fontSize: 116, x: 76, y: 168, w: 540, h: 190, z: 2, color: "#F5F1EA", fontFamily: "'Bebas Neue', sans-serif", lineHeight: 0.9, letterSpacing: 1.2 }),
+      tplText({ text: "Color, tension visual y una pieza central imposible de ignorar.", fontSize: 28, x: 84, y: 396, w: 446, h: 96, z: 2, color: "#C9BCB2", lineHeight: 1.18 }),
+      tplShape({ fillColor: "#171A21", x: 610, y: 160, w: 360, h: 820, z: 1, borderRadius: 40 }),
+      tplShape({ fillColor: "#D4B38A", x: 650, y: 208, w: 280, h: 724, z: 2, borderRadius: 150, opacity: 0.18 }),
+      tplText({ text: "Hero image", fontSize: 36, x: 696, y: 506, w: 188, h: 52, z: 3, color: "#F4EFE8", textAlign: "center" }),
+      tplShape({ fillColor: "#F5F1EA", x: 82, y: 1102, w: 274, h: 84, z: 2, borderRadius: 999 }),
+      tplText({ text: "Shop the drop", fontSize: 24, x: 108, y: 1128, w: 222, h: 32, z: 3, color: "#111318", textAlign: "center" }),
     ],
   },
   {
-    name: "Mercado Textil Solar",
+    name: "Signature Drop / Square",
     thumbnail_url: null,
-    background_color: "#F6EBD3",
-    background_style: "linear-gradient(135deg, #F7EED9, #F0C55B)",
+    background_color: "#101215",
+    background_style: "linear-gradient(135deg, #101215, #20171B)",
     background_image_url: null,
     canvas_width: 1080,
     canvas_height: 1080,
     is_public: true,
     items_snapshot: [
-      tplShape({ fillColor: "#A33E2B", x: 60, y: 70, w: 960, h: 940, z: 0, borderRadius: 48, opacity: 0.08 }),
-      tplText({ text: "COLORES QUE\nSE VENDEN SOLOS", fontSize: 92, x: 84, y: 110, w: 640, h: 196, color: "#8F3526", fontFamily: "'Oswald', sans-serif", lineHeight: 0.94 }),
-      tplText({ text: "Pensada para lanzamientos alegres, estampados vivos y colecciones con personalidad local.", fontSize: 27, x: 90, y: 336, w: 520, h: 110, color: "#6B4D38", lineHeight: 1.22 }),
-      tplShape({ fillColor: "#FFF7EB", x: 684, y: 120, w: 280, h: 360, z: 0, borderRadius: 34 }),
-      tplText({ text: "Imagen 1", fontSize: 28, x: 756, y: 278, w: 136, h: 42, color: "#C28B45", textAlign: "center" }),
-      tplShape({ fillColor: "#2E6A57", x: 684, y: 520, w: 280, h: 360, z: 0, borderRadius: 34, opacity: 0.92 }),
-      tplText({ text: "Imagen 2", fontSize: 28, x: 756, y: 678, w: 136, h: 42, color: "#F4EDE2", textAlign: "center" }),
-      tplShape({ fillColor: "#8F3526", x: 86, y: 824, w: 420, h: 112, z: 1, borderRadius: 24 }),
-      tplText({ text: "Lanzamiento de temporada", fontSize: 31, x: 114, y: 862, w: 364, h: 36, color: "#FFF6E8", textAlign: "center" }),
+      tplShape({ fillColor: "#7A1F2A", x: 74, y: 72, w: 172, h: 46, z: 1, borderRadius: 999 }),
+      tplText({ text: "NEW DROP", fontSize: 20, x: 92, y: 84, w: 136, h: 24, z: 2, color: "#F3EDE4", textAlign: "center", letterSpacing: 1.7 }),
+      tplText({ text: "DROP\n01", fontSize: 124, x: 72, y: 144, w: 396, h: 196, z: 2, color: "#F3EDE4", fontFamily: "'Bebas Neue', sans-serif", lineHeight: 0.86 }),
+      tplText({ text: "Hecho para lanzamientos rapidos, colecciones cortas y anuncios de alto impacto.", fontSize: 28, x: 78, y: 358, w: 404, h: 112, z: 2, color: "#C5B8AE", lineHeight: 1.18 }),
+      tplShape({ fillColor: "#191C23", x: 586, y: 116, w: 390, h: 674, z: 1, borderRadius: 42 }),
+      tplText({ text: "Hero image", fontSize: 34, x: 682, y: 404, w: 198, h: 48, z: 2, color: "#F3EDE4", textAlign: "center" }),
+      tplShape({ fillColor: "#C3A47A", x: 76, y: 840, w: 286, h: 90, z: 2, borderRadius: 999 }),
+      tplText({ text: "Disponible ahora", fontSize: 25, x: 104, y: 866, w: 230, h: 34, z: 3, color: "#101215", textAlign: "center" }),
     ],
   },
   {
-    name: "Capsula Minimal Terracota",
+    name: "Crafted Heritage / Portrait",
     thumbnail_url: null,
-    background_color: "#F5EEE8",
-    background_style: "linear-gradient(180deg, #F5EEE8, #E5C3AF)",
+    background_color: "#EFE1D2",
+    background_style: "linear-gradient(165deg, #F3E8DB, #D6B49A)",
     background_image_url: null,
     canvas_width: 1080,
     canvas_height: 1350,
     is_public: true,
     items_snapshot: [
-      tplShape({ fillColor: "#B8613C", x: 84, y: 132, w: 420, h: 1040, z: 0, borderRadius: 24, opacity: 0.12 }),
-      tplText({ text: "CAPSULA\nNUEVA", fontSize: 92, x: 568, y: 170, w: 320, h: 170, color: "#3B2A22", fontFamily: "'Josefin Sans', sans-serif", lineHeight: 0.96, letterSpacing: 1 }),
-      tplText({ text: "Una plantilla sobria para piezas de alto detalle visual.", fontSize: 27, x: 570, y: 360, w: 350, h: 90, color: "#5E4D42", lineHeight: 1.22 }),
-      tplShape({ fillColor: "#FCF8F3", x: 144, y: 204, w: 310, h: 764, z: 1, borderRadius: 30 }),
-      tplText({ text: "Foto vertical", fontSize: 30, x: 196, y: 550, w: 206, h: 50, color: "#BE8B72", textAlign: "center" }),
-      tplShape({ fillColor: "#3B2A22", x: 570, y: 980, w: 260, h: 76, z: 1, borderRadius: 999 }),
-      tplText({ text: "Ver coleccion", fontSize: 24, x: 600, y: 1002, w: 200, h: 28, color: "#F8F1EA", textAlign: "center" }),
-      tplText({ text: "Perfecta para moda femenina, lineas suaves y lanzamientos refinados.", fontSize: 22, x: 570, y: 1092, w: 290, h: 74, color: "#65554A", lineHeight: 1.25 }),
+      tplShape({ fillColor: "#6C4030", x: 72, y: 92, w: 360, h: 360, z: 0, borderRadius: 999, opacity: 0.12 }),
+      tplText({ text: "CRAFTED\nHERITAGE", fontSize: 88, x: 74, y: 116, w: 520, h: 172, z: 2, color: "#6C3826", fontFamily: "'Abril Fatface', serif", lineHeight: 0.96 }),
+      tplText({ text: "Origen, detalle y oficio convertidos en una coleccion de alto valor visual.", fontSize: 28, x: 82, y: 318, w: 464, h: 110, z: 2, color: "#5E473D", lineHeight: 1.24 }),
+      tplShape({ fillColor: "#FBF6EF", x: 608, y: 164, w: 366, h: 538, z: 1, borderRadius: 34 }),
+      tplText({ text: "Foto de\ntextura", fontSize: 34, x: 676, y: 384, w: 230, h: 90, z: 2, color: "#B1876B", textAlign: "center" }),
+      tplShape({ fillColor: "#2D5D4F", x: 76, y: 600, w: 926, h: 276, z: 1, borderRadius: 30, opacity: 0.96 }),
+      tplText({ text: "Hecho a mano · edicion limitada", fontSize: 32, x: 120, y: 646, w: 430, h: 44, z: 2, color: "#FFF8EE", letterSpacing: 0.8 }),
+      tplText({ text: "Usa este bloque para explicar el origen de la coleccion, el material o la tecnica artesanal que la vuelve unica.", fontSize: 24, x: 122, y: 716, w: 560, h: 90, z: 2, color: "#D7E7DF", lineHeight: 1.24 }),
+      tplShape({ fillColor: "#C07A4E", x: 730, y: 658, w: 198, h: 62, z: 2, borderRadius: 999 }),
+      tplText({ text: "Ver historia", fontSize: 22, x: 754, y: 676, w: 150, h: 28, z: 3, color: "#FFF8EE", textAlign: "center" }),
     ],
   },
   {
-    name: "Oferta de Estreno Esmeralda",
+    name: "Crafted Heritage / Landscape",
     thumbnail_url: null,
-    background_color: "#E8F1EE",
-    background_style: "linear-gradient(145deg, #F2F8F5, #BFD8CF)",
+    background_color: "#F2E7DA",
+    background_style: "linear-gradient(135deg, #F2E7DA, #D8B89A)",
+    background_image_url: null,
+    canvas_width: 1600,
+    canvas_height: 900,
+    is_public: true,
+    items_snapshot: [
+      tplShape({ fillColor: "#744531", x: 80, y: 86, w: 250, h: 250, z: 0, borderRadius: 999, opacity: 0.11 }),
+      tplText({ text: "HERITAGE\nCOLLECTION", fontSize: 96, x: 94, y: 110, w: 480, h: 172, z: 2, color: "#744531", fontFamily: "'Playfair Display', serif", lineHeight: 0.94 }),
+      tplText({ text: "Pensada para telas, fibras y piezas que deben verse materiales, refinadas y profundamente humanas.", fontSize: 31, x: 100, y: 330, w: 486, h: 112, z: 2, color: "#5E473B", lineHeight: 1.22 }),
+      tplShape({ fillColor: "#FBF6EF", x: 936, y: 92, w: 500, h: 716, z: 1, borderRadius: 32 }),
+      tplText({ text: "Proceso /\ntextura", fontSize: 38, x: 1086, y: 350, w: 200, h: 84, z: 2, color: "#B28668", textAlign: "center" }),
+      tplShape({ fillColor: "#315C50", x: 100, y: 686, w: 254, h: 72, z: 2, borderRadius: 999 }),
+      tplText({ text: "Ver coleccion", fontSize: 24, x: 124, y: 708, w: 206, h: 32, z: 3, color: "#FBF6EF", textAlign: "center" }),
+    ],
+  },
+  {
+    name: "Modern Atelier / Portrait",
+    thumbnail_url: null,
+    background_color: "#FAF6F1",
+    background_style: "linear-gradient(180deg, #FAF6F1, #E8D2C3)",
+    background_image_url: null,
+    canvas_width: 1080,
+    canvas_height: 1350,
+    is_public: true,
+    items_snapshot: [
+      tplShape({ fillColor: "#D8B4A2", x: 758, y: 90, w: 220, h: 220, z: 0, borderRadius: 999, opacity: 0.2 }),
+      tplText({ text: "ATELIER\nMODERNO", fontSize: 86, x: 96, y: 120, w: 430, h: 156, z: 2, color: "#342924", fontFamily: "'Josefin Sans', sans-serif", lineHeight: 0.98, letterSpacing: 1 }),
+      tplText({ text: "Formas suaves, composicion limpia y una presencia elegante para moda refinada.", fontSize: 27, x: 102, y: 316, w: 416, h: 98, z: 2, color: "#645349", lineHeight: 1.22 }),
+      tplShape({ fillColor: "#F7F0E8", x: 612, y: 184, w: 308, h: 780, z: 1, borderRadius: 32 }),
+      tplText({ text: "Foto hero", fontSize: 32, x: 684, y: 540, w: 164, h: 44, z: 2, color: "#C08F7B", textAlign: "center" }),
+      tplShape({ fillColor: "#342924", x: 96, y: 1020, w: 244, h: 74, z: 2, borderRadius: 999 }),
+      tplText({ text: "Nueva capsula", fontSize: 24, x: 120, y: 1042, w: 196, h: 30, z: 3, color: "#F9F4EE", textAlign: "center" }),
+      tplText({ text: "Lineas puras · tonos suaves", fontSize: 22, x: 96, y: 1128, w: 240, h: 30, z: 2, color: "#746255", letterSpacing: 0.6 }),
+    ],
+  },
+  {
+    name: "Modern Atelier / Square",
+    thumbnail_url: null,
+    background_color: "#F6F0EA",
+    background_style: "linear-gradient(140deg, #F6F0EA, #DFC4B5)",
     background_image_url: null,
     canvas_width: 1080,
     canvas_height: 1080,
     is_public: true,
     items_snapshot: [
-      tplShape({ fillColor: "#0F3D3A", x: 70, y: 70, w: 940, h: 940, z: 0, borderRadius: 42, opacity: 0.94 }),
-      tplShape({ fillColor: "#D4AF68", x: 78, y: 80, w: 200, h: 200, z: 1, borderRadius: 999, opacity: 0.15 }),
-      tplText({ text: "OFERTA DE\nLANZAMIENTO", fontSize: 92, x: 108, y: 128, w: 610, h: 180, color: "#F5F0E4", fontFamily: "'Bebas Neue', sans-serif", lineHeight: 0.92, letterSpacing: 1 }),
-      tplText({ text: "Haz visible una promo, beneficio o descuento de estreno con alto contraste.", fontSize: 27, x: 112, y: 330, w: 430, h: 110, color: "#C9DDD4", lineHeight: 1.22 }),
-      tplShape({ fillColor: "#F5F0E4", x: 662, y: 170, w: 250, h: 470, z: 1, borderRadius: 30 }),
-      tplText({ text: "Producto\nestrella", fontSize: 32, x: 700, y: 366, w: 174, h: 80, color: "#8C7A59", textAlign: "center" }),
-      tplShape({ fillColor: "#D4AF68", x: 112, y: 760, w: 280, h: 112, z: 1, borderRadius: 24 }),
-      tplText({ text: "20% OFF HOY", fontSize: 36, x: 132, y: 798, w: 240, h: 38, color: "#17332F", textAlign: "center" }),
-      tplText({ text: "Cambia esta oferta por tu mensaje comercial real.", fontSize: 22, x: 454, y: 786, w: 360, h: 66, color: "#D8E4DE", lineHeight: 1.2 }),
+      tplText({ text: "ATELIER", fontSize: 84, x: 86, y: 94, w: 300, h: 92, z: 2, color: "#3A2E28", fontFamily: "'Josefin Sans', sans-serif", letterSpacing: 2 }),
+      tplText({ text: "Modern silhouettes", fontSize: 30, x: 92, y: 214, w: 280, h: 42, z: 2, color: "#6C5A50", letterSpacing: 0.5 }),
+      tplShape({ fillColor: "#FCF6F1", x: 138, y: 298, w: 310, h: 650, z: 1, borderRadius: 34 }),
+      tplText({ text: "Hero photo", fontSize: 32, x: 206, y: 580, w: 174, h: 44, z: 2, color: "#BE9583", textAlign: "center" }),
+      tplText({ text: "Una composicion limpia para lanzamientos serenos y producto protagonista.", fontSize: 26, x: 556, y: 348, w: 360, h: 120, z: 2, color: "#65554A", lineHeight: 1.22 }),
+      tplShape({ fillColor: "#D9B7A5", x: 558, y: 748, w: 280, h: 82, z: 1, borderRadius: 999 }),
+      tplText({ text: "Descubrir linea", fontSize: 24, x: 584, y: 772, w: 228, h: 30, z: 2, color: "#3A2E28", textAlign: "center" }),
     ],
   },
   {
-    name: "Story de Coleccion Bohemia",
+    name: "Premium Offer / Portrait",
     thumbnail_url: null,
-    background_color: "#F4E6D8",
-    background_style: "linear-gradient(135deg, #F8EEDF, #D9B99A)",
+    background_color: "#123936",
+    background_style: "linear-gradient(180deg, #123936, #1D2425)",
     background_image_url: null,
     canvas_width: 1080,
     canvas_height: 1350,
     is_public: true,
     items_snapshot: [
-      tplShape({ fillColor: "#6B3E2E", x: 0, y: 0, w: 1080, h: 220, z: 0, opacity: 0.88, borderRadius: 0 }),
-      tplText({ text: "UNA HISTORIA\nPARA VESTIR", fontSize: 78, x: 84, y: 74, w: 520, h: 140, color: "#FFF8F1", fontFamily: "'Playfair Display', serif", lineHeight: 0.96 }),
-      tplShape({ fillColor: "#FFF8F1", x: 86, y: 292, w: 420, h: 620, z: 0, borderRadius: 32 }),
-      tplText({ text: "Foto principal", fontSize: 34, x: 180, y: 570, w: 232, h: 50, color: "#BF9C82", textAlign: "center" }),
-      tplText({ text: "Presenta el origen, la inspiracion o el proceso de la coleccion.", fontSize: 28, x: 580, y: 338, w: 360, h: 140, color: "#5A463B", lineHeight: 1.24 }),
-      tplShape({ fillColor: "#2E6A57", x: 574, y: 548, w: 310, h: 220, z: 0, borderRadius: 28, opacity: 0.96 }),
-      tplText({ text: "Producto 1", fontSize: 28, x: 650, y: 640, w: 158, h: 34, color: "#F5EEE5", textAlign: "center" }),
-      tplShape({ fillColor: "#C77C4E", x: 690, y: 802, w: 250, h: 120, z: 0, borderRadius: 999, opacity: 0.95 }),
-      tplText({ text: "Conocer la coleccion", fontSize: 24, x: 724, y: 846, w: 182, h: 30, color: "#FFF5E9", textAlign: "center" }),
+      tplText({ text: "PRIVATE\nOFFER", fontSize: 104, x: 94, y: 124, w: 500, h: 178, z: 2, color: "#F7F2E9", fontFamily: "'Bebas Neue', sans-serif", lineHeight: 0.9, letterSpacing: 1 }),
+      tplText({ text: "Convierte una promo en una pieza de alto valor visual, sin perder sofisticacion.", fontSize: 28, x: 102, y: 334, w: 436, h: 102, z: 2, color: "#CFDDD7", lineHeight: 1.22 }),
+      tplShape({ fillColor: "#F7F2E9", x: 650, y: 176, w: 268, h: 510, z: 1, borderRadius: 30 }),
+      tplText({ text: "Producto\nestrella", fontSize: 32, x: 690, y: 390, w: 188, h: 84, z: 2, color: "#8F7A58", textAlign: "center" }),
+      tplShape({ fillColor: "#C9A25E", x: 110, y: 766, w: 304, h: 120, z: 2, borderRadius: 28 }),
+      tplText({ text: "20% OFF", fontSize: 42, x: 150, y: 804, w: 224, h: 44, z: 3, color: "#163431", textAlign: "center" }),
+      tplText({ text: "Exclusivo hoy", fontSize: 23, x: 176, y: 852, w: 172, h: 28, z: 3, color: "#163431", textAlign: "center", letterSpacing: 1 }),
+      tplShape({ fillColor: "#F7F2E9", x: 110, y: 1080, w: 260, h: 78, z: 2, borderRadius: 999 }),
+      tplText({ text: "Comprar ahora", fontSize: 24, x: 136, y: 1102, w: 208, h: 30, z: 3, color: "#163431", textAlign: "center" }),
+    ],
+  },
+  {
+    name: "Premium Offer / Square",
+    thumbnail_url: null,
+    background_color: "#103A37",
+    background_style: "linear-gradient(135deg, #103A37, #203334)",
+    background_image_url: null,
+    canvas_width: 1080,
+    canvas_height: 1080,
+    is_public: true,
+    items_snapshot: [
+      tplText({ text: "EARLY\nACCESS", fontSize: 108, x: 90, y: 124, w: 444, h: 170, z: 2, color: "#F5ECDD", fontFamily: "'Bebas Neue', sans-serif", lineHeight: 0.9 }),
+      tplText({ text: "Haz que la oferta se sienta exclusiva, no barata.", fontSize: 28, x: 98, y: 320, w: 360, h: 92, z: 2, color: "#D9E5DE", lineHeight: 1.2 }),
+      tplShape({ fillColor: "#F5ECDD", x: 648, y: 126, w: 252, h: 450, z: 1, borderRadius: 30 }),
+      tplText({ text: "Hero", fontSize: 32, x: 724, y: 334, w: 100, h: 40, z: 2, color: "#8D7758", textAlign: "center" }),
+      tplShape({ fillColor: "#D2AE67", x: 98, y: 752, w: 300, h: 112, z: 2, borderRadius: 24 }),
+      tplText({ text: "10% OFF", fontSize: 40, x: 134, y: 790, w: 228, h: 40, z: 3, color: "#163431", textAlign: "center" }),
+      tplText({ text: "Solo por lanzamiento", fontSize: 22, x: 490, y: 780, w: 290, h: 32, z: 2, color: "#D8E4DE", letterSpacing: 0.5 }),
+      tplShape({ fillColor: "#F5ECDD", x: 490, y: 836, w: 248, h: 76, z: 2, borderRadius: 999 }),
+      tplText({ text: "Ver ahora", fontSize: 24, x: 520, y: 858, w: 188, h: 30, z: 3, color: "#163431", textAlign: "center" }),
+    ],
+  },
+  {
+    name: "Lookbook Grid / Landscape",
+    thumbnail_url: null,
+    background_color: "#F4EFE7",
+    background_style: "linear-gradient(140deg, #F4EFE7, #DDD0C3)",
+    background_image_url: null,
+    canvas_width: 1600,
+    canvas_height: 900,
+    is_public: true,
+    items_snapshot: [
+      tplText({ text: "LOOKBOOK", fontSize: 92, x: 106, y: 88, w: 360, h: 96, z: 2, color: "#1B1B1B", fontFamily: "'Montserrat', sans-serif", letterSpacing: 1.4 }),
+      tplText({ text: "Tres piezas clave, una sola historia visual.", fontSize: 30, x: 112, y: 202, w: 390, h: 44, z: 2, color: "#6A5D52" }),
+      tplShape({ fillColor: "#FCF8F1", x: 106, y: 314, w: 280, h: 420, z: 1, borderRadius: 26 }),
+      tplShape({ fillColor: "#EDE2D7", x: 432, y: 254, w: 320, h: 480, z: 1, borderRadius: 26 }),
+      tplShape({ fillColor: "#C8B6A0", x: 798, y: 314, w: 280, h: 420, z: 1, borderRadius: 26 }),
+      tplText({ text: "Look 01", fontSize: 28, x: 182, y: 500, w: 128, h: 36, z: 2, color: "#B49773", textAlign: "center" }),
+      tplText({ text: "Look 02", fontSize: 28, x: 528, y: 500, w: 128, h: 36, z: 2, color: "#9A856B", textAlign: "center" }),
+      tplText({ text: "Look 03", fontSize: 28, x: 874, y: 500, w: 128, h: 36, z: 2, color: "#FFF8EF", textAlign: "center" }),
+      tplShape({ fillColor: "#1B1B1B", x: 1184, y: 150, w: 256, h: 76, z: 2, borderRadius: 999 }),
+      tplText({ text: "Ver seleccion", fontSize: 24, x: 1210, y: 172, w: 204, h: 30, z: 3, color: "#F4EFE7", textAlign: "center" }),
+      tplText({ text: "Ideal para portada de lineup o banner de coleccion.", fontSize: 27, x: 1188, y: 278, w: 258, h: 90, z: 2, color: "#65594F", lineHeight: 1.2 }),
     ],
   },
 ];
@@ -559,6 +650,53 @@ export async function setupPhase2Tables(): Promise<void> {
     `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS live_collection_id INTEGER NULL`
   );
 
+  await run(
+    "vendedor_perfil col live_chat_slow_mode_seconds",
+    `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS live_chat_slow_mode_seconds INTEGER NOT NULL DEFAULT 0`
+  );
+
+  await run(
+    "vendedor_perfil col live_chat_pinned_message",
+    `ALTER TABLE vendedor_perfil ADD COLUMN IF NOT EXISTS live_chat_pinned_message VARCHAR(240) NULL`
+  );
+
+  await run(
+    "live_chat_messages table",
+    `
+    CREATE TABLE IF NOT EXISTS live_chat_messages (
+      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      seller_id  INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id    INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      buyer_name VARCHAR(120) NOT NULL,
+      sender_role VARCHAR(20) NOT NULL DEFAULT 'buyer' CHECK (sender_role IN ('buyer', 'seller')),
+      message    VARCHAR(240) NOT NULL,
+      status     VARCHAR(20)  NOT NULL DEFAULT 'visible' CHECK (status IN ('visible', 'hidden', 'deleted')),
+      created_at TIMESTAMP    NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP    NOT NULL DEFAULT NOW()
+    )
+    `
+  );
+
+  await run(
+    "live_chat_messages index seller_created",
+    `CREATE INDEX IF NOT EXISTS idx_live_chat_messages_seller_created ON live_chat_messages (seller_id, created_at DESC)`
+  );
+
+  await run(
+    "live_chat_messages col sender_role",
+    `ALTER TABLE live_chat_messages ADD COLUMN IF NOT EXISTS sender_role VARCHAR(20) NOT NULL DEFAULT 'buyer'`
+  );
+
+  await run(
+    "live_chat_messages index seller_status_created",
+    `CREATE INDEX IF NOT EXISTS idx_live_chat_messages_seller_status_created ON live_chat_messages (seller_id, status, created_at DESC)`
+  );
+
+  await run(
+    "live_chat_messages index user_created",
+    `CREATE INDEX IF NOT EXISTS idx_live_chat_messages_user_created ON live_chat_messages (user_id, created_at DESC)`
+  );
+
   console.log("🔧 setupPhase2Tables: done.");
 }
 
@@ -645,12 +783,24 @@ export async function setupCollectionTables(): Promise<void> {
   );
 
   try {
+    for (const legacyName of LEGACY_COLLECTION_TEMPLATE_NAMES) {
+      await sequelize.query(
+        `DELETE FROM collection_templates WHERE seller_id IS NULL AND name = :name`,
+        { replacements: { name: legacyName } }
+      );
+    }
+
     for (const template of DEFAULT_COLLECTION_TEMPLATES) {
+      await sequelize.query(
+        `DELETE FROM collection_templates WHERE seller_id IS NULL AND name = :name`,
+        { replacements: { name: template.name } }
+      );
+
       await sequelize.query(
         `
         INSERT INTO collection_templates
           (seller_id, name, thumbnail_url, items_snapshot, canvas_width, canvas_height, background_color, background_style, background_image_url, is_public, created_at, updated_at)
-        SELECT
+        VALUES (
           NULL,
           :name,
           :thumbnailUrl,
@@ -663,8 +813,6 @@ export async function setupCollectionTables(): Promise<void> {
           :isPublic,
           NOW(),
           NOW()
-        WHERE NOT EXISTS (
-          SELECT 1 FROM collection_templates WHERE seller_id IS NULL AND name = :name
         )
         `,
         {
