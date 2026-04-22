@@ -1,23 +1,100 @@
-// src/controllers/collections.controller.ts
-
 import { RequestHandler } from "express";
-import { sequelize } from "../config/db";
 import { QueryTypes } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
+import { sequelize } from "../config/db";
 import supabase from "../lib/supabase";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper: verify that a collection belongs to the requesting seller
-// ─────────────────────────────────────────────────────────────────────────────
-async function assertOwnership(
-  collectionId: number,
-  sellerId: number
-): Promise<boolean> {
-  const rows = await sequelize.query<{ id: number }>(
-    `SELECT id FROM collections WHERE id = :id AND seller_id = :sellerId LIMIT 1`,
-    { replacements: { id: collectionId, sellerId }, type: QueryTypes.SELECT }
-  );
-  return rows.length > 0;
+type AuthUser = { id: number };
+
+type CollectionRow = {
+  id: number;
+  seller_id: number;
+  name: string;
+  description: string | null;
+  status: "draft" | "published";
+  promo_image_url: string | null;
+  background_image_url: string | null;
+  background_color: string | null;
+  background_style: string | null;
+  canvas_width: number;
+  canvas_height: number;
+  created_at: Date;
+  updated_at: Date;
+};
+
+type CollectionProductRow = {
+  item_id: number;
+  product_id: string;
+  nombre: string;
+  precio: number | string;
+  imagen_url: string | null;
+  internal_code: string | null;
+  seller_sku: string | null;
+  z_index: number;
+};
+
+type CollectionCanvasItemRow = {
+  id: number;
+  element_type: "product" | "text" | "shape" | "image" | null;
+  content: unknown;
+  product_id: string | null;
+  pos_x: number;
+  pos_y: number;
+  width: number;
+  height: number;
+  z_index: number;
+  product_name: string | null;
+  product_image: string | null;
+  product_price: number | string | null;
+};
+
+function getUser(req: unknown): AuthUser | null {
+  const user = (req as { user?: AuthUser }).user;
+  return user?.id ? user : null;
+}
+
+function normalizeText(value: unknown, maxLength: number): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, maxLength);
+}
+
+function normalizeDescription(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizePromoImageUrl(body: Record<string, unknown>): string | null | undefined {
+  if (Object.prototype.hasOwnProperty.call(body, "promo_image_url")) {
+    const value = body.promo_image_url;
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "background_image_url")) {
+    const value = body.background_image_url;
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  }
+
+  return undefined;
+}
+
+function normalizeProductIds(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+
+  const seen = new Set<string>();
+  const ids: string[] = [];
+
+  for (const rawValue of input) {
+    const value = typeof rawValue === "string" ? rawValue.trim() : "";
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    ids.push(value);
+  }
+
+  return ids;
 }
 
 function deriveTemplateThumbnail(
@@ -36,265 +113,661 @@ function deriveTemplateThumbnail(
   return null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/collections
-// Returns all collections for the authenticated seller
-// ─────────────────────────────────────────────────────────────────────────────
+async function assertOwnership(collectionId: number, sellerId: number): Promise<boolean> {
+  const rows = await sequelize.query<{ id: number }>(
+    `
+    SELECT id
+    FROM collections
+    WHERE id = :collectionId
+      AND seller_id = :sellerId
+    LIMIT 1
+    `,
+    {
+      replacements: { collectionId, sellerId },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return rows.length > 0;
+}
+
+async function getCollectionRowForSeller(collectionId: number, sellerId: number): Promise<CollectionRow | null> {
+  const rows = await sequelize.query<CollectionRow>(
+    `
+    SELECT
+      c.id,
+      c.seller_id,
+      c.name,
+      c.description,
+      c.status,
+      COALESCE(c.promo_image_url, c.background_image_url) AS promo_image_url,
+      c.background_image_url,
+      c.background_color,
+      c.background_style,
+      c.canvas_width,
+      c.canvas_height,
+      c.created_at,
+      c.updated_at
+    FROM collections c
+    WHERE c.id = :collectionId
+      AND c.seller_id = :sellerId
+    LIMIT 1
+    `,
+    {
+      replacements: { collectionId, sellerId },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return rows[0] ?? null;
+}
+
+async function getCollectionProducts(collectionId: number, sellerId?: number): Promise<CollectionProductRow[]> {
+  const rows = await sequelize.query<CollectionProductRow>(
+    `
+    SELECT
+      ci.id          AS item_id,
+      p.id           AS product_id,
+      p.nombre,
+      p.precio,
+      p.imagen_url,
+      p.internal_code,
+      p.seller_sku,
+      COALESCE(ci.z_index, 0) AS z_index
+    FROM collection_items ci
+    JOIN productos p ON p.id = ci.product_id
+    WHERE ci.collection_id = :collectionId
+      AND (ci.element_type = 'product' OR ci.element_type IS NULL)
+      ${sellerId ? "AND p.vendedor_id = :sellerId" : ""}
+      AND p.activo = true
+    ORDER BY COALESCE(ci.z_index, 0) ASC, p.created_at DESC
+    `,
+    {
+      replacements: sellerId ? { collectionId, sellerId } : { collectionId },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = String(row.product_id);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function getCollectionCanvasItems(collectionId: number, sellerId: number): Promise<CollectionCanvasItemRow[]> {
+  return sequelize.query<CollectionCanvasItemRow>(
+    `
+    SELECT
+      ci.id,
+      COALESCE(ci.element_type, 'product') AS element_type,
+      ci.content,
+      ci.product_id,
+      COALESCE(ci.pos_x, 0) AS pos_x,
+      COALESCE(ci.pos_y, 0) AS pos_y,
+      COALESCE(ci.width, 0) AS width,
+      COALESCE(ci.height, 0) AS height,
+      COALESCE(ci.z_index, 0) AS z_index,
+      p.nombre AS product_name,
+      p.imagen_url AS product_image,
+      p.precio AS product_price
+    FROM collection_items ci
+    LEFT JOIN productos p
+      ON p.id = ci.product_id
+     AND p.vendedor_id = :sellerId
+    WHERE ci.collection_id = :collectionId
+    ORDER BY COALESCE(ci.z_index, 0) ASC, ci.id ASC
+    `,
+    {
+      replacements: { collectionId, sellerId },
+      type: QueryTypes.SELECT,
+    }
+  );
+}
+
+function buildCollectionPayload(
+  collection: CollectionRow,
+  products: CollectionProductRow[],
+  canvasItems?: CollectionCanvasItemRow[]
+) {
+  const promoImageUrl = collection.promo_image_url ?? collection.background_image_url ?? null;
+  const productItems = products.map((product, index) => ({
+    id: product.item_id,
+    element_type: "product" as const,
+    product_id: product.product_id,
+    z_index: product.z_index ?? index,
+    product_name: product.nombre,
+    product_image: product.imagen_url,
+    product_price: product.precio,
+    internal_code: product.internal_code,
+    seller_sku: product.seller_sku,
+  }));
+  const resolvedItems = canvasItems ?? productItems;
+
+  return {
+    id: collection.id,
+    seller_id: collection.seller_id,
+    name: collection.name,
+    description: collection.description,
+    status: collection.status,
+    promo_image_url: promoImageUrl,
+    background_image_url: promoImageUrl,
+    background_color: collection.background_color,
+    background_style: collection.background_style,
+    canvas_width: collection.canvas_width,
+    canvas_height: collection.canvas_height,
+    item_count: resolvedItems.length,
+    product_count: products.length,
+    products: products.map((product) => ({
+      id: product.product_id,
+      nombre: product.nombre,
+      precio: product.precio,
+      imagen_url: product.imagen_url,
+      internal_code: product.internal_code,
+      seller_sku: product.seller_sku,
+    })),
+    items: resolvedItems,
+    created_at: collection.created_at,
+    updated_at: collection.updated_at,
+  };
+}
+
+async function validateSellerProducts(productIds: string[], sellerId: number): Promise<string[]> {
+  if (!productIds.length) return [];
+
+  const rows = await sequelize.query<{ id: string }>(
+    `
+    SELECT id
+    FROM productos
+    WHERE vendedor_id = :sellerId
+      AND activo = true
+      AND id IN (:productIds)
+    `,
+    {
+      replacements: { sellerId, productIds },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const valid = new Set(rows.map((row) => String(row.id)));
+  return productIds.filter((productId) => valid.has(productId));
+}
+
+async function replaceCollectionProducts(collectionId: number, sellerId: number, productIds: string[]): Promise<void> {
+  const validProductIds = await validateSellerProducts(productIds, sellerId);
+
+  if (validProductIds.length !== productIds.length) {
+    throw Object.assign(new Error("INVALID_PRODUCTS"), { statusCode: 400 });
+  }
+
+  const transaction = await sequelize.transaction();
+
+  try {
+    await sequelize.query(
+      `
+      DELETE FROM collection_items
+      WHERE collection_id = :collectionId
+        AND (element_type = 'product' OR element_type IS NULL)
+      `,
+      {
+        replacements: { collectionId },
+        type: QueryTypes.DELETE,
+        transaction,
+      }
+    );
+
+    for (const [index, productId] of validProductIds.entries()) {
+      await sequelize.query(
+        `
+        INSERT INTO collection_items
+          (collection_id, product_id, element_type, content, pos_x, pos_y, width, height, z_index, created_at, updated_at)
+        VALUES
+          (:collectionId, :productId, 'product', NULL, 0, 0, 0, 0, :zIndex, NOW(), NOW())
+        `,
+        {
+          replacements: {
+            collectionId,
+            productId,
+            zIndex: index,
+          },
+          type: QueryTypes.INSERT,
+          transaction,
+        }
+      );
+    }
+
+    await transaction.commit();
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+async function getPublishedCollectionsByQuery(
+  replacements: Record<string, unknown>,
+  whereClause: string
+): Promise<Array<ReturnType<typeof buildCollectionPayload>>> {
+  const collections = await sequelize.query<CollectionRow>(
+    `
+    SELECT
+      c.id,
+      c.seller_id,
+      c.name,
+      c.description,
+      c.status,
+      COALESCE(c.promo_image_url, c.background_image_url) AS promo_image_url,
+      c.background_image_url,
+      c.background_color,
+      c.background_style,
+      c.canvas_width,
+      c.canvas_height,
+      c.created_at,
+      c.updated_at
+    FROM collections c
+    ${whereClause}
+    ORDER BY c.created_at DESC
+    `,
+    {
+      replacements,
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const payloads = await Promise.all(
+    collections.map(async (collection) => {
+      const [products, canvasItems] = await Promise.all([
+        getCollectionProducts(collection.id),
+        getCollectionCanvasItems(collection.id, collection.seller_id),
+      ]);
+      return buildCollectionPayload(collection, products, canvasItems);
+    })
+  );
+
+  return payloads;
+}
+
 export const getMyCollections: RequestHandler = async (req, res): Promise<void> => {
   try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
 
-    const collections = await sequelize.query<{
-      id: number;
-      name: string;
-      description: string | null;
-      status: string;
-      background_color: string;
-      background_style: string | null;
-      background_image_url: string | null;
-      canvas_width: number;
-      canvas_height: number;
-      created_at: Date;
-      updated_at: Date;
-      item_count: number;
-      items: any[];
-    }>(
+    const collections = await sequelize.query<CollectionRow>(
       `
       SELECT
         c.id,
+        c.seller_id,
         c.name,
         c.description,
         c.status,
+        COALESCE(c.promo_image_url, c.background_image_url) AS promo_image_url,
+        c.background_image_url,
         c.background_color,
         c.background_style,
-        c.background_image_url,
         c.canvas_width,
         c.canvas_height,
         c.created_at,
-        c.updated_at,
-        COUNT(ci.id)::int AS item_count,
-        COALESCE(
-          (
-            SELECT json_agg(
-              json_build_object(
-                'id', ci2.id,
-                'element_type', ci2.element_type,
-                'content', ci2.content,
-                'product_id', ci2.product_id,
-                'pos_x', ci2.pos_x,
-                'pos_y', ci2.pos_y,
-                'width', ci2.width,
-                'height', ci2.height,
-                'z_index', ci2.z_index,
-                'product_image', p.imagen_url
-              )
-              ORDER BY ci2.z_index ASC
-            )
-            FROM collection_items ci2
-            LEFT JOIN productos p ON p.id = ci2.product_id
-            WHERE ci2.collection_id = c.id
-          ),
-          '[]'::json
-        ) AS items
+        c.updated_at
       FROM collections c
-      LEFT JOIN collection_items ci ON ci.collection_id = c.id
       WHERE c.seller_id = :sellerId
-      GROUP BY c.id
       ORDER BY c.created_at DESC
       `,
-      { replacements: { sellerId: user.id }, type: QueryTypes.SELECT }
+      {
+        replacements: { sellerId: user.id },
+        type: QueryTypes.SELECT,
+      }
     );
 
-    res.json({ ok: true, data: collections });
-  } catch (err) {
-    console.error("[collections] getMyCollections:", err);
+    const data = await Promise.all(
+      collections.map(async (collection) => {
+        const [products, canvasItems] = await Promise.all([
+          getCollectionProducts(collection.id, user.id),
+          getCollectionCanvasItems(collection.id, user.id),
+        ]);
+        return buildCollectionPayload(collection, products, canvasItems);
+      })
+    );
+
+    res.json({ ok: true, data });
+  } catch (error) {
+    console.error("[collections] getMyCollections:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/collections/:id
-// Returns one collection with its items and product data
-// ─────────────────────────────────────────────────────────────────────────────
 export const getCollectionById: RequestHandler = async (req, res): Promise<void> => {
   try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
 
     const collectionId = Number(req.params.id);
+    if (!collectionId || Number.isNaN(collectionId)) {
+      res.status(400).json({ ok: false, message: "Colección inválida" });
+      return;
+    }
 
-    const [collection] = await sequelize.query<{
-      id: number; name: string; description: string | null;
-      status: string; background_color: string; background_image_url: string | null;
-      canvas_width: number; canvas_height: number;
-      created_at: Date; updated_at: Date;
-    }>(
-      `SELECT * FROM collections WHERE id = :id AND seller_id = :sellerId LIMIT 1`,
-      { replacements: { id: collectionId, sellerId: user.id }, type: QueryTypes.SELECT }
-    );
+    const collection = await getCollectionRowForSeller(collectionId, user.id);
+    if (!collection) {
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
 
-    if (!collection) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
-
-    const items = await sequelize.query<{
-      id: number; element_type: string; content: any;
-      product_id: string | null;
-      pos_x: number; pos_y: number; width: number; height: number; z_index: number;
-      product_name: string | null; product_image: string | null; product_price: number | null;
-    }>(
-      `
-      SELECT
-        ci.id,
-        ci.element_type,
-        ci.content,
-        ci.product_id,
-        ci.pos_x,
-        ci.pos_y,
-        ci.width,
-        ci.height,
-        ci.z_index,
-        p.nombre     AS product_name,
-        p.imagen_url AS product_image,
-        p.precio     AS product_price
-      FROM collection_items ci
-      LEFT JOIN productos p ON p.id = ci.product_id
-      WHERE ci.collection_id = :collectionId
-      ORDER BY ci.z_index ASC
-      `,
-      { replacements: { collectionId }, type: QueryTypes.SELECT }
-    );
-
-    res.json({ ok: true, data: { ...collection, items } });
-  } catch (err) {
-    console.error("[collections] getCollectionById:", err);
+    const [products, canvasItems] = await Promise.all([
+      getCollectionProducts(collectionId, user.id),
+      getCollectionCanvasItems(collectionId, user.id),
+    ]);
+    res.json({ ok: true, data: buildCollectionPayload(collection, products, canvasItems) });
+  } catch (error) {
+    console.error("[collections] getCollectionById:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/collections
-// Creates a new draft collection
-// ─────────────────────────────────────────────────────────────────────────────
 export const createCollection: RequestHandler = async (req, res): Promise<void> => {
   try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
 
-    const {
-      name,
-      description = null,
-      background_color = "#FFFFFF",
-      background_image_url = null,
-      canvas_width = 800,
-      canvas_height = 600,
-    } = req.body;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const name = normalizeText(body.name, 120);
 
-    if (!name || typeof name !== "string" || name.trim().length === 0) {
+    if (!name) {
       res.status(400).json({ ok: false, message: "El nombre es requerido" });
       return;
     }
 
-    const [result] = await sequelize.query<{ id: number }>(
+    const description = normalizeDescription(body.description);
+    const promoImageUrl = normalizePromoImageUrl(body) ?? null;
+
+    const rows = await sequelize.query<{ id: number }>(
       `
       INSERT INTO collections
-        (seller_id, name, description, background_color, background_image_url, canvas_width, canvas_height, status, created_at, updated_at)
+        (seller_id, name, description, promo_image_url, background_image_url, background_color, canvas_width, canvas_height, status, created_at, updated_at)
       VALUES
-        (:sellerId, :name, :description, :backgroundColor, :backgroundImageUrl, :canvasWidth, :canvasHeight, 'draft', NOW(), NOW())
+        (:sellerId, :name, :description, :promoImageUrl, :backgroundImageUrl, '#FFFFFF', 800, 600, 'draft', NOW(), NOW())
       RETURNING id
       `,
       {
         replacements: {
           sellerId: user.id,
-          name: name.trim().slice(0, 120),
+          name,
           description,
-          backgroundColor: background_color,
-          backgroundImageUrl: background_image_url,
-          canvasWidth: canvas_width,
-          canvasHeight: canvas_height,
+          promoImageUrl,
+          backgroundImageUrl: promoImageUrl,
         },
         type: QueryTypes.SELECT,
       }
     );
 
-    res.status(201).json({ ok: true, data: { id: result.id } });
-  } catch (err) {
-    console.error("[collections] createCollection:", err);
+    const collectionId = rows[0]?.id;
+    const productIds = normalizeProductIds(body.product_ids);
+    if (collectionId && productIds.length) {
+      await replaceCollectionProducts(collectionId, user.id, productIds);
+    }
+
+    res.status(201).json({ ok: true, data: { id: collectionId } });
+  } catch (error) {
+    console.error("[collections] createCollection:", error);
+    if ((error as { statusCode?: number }).statusCode === 400) {
+      res.status(400).json({ ok: false, message: "Uno o más productos no son válidos para esta colección" });
+      return;
+    }
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PUT /api/collections/:id
-// Updates collection metadata and canvas settings
-// ─────────────────────────────────────────────────────────────────────────────
 export const updateCollection: RequestHandler = async (req, res): Promise<void> => {
   try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
 
     const collectionId = Number(req.params.id);
     const owned = await assertOwnership(collectionId, user.id);
-    if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
+    if (!owned) {
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
 
-    const {
-      name,
-      description,
-      background_color,
-      background_image_url,
-      background_style,
-      canvas_width,
-      canvas_height,
-    } = req.body;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const name = Object.prototype.hasOwnProperty.call(body, "name")
+      ? normalizeText(body.name, 120)
+      : undefined;
+    const description = Object.prototype.hasOwnProperty.call(body, "description")
+      ? normalizeDescription(body.description)
+      : undefined;
+    const promoImageUrl = normalizePromoImageUrl(body);
+
+    if (Object.prototype.hasOwnProperty.call(body, "name") && !name) {
+      res.status(400).json({ ok: false, message: "El nombre es requerido" });
+      return;
+    }
 
     await sequelize.query(
       `
-      UPDATE collections SET
-        name                 = COALESCE(:name, name),
-        description          = COALESCE(:description, description),
-        background_color     = COALESCE(:backgroundColor, background_color),
-        background_image_url = CASE WHEN :hasBackgroundImage THEN :backgroundImageUrl ELSE background_image_url END,
-        background_style     = CASE WHEN :hasStyle THEN :backgroundStyle ELSE background_style END,
-        canvas_width         = COALESCE(:canvasWidth, canvas_width),
-        canvas_height        = COALESCE(:canvasHeight, canvas_height),
-        updated_at           = NOW()
-      WHERE id = :id
+      UPDATE collections
+      SET
+        name = CASE WHEN :hasName THEN :name ELSE name END,
+        description = CASE WHEN :hasDescription THEN :description ELSE description END,
+        promo_image_url = CASE WHEN :hasPromoImage THEN :promoImageUrl ELSE promo_image_url END,
+        background_image_url = CASE WHEN :hasPromoImage THEN :promoImageUrl ELSE background_image_url END,
+        updated_at = NOW()
+      WHERE id = :collectionId
       `,
       {
         replacements: {
-          id: collectionId,
-          name: name ? String(name).trim().slice(0, 120) : null,
+          collectionId,
+          hasName: Object.prototype.hasOwnProperty.call(body, "name"),
+          name: name ?? null,
+          hasDescription: Object.prototype.hasOwnProperty.call(body, "description"),
           description: description ?? null,
-          backgroundColor: background_color ?? null,
-          backgroundImageUrl: background_image_url ?? null,
-          hasBackgroundImage: background_image_url !== undefined,
-          hasStyle: background_style !== undefined,
-          backgroundStyle: background_style ?? null,
-          canvasWidth: canvas_width ?? null,
-          canvasHeight: canvas_height ?? null,
+          hasPromoImage: promoImageUrl !== undefined,
+          promoImageUrl: promoImageUrl ?? null,
         },
         type: QueryTypes.UPDATE,
       }
     );
 
+    if (Object.prototype.hasOwnProperty.call(body, "product_ids")) {
+      await replaceCollectionProducts(collectionId, user.id, normalizeProductIds(body.product_ids));
+    }
+
     res.json({ ok: true });
-  } catch (err) {
-    console.error("[collections] updateCollection:", err);
+  } catch (error) {
+    console.error("[collections] updateCollection:", error);
+    if ((error as { statusCode?: number }).statusCode === 400) {
+      res.status(400).json({ ok: false, message: "Uno o más productos no son válidos para esta colección" });
+      return;
+    }
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/collections/:id/templates
-// Save the current canvas state as a reusable template
-// ─────────────────────────────────────────────────────────────────────────────
-export const saveCollectionAsTemplate: RequestHandler = async (req, res): Promise<void> => {
+export const setCollectionProducts: RequestHandler = async (req, res): Promise<void> => {
   try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
 
     const collectionId = Number(req.params.id);
     const owned = await assertOwnership(collectionId, user.id);
-    if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
+    if (!owned) {
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
+
+    const productIds = normalizeProductIds((req.body ?? {}).product_ids);
+    await replaceCollectionProducts(collectionId, user.id, productIds);
+
+    res.json({ ok: true, data: { product_count: productIds.length } });
+  } catch (error) {
+    console.error("[collections] setCollectionProducts:", error);
+    if ((error as { statusCode?: number }).statusCode === 400) {
+      res.status(400).json({ ok: false, message: "Uno o más productos no son válidos para esta colección" });
+      return;
+    }
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+export const getPublicCollectionTemplates: RequestHandler = async (_req, res): Promise<void> => {
+  try {
+    const templates = await sequelize.query(
+      `
+      SELECT
+        id,
+        name,
+        thumbnail_url,
+        items_snapshot,
+        canvas_width,
+        canvas_height,
+        background_color,
+        background_style,
+        background_image_url,
+        is_public,
+        created_at
+      FROM collection_templates
+      WHERE is_public = true
+      ORDER BY created_at DESC
+      `,
+      { type: QueryTypes.SELECT }
+    );
+
+    res.json({ ok: true, data: templates });
+  } catch (error) {
+    console.error("[collections] getPublicCollectionTemplates:", error);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+export const getMyCollectionTemplates: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
+
+    const templates = await sequelize.query(
+      `
+      SELECT
+        id,
+        name,
+        thumbnail_url,
+        items_snapshot,
+        canvas_width,
+        canvas_height,
+        background_color,
+        background_style,
+        background_image_url,
+        is_public,
+        created_at,
+        CASE WHEN seller_id IS NULL THEN 'system' ELSE 'mine' END AS owner_scope
+      FROM collection_templates
+      WHERE seller_id IS NULL
+         OR seller_id = :sellerId
+      ORDER BY
+        CASE WHEN seller_id IS NULL THEN 0 ELSE 1 END,
+        created_at DESC
+      `,
+      {
+        replacements: { sellerId: user.id },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    res.json({ ok: true, data: templates });
+  } catch (error) {
+    console.error("[collections] getMyCollectionTemplates:", error);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+export const getCollectionTemplateById: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
+
+    const templateId = Number(req.params.templateId);
+    if (!templateId || Number.isNaN(templateId)) {
+      res.status(400).json({ ok: false, message: "templateId inválido" });
+      return;
+    }
+
+    const rows = await sequelize.query(
+      `
+      SELECT
+        id,
+        seller_id,
+        name,
+        thumbnail_url,
+        items_snapshot,
+        canvas_width,
+        canvas_height,
+        background_color,
+        background_style,
+        background_image_url,
+        is_public,
+        created_at,
+        updated_at
+      FROM collection_templates
+      WHERE id = :templateId
+        AND (seller_id IS NULL OR seller_id = :sellerId)
+      LIMIT 1
+      `,
+      {
+        replacements: {
+          templateId,
+          sellerId: user.id,
+        },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    const template = rows[0];
+    if (!template) {
+      res.status(404).json({ ok: false, message: "Plantilla no encontrada" });
+      return;
+    }
+
+    res.json({ ok: true, data: template });
+  } catch (error) {
+    console.error("[collections] getCollectionTemplateById:", error);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+export const saveCollectionAsTemplate: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
+
+    const collectionId = Number(req.params.id);
+    const owned = await assertOwnership(collectionId, user.id);
+    if (!owned) {
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
 
     const {
       name,
@@ -320,7 +793,7 @@ export const saveCollectionAsTemplate: RequestHandler = async (req, res): Promis
 
     const finalThumbnail = deriveTemplateThumbnail(background_image_url, thumbnail_url, items_snapshot);
 
-    const [created] = await sequelize.query<{ id: number }>(
+    const rows = await sequelize.query<{ id: number }>(
       `
       INSERT INTO collection_templates
         (seller_id, name, thumbnail_url, items_snapshot, canvas_width, canvas_height, background_color, background_style, background_image_url, is_public, created_at, updated_at)
@@ -345,191 +818,18 @@ export const saveCollectionAsTemplate: RequestHandler = async (req, res): Promis
       }
     );
 
-    res.status(201).json({ ok: true, data: { id: created.id } });
-  } catch (err) {
-    console.error("[collections] saveCollectionAsTemplate:", err);
+    res.status(201).json({ ok: true, data: { id: rows[0]?.id } });
+  } catch (error) {
+    console.error("[collections] saveCollectionAsTemplate:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/collections/templates
-// Public list of reusable templates
-// ─────────────────────────────────────────────────────────────────────────────
-export const getPublicCollectionTemplates: RequestHandler = async (_req, res): Promise<void> => {
-  try {
-    const templates = await sequelize.query<{
-      id: number;
-      name: string;
-      thumbnail_url: string | null;
-      items_snapshot: any[];
-      canvas_width: number;
-      canvas_height: number;
-      background_color: string;
-      background_style: string | null;
-      background_image_url: string | null;
-      is_public: boolean;
-      item_count: number;
-      created_at: Date;
-    }>(
-      `
-      SELECT
-        id,
-        name,
-        thumbnail_url,
-        items_snapshot,
-        canvas_width,
-        canvas_height,
-        background_color,
-        background_style,
-        background_image_url,
-        is_public,
-        jsonb_array_length(items_snapshot)::int AS item_count,
-        created_at
-      FROM collection_templates
-      WHERE is_public = true
-      ORDER BY created_at DESC
-      `,
-      { type: QueryTypes.SELECT }
-    );
-
-    res.json({ ok: true, data: templates });
-  } catch (err) {
-    console.error("[collections] getPublicCollectionTemplates:", err);
-    res.status(500).json({ ok: false, message: "Error del servidor" });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/collections/templates/mine
-// Returns system public templates plus seller-owned templates
-// ─────────────────────────────────────────────────────────────────────────────
-export const getMyCollectionTemplates: RequestHandler = async (req, res): Promise<void> => {
-  try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
-
-    const templates = await sequelize.query<{
-      id: number;
-      name: string;
-      thumbnail_url: string | null;
-      canvas_width: number;
-      canvas_height: number;
-      background_color: string;
-      background_style: string | null;
-      background_image_url: string | null;
-      is_public: boolean;
-      item_count: number;
-      created_at: Date;
-      owner_scope: "system" | "mine";
-    }>(
-      `
-      SELECT
-        id,
-        name,
-        thumbnail_url,
-        canvas_width,
-        canvas_height,
-        background_color,
-        background_style,
-        background_image_url,
-        is_public,
-        jsonb_array_length(items_snapshot)::int AS item_count,
-        created_at,
-        CASE WHEN seller_id IS NULL THEN 'system' ELSE 'mine' END AS owner_scope
-      FROM collection_templates
-      WHERE seller_id IS NULL
-         OR seller_id = :sellerId
-      ORDER BY
-        CASE WHEN seller_id IS NULL THEN 0 ELSE 1 END,
-        created_at DESC
-      `,
-      {
-        replacements: { sellerId: user.id },
-        type: QueryTypes.SELECT,
-      }
-    );
-
-    res.json({ ok: true, data: templates });
-  } catch (err) {
-    console.error("[collections] getMyCollectionTemplates:", err);
-    res.status(500).json({ ok: false, message: "Error del servidor" });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/collections/templates/:templateId
-// Full template detail for preview/apply flows
-// ─────────────────────────────────────────────────────────────────────────────
-export const getCollectionTemplateById: RequestHandler = async (req, res): Promise<void> => {
-  try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
-
-    const templateId = Number(req.params.templateId);
-    if (!templateId || Number.isNaN(templateId)) {
-      res.status(400).json({ ok: false, message: "templateId inválido" });
-      return;
-    }
-
-    const [template] = await sequelize.query<{
-      id: number;
-      name: string;
-      thumbnail_url: string | null;
-      items_snapshot: any[];
-      canvas_width: number;
-      canvas_height: number;
-      background_color: string;
-      background_style: string | null;
-      background_image_url: string | null;
-      is_public: boolean;
-      created_at: Date;
-    }>(
-      `
-      SELECT
-        id,
-        name,
-        thumbnail_url,
-        items_snapshot,
-        canvas_width,
-        canvas_height,
-        background_color,
-        background_style,
-        background_image_url,
-        is_public,
-        created_at
-      FROM collection_templates
-      WHERE id = :templateId
-        AND (seller_id IS NULL OR seller_id = :sellerId)
-      LIMIT 1
-      `,
-      {
-        replacements: { templateId, sellerId: user.id },
-        type: QueryTypes.SELECT,
-      }
-    );
-
-    if (!template) {
-      res.status(404).json({ ok: false, message: "Plantilla no encontrada" });
-      return;
-    }
-
-    res.json({ ok: true, data: template });
-  } catch (err) {
-    console.error("[collections] getCollectionTemplateById:", err);
-    res.status(500).json({ ok: false, message: "Error del servidor" });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/collections/:id/apply-template
-// Apply a reusable template to the current collection
-// ─────────────────────────────────────────────────────────────────────────────
 export const applyCollectionTemplate: RequestHandler = async (req, res): Promise<void> => {
   const transaction = await sequelize.transaction();
 
   try {
-    const user = (req as any).user;
+    const user = getUser(req);
     if (!user) {
       await transaction.rollback();
       res.status(401).json({ ok: false, message: "No autenticado" });
@@ -552,9 +852,9 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
       return;
     }
 
-    const [template] = await sequelize.query<{
+    const templateRows = await sequelize.query<{
       id: number;
-      seller_id: number;
+      seller_id: number | null;
       name: string;
       items_snapshot: any[];
       canvas_width: number;
@@ -578,6 +878,7 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
       }
     );
 
+    const template = templateRows[0];
     if (!template) {
       await transaction.rollback();
       res.status(404).json({ ok: false, message: "Plantilla no encontrada" });
@@ -635,7 +936,11 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
 
     await sequelize.query(
       `DELETE FROM collection_items WHERE collection_id = :collectionId`,
-      { replacements: { collectionId }, type: QueryTypes.DELETE, transaction }
+      {
+        replacements: { collectionId },
+        type: QueryTypes.DELETE,
+        transaction,
+      }
     );
 
     let insertedCount = 0;
@@ -690,238 +995,256 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
         background_image_url: template.background_image_url,
       },
     });
-  } catch (err) {
+  } catch (error) {
     await transaction.rollback();
-    console.error("[collections] applyCollectionTemplate:", err);
+    console.error("[collections] applyCollectionTemplate:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PATCH /api/collections/:id/publish
-// Toggles status between draft and published
-// ─────────────────────────────────────────────────────────────────────────────
 export const togglePublish: RequestHandler = async (req, res): Promise<void> => {
   try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
-
-    const collectionId = Number(req.params.id);
-    const owned = await assertOwnership(collectionId, user.id);
-    if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
-
-    const [updated] = await sequelize.query<{ status: string }>(
-      `
-      UPDATE collections
-      SET status = CASE WHEN status = 'published' THEN 'draft' ELSE 'published' END,
-          updated_at = NOW()
-      WHERE id = :id
-      RETURNING status
-      `,
-      { replacements: { id: collectionId }, type: QueryTypes.SELECT }
-    );
-
-    res.json({ ok: true, data: { status: updated.status } });
-  } catch (err) {
-    console.error("[collections] togglePublish:", err);
-    res.status(500).json({ ok: false, message: "Error del servidor" });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DELETE /api/collections/:id
-// Deletes a collection and all its items (CASCADE)
-// ─────────────────────────────────────────────────────────────────────────────
-export const deleteCollection: RequestHandler = async (req, res): Promise<void> => {
-  try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
-
-    const collectionId = Number(req.params.id);
-    const owned = await assertOwnership(collectionId, user.id);
-    if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
-
-    await sequelize.query(
-      `DELETE FROM collections WHERE id = :id`,
-      { replacements: { id: collectionId }, type: QueryTypes.DELETE }
-    );
-
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("[collections] deleteCollection:", err);
-    res.status(500).json({ ok: false, message: "Error del servidor" });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/collections/:id/items
-// Adds a product to the canvas
-// ─────────────────────────────────────────────────────────────────────────────
-export const addItem: RequestHandler = async (req, res): Promise<void> => {
-  try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
-
-    const collectionId = Number(req.params.id);
-    const owned = await assertOwnership(collectionId, user.id);
-    if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
-
-    const {
-      product_id = null,
-      element_type = "product",
-      content = null,
-      pos_x = 50,
-      pos_y = 50,
-      width = 150,
-      height = 150,
-      z_index = 0,
-    } = req.body;
-
-    const validTypes = ["product", "text", "shape", "image"];
-    if (!validTypes.includes(element_type)) {
-      res.status(400).json({ ok: false, message: "element_type inválido" });
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
       return;
     }
 
-    if (element_type === "product") {
-      if (!product_id) {
-        res.status(400).json({ ok: false, message: "product_id es requerido para tipo producto" });
-        return;
-      }
-      const [product] = await sequelize.query<{ id: string }>(
-        `SELECT id FROM productos WHERE id = :productId AND vendedor_id = :sellerId AND activo = true LIMIT 1`,
-        { replacements: { productId: product_id, sellerId: user.id }, type: QueryTypes.SELECT }
-      );
-      if (!product) {
-        res.status(400).json({ ok: false, message: "Producto no válido para esta colección" });
-        return;
-      }
+    const collectionId = Number(req.params.id);
+    const owned = await assertOwnership(collectionId, user.id);
+    if (!owned) {
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
     }
 
-    const [item] = await sequelize.query<{ id: number }>(
+    const rows = await sequelize.query<{ status: "draft" | "published" }>(
+      `
+      UPDATE collections
+      SET
+        status = CASE WHEN status = 'published' THEN 'draft' ELSE 'published' END,
+        updated_at = NOW()
+      WHERE id = :collectionId
+      RETURNING status
+      `,
+      {
+        replacements: { collectionId },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    res.json({ ok: true, data: { status: rows[0]?.status ?? "draft" } });
+  } catch (error) {
+    console.error("[collections] togglePublish:", error);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+export const deleteCollection: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
+
+    const collectionId = Number(req.params.id);
+    const owned = await assertOwnership(collectionId, user.id);
+    if (!owned) {
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
+
+    await sequelize.query(
+      `DELETE FROM collections WHERE id = :collectionId`,
+      {
+        replacements: { collectionId },
+        type: QueryTypes.DELETE,
+      }
+    );
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[collections] deleteCollection:", error);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+export const addItem: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
+
+    const collectionId = Number(req.params.id);
+    const owned = await assertOwnership(collectionId, user.id);
+    if (!owned) {
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
+
+    const productId = typeof req.body?.product_id === "string" ? req.body.product_id.trim() : "";
+    if (!productId) {
+      res.status(400).json({ ok: false, message: "product_id es requerido" });
+      return;
+    }
+
+    const validProducts = await validateSellerProducts([productId], user.id);
+    if (!validProducts.length) {
+      res.status(400).json({ ok: false, message: "Producto no válido para esta colección" });
+      return;
+    }
+
+    const currentRows = await sequelize.query<{ next_index: number }>(
+      `
+      SELECT COALESCE(MAX(z_index), -1) + 1 AS next_index
+      FROM collection_items
+      WHERE collection_id = :collectionId
+        AND (element_type = 'product' OR element_type IS NULL)
+      `,
+      {
+        replacements: { collectionId },
+        type: QueryTypes.SELECT,
+      }
+    );
+
+    const nextIndex = Number(currentRows[0]?.next_index ?? 0);
+
+    const rows = await sequelize.query<{ id: number }>(
       `
       INSERT INTO collection_items
         (collection_id, product_id, element_type, content, pos_x, pos_y, width, height, z_index, created_at, updated_at)
       VALUES
-        (:collectionId, :productId, :elementType, CAST(:content AS jsonb), :posX, :posY, :width, :height, :zIndex, NOW(), NOW())
+        (:collectionId, :productId, 'product', NULL, 0, 0, 0, 0, :zIndex, NOW(), NOW())
       RETURNING id
       `,
       {
         replacements: {
           collectionId,
-          productId: product_id,
-          elementType: element_type,
-          content: content !== null ? JSON.stringify(content) : null,
-          posX: pos_x,
-          posY: pos_y,
-          width,
-          height,
-          zIndex: z_index,
+          productId,
+          zIndex: nextIndex,
         },
         type: QueryTypes.SELECT,
       }
     );
 
-    res.status(201).json({ ok: true, data: { id: item.id } });
-  } catch (err) {
-    console.error("[collections] addItem:", err);
+    res.status(201).json({ ok: true, data: { id: rows[0]?.id } });
+  } catch (error) {
+    console.error("[collections] addItem:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PUT /api/collections/:id/items/:itemId
-// Updates position/size of a canvas item
-// ─────────────────────────────────────────────────────────────────────────────
 export const updateItem: RequestHandler = async (req, res): Promise<void> => {
   try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
 
     const collectionId = Number(req.params.id);
     const itemId = Number(req.params.itemId);
-
     const owned = await assertOwnership(collectionId, user.id);
-    if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
+    if (!owned) {
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
 
-    const { pos_x, pos_y, width, height, z_index, content } = req.body;
+    const zIndex = req.body?.z_index;
+    const productId = typeof req.body?.product_id === "string" ? req.body.product_id.trim() : undefined;
+
+    if (productId) {
+      const validProducts = await validateSellerProducts([productId], user.id);
+      if (!validProducts.length) {
+        res.status(400).json({ ok: false, message: "Producto no válido para esta colección" });
+        return;
+      }
+    }
 
     await sequelize.query(
       `
-      UPDATE collection_items SET
-        pos_x      = COALESCE(:posX, pos_x),
-        pos_y      = COALESCE(:posY, pos_y),
-        width      = COALESCE(:width, width),
-        height     = COALESCE(:height, height),
-        z_index    = COALESCE(:zIndex, z_index),
-        content    = CASE WHEN :contentJson IS NULL THEN content ELSE CAST(:contentJson AS jsonb) END,
+      UPDATE collection_items
+      SET
+        product_id = CASE WHEN :hasProductId THEN :productId ELSE product_id END,
+        z_index = COALESCE(:zIndex, z_index),
         updated_at = NOW()
-      WHERE id = :itemId AND collection_id = :collectionId
+      WHERE id = :itemId
+        AND collection_id = :collectionId
+        AND (element_type = 'product' OR element_type IS NULL)
       `,
       {
         replacements: {
           itemId,
           collectionId,
-          posX: pos_x ?? null,
-          posY: pos_y ?? null,
-          width: width ?? null,
-          height: height ?? null,
-          zIndex: z_index ?? null,
-          contentJson: content !== undefined ? JSON.stringify(content) : null,
+          hasProductId: Boolean(productId),
+          productId: productId ?? null,
+          zIndex: typeof zIndex === "number" ? zIndex : null,
         },
         type: QueryTypes.UPDATE,
       }
     );
 
     res.json({ ok: true });
-  } catch (err) {
-    console.error("[collections] updateItem:", err);
+  } catch (error) {
+    console.error("[collections] updateItem:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DELETE /api/collections/:id/items/:itemId
-// Removes a product from the canvas
-// ─────────────────────────────────────────────────────────────────────────────
 export const removeItem: RequestHandler = async (req, res): Promise<void> => {
   try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
 
     const collectionId = Number(req.params.id);
     const itemId = Number(req.params.itemId);
-
     const owned = await assertOwnership(collectionId, user.id);
-    if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
+    if (!owned) {
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
 
     await sequelize.query(
-      `DELETE FROM collection_items WHERE id = :itemId AND collection_id = :collectionId`,
-      { replacements: { itemId, collectionId }, type: QueryTypes.DELETE }
+      `
+      DELETE FROM collection_items
+      WHERE id = :itemId
+        AND collection_id = :collectionId
+        AND (element_type = 'product' OR element_type IS NULL)
+      `,
+      {
+        replacements: { itemId, collectionId },
+        type: QueryTypes.DELETE,
+      }
     );
 
     res.json({ ok: true });
-  } catch (err) {
-    console.error("[collections] removeItem:", err);
+  } catch (error) {
+    console.error("[collections] removeItem:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/collections/:id/images
-// Uploads an image to Supabase and returns its public URL.
-// Used by the collection editor to add image elements to the canvas.
-// ─────────────────────────────────────────────────────────────────────────────
 export const uploadCollectionImage: RequestHandler = async (req, res): Promise<void> => {
   try {
-    const user = (req as any).user;
-    if (!user) { res.status(401).json({ ok: false, message: "No autenticado" }); return; }
+    const user = getUser(req);
+    if (!user) {
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
 
     const collectionId = Number(req.params.id);
     const owned = await assertOwnership(collectionId, user.id);
-    if (!owned) { res.status(404).json({ ok: false, message: "Colección no encontrada" }); return; }
+    if (!owned) {
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
 
-    const file = (req as any).file as Express.Multer.File | undefined;
+    const file = (req as { file?: Express.Multer.File }).file;
     if (!file) {
       res.status(400).json({ ok: false, message: "No se recibió ninguna imagen" });
       return;
@@ -940,149 +1263,73 @@ export const uploadCollectionImage: RequestHandler = async (req, res): Promise<v
       .from("colecciones_imagenes")
       .upload(fileName, file.buffer, { contentType: file.mimetype });
 
-    if (uploadError) throw uploadError;
+    if (uploadError) {
+      throw uploadError;
+    }
 
-    const { data: publicUrlData } = supabase.storage
-      .from("colecciones_imagenes")
-      .getPublicUrl(fileName);
+    const { data } = supabase.storage.from("colecciones_imagenes").getPublicUrl(fileName);
 
-    res.status(201).json({ ok: true, url: publicUrlData.publicUrl });
-  } catch (err) {
-    console.error("[collections] uploadCollectionImage:", err);
+    await sequelize.query(
+      `
+      UPDATE collections
+      SET
+        promo_image_url = :promoImageUrl,
+        background_image_url = :promoImageUrl,
+        updated_at = NOW()
+      WHERE id = :collectionId
+      `,
+      {
+        replacements: {
+          collectionId,
+          promoImageUrl: data.publicUrl,
+        },
+        type: QueryTypes.UPDATE,
+      }
+    );
+
+    res.status(201).json({ ok: true, url: data.publicUrl, promo_image_url: data.publicUrl });
+  } catch (error) {
+    console.error("[collections] uploadCollectionImage:", error);
     res.status(500).json({ ok: false, message: "Error al subir imagen" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/collections/public/seller/:sellerId
-// Public: returns published collections by numeric seller user_id
-// Used by the store frontend which only has seller.id (user id)
-// ─────────────────────────────────────────────────────────────────────────────
 export const getPublicCollectionsBySellerId: RequestHandler = async (req, res): Promise<void> => {
   try {
     const sellerId = Number(req.params.sellerId);
-    if (!sellerId || isNaN(sellerId)) {
+    if (!sellerId || Number.isNaN(sellerId)) {
       res.status(400).json({ ok: false, message: "sellerId inválido" });
       return;
     }
 
-    const collections = await sequelize.query<{
-      id: number; name: string; description: string | null;
-      background_color: string; background_image_url: string | null;
-      background_style: string | null;
-      canvas_width: number; canvas_height: number; created_at: Date;
-      items: any;
-    }>(
-      `
-      SELECT
-        c.id,
-        c.name,
-        c.description,
-        c.background_color,
-        c.background_image_url,
-        c.background_style,
-        c.canvas_width,
-        c.canvas_height,
-        c.created_at,
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'id',            ci.id,
-              'element_type',  ci.element_type,
-              'content',       ci.content,
-              'product_id',    ci.product_id,
-              'pos_x',         ci.pos_x,
-              'pos_y',         ci.pos_y,
-              'width',         ci.width,
-              'height',        ci.height,
-              'z_index',       ci.z_index,
-              'product_name',  p.nombre,
-              'product_image', p.imagen_url,
-              'product_price', p.precio,
-              'internal_code', p.internal_code
-            ) ORDER BY ci.z_index ASC
-          ) FILTER (WHERE ci.id IS NOT NULL),
-          '[]'
-        ) AS items
-      FROM collections c
-      LEFT JOIN collection_items ci ON ci.collection_id = c.id
-      LEFT JOIN productos p ON p.id = ci.product_id
-      WHERE c.seller_id = :sellerId
-        AND c.status = 'published'
-      GROUP BY c.id
-      ORDER BY c.created_at DESC
-      `,
-      { replacements: { sellerId }, type: QueryTypes.SELECT }
+    const data = await getPublishedCollectionsByQuery(
+      { sellerId },
+      `WHERE c.seller_id = :sellerId AND c.status = 'published'`
     );
 
-    res.json({ ok: true, data: collections });
-  } catch (err) {
-    console.error("[collections] getPublicCollectionsBySellerId:", err);
+    res.json({ ok: true, data });
+  } catch (error) {
+    console.error("[collections] getPublicCollectionsBySellerId:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/collections/public/:slug
-// Public: returns published collections for a seller profile page
-// ─────────────────────────────────────────────────────────────────────────────
 export const getPublicCollections: RequestHandler = async (req, res): Promise<void> => {
   try {
     const { slug } = req.params;
 
-    const collections = await sequelize.query<{
-      id: number; name: string; description: string | null;
-      background_color: string; background_image_url: string | null;
-      background_style: string | null;
-      canvas_width: number; canvas_height: number; created_at: Date;
-      items: any;
-    }>(
+    const data = await getPublishedCollectionsByQuery(
+      { slug },
       `
-      SELECT
-        c.id,
-        c.name,
-        c.description,
-        c.background_color,
-        c.background_image_url,
-        c.background_style,
-        c.canvas_width,
-        c.canvas_height,
-        c.created_at,
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'id',            ci.id,
-              'element_type',  ci.element_type,
-              'content',       ci.content,
-              'product_id',    ci.product_id,
-              'pos_x',         ci.pos_x,
-              'pos_y',         ci.pos_y,
-              'width',         ci.width,
-              'height',        ci.height,
-              'z_index',       ci.z_index,
-              'product_name',  p.nombre,
-              'product_image', p.imagen_url,
-              'product_price', p.precio,
-              'internal_code', p.internal_code
-            ) ORDER BY ci.z_index ASC
-          ) FILTER (WHERE ci.id IS NOT NULL),
-          '[]'
-        ) AS items
-      FROM collections c
       JOIN vendedor_perfil vp ON vp.user_id = c.seller_id
-      LEFT JOIN collection_items ci ON ci.collection_id = c.id
-      LEFT JOIN productos p ON p.id = ci.product_id
       WHERE vp.slug = :slug
         AND c.status = 'published'
-      GROUP BY c.id
-      ORDER BY c.created_at DESC
-      `,
-      { replacements: { slug }, type: QueryTypes.SELECT }
+      `
     );
 
-    res.json({ ok: true, data: collections });
-  } catch (err) {
-    console.error("[collections] getPublicCollections:", err);
+    res.json({ ok: true, data });
+  } catch (error) {
+    console.error("[collections] getPublicCollections:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };

@@ -15,6 +15,7 @@ export class Collection extends Model<
   declare seller_id: number;          // references users(id)
   declare name: string;
   declare description: CreationOptional<string | null>;
+  declare promo_image_url: CreationOptional<string | null>;
   declare background_color: CreationOptional<string>;
   declare background_image_url: CreationOptional<string | null>;
   declare canvas_width: CreationOptional<number>;
@@ -40,6 +41,10 @@ Collection.init(
       allowNull: false,
     },
     description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    promo_image_url: {
       type: DataTypes.TEXT,
       allowNull: true,
     },

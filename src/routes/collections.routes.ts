@@ -72,6 +72,11 @@ router.put(
   asyncHandler(CollectionsController.updateCollection)
 );
 
+router.put(
+  "/:id/products",
+  asyncHandler(CollectionsController.setCollectionProducts)
+);
+
 router.patch(
   "/:id/publish",
   asyncHandler(CollectionsController.togglePublish)

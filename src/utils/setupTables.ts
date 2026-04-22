@@ -740,6 +740,21 @@ export async function setupCollectionTables(): Promise<void> {
     `ALTER TABLE collections ADD COLUMN IF NOT EXISTS background_style TEXT`
   );
 
+  await run(
+    "collections col promo_image_url",
+    `ALTER TABLE collections ADD COLUMN IF NOT EXISTS promo_image_url TEXT`
+  );
+
+  await run(
+    "collections backfill promo_image_url",
+    `
+    UPDATE collections
+    SET promo_image_url = background_image_url
+    WHERE promo_image_url IS NULL
+      AND background_image_url IS NOT NULL
+    `
+  );
+
   // ── collection_templates ──────────────────────────────────────────────────
   await run(
     "collection_templates table",
