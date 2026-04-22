@@ -375,9 +375,9 @@ export const trackAnalyticsEvent: RequestHandler = async (req, res) => {
 
 export const getLiveViewerCount: RequestHandler = async (req, res) => {
   try {
-    const sellerId = Number(req.params.sellerId);
+    const sellerId = String(req.params.sellerId ?? "").trim();
 
-    if (!Number.isInteger(sellerId) || sellerId <= 0) {
+    if (!sellerId) {
       res.status(400).json({ success: false, message: "sellerId inválido" });
       return;
     }
@@ -416,7 +416,7 @@ export const getLiveViewerCount: RequestHandler = async (req, res) => {
             ELSE NULL
           END AS viewer_type
         FROM analytics_events ae
-        WHERE ae.seller_id = :sellerId
+        WHERE ae.seller_id::text = :sellerId
           AND ae.event_name IN ('live_store_view', 'live_store_heartbeat')
           AND ae.created_at >= NOW() - INTERVAL '90 seconds'
       )
@@ -486,7 +486,7 @@ export const getSellerAnalyticsOverview: RequestHandler = async (req, res) => {
 
 export const getSellerLiveMetrics: RequestHandler = async (req, res) => {
   try {
-    const sellerId = req.user?.id;
+    const sellerId = String(req.user?.id ?? "").trim();
 
     if (!sellerId) {
       res.status(401).json({ message: "No autenticado" });
@@ -509,10 +509,10 @@ export const getSellerLiveMetrics: RequestHandler = async (req, res) => {
         COUNT(*) FILTER (WHERE event_name = 'live_product_click')::int AS product_clicks_total,
         COUNT(*) FILTER (WHERE event_name = 'live_whatsapp_click')::int AS whatsapp_clicks_total
       FROM analytics_events
-      WHERE seller_id = :sellerId
+      WHERE seller_id::text = :sellerId
       `,
       {
-        replacements: { sellerId: Number(sellerId) },
+        replacements: { sellerId },
         type: QueryTypes.SELECT,
       },
     );

@@ -383,8 +383,26 @@ export const getSellerProfile: RequestHandler = async (
     // ================================
     // Respuesta completa para dueño
     // ================================
+    const perfilJson = perfil.toJSON() as unknown as Record<string, unknown>;
+    const rawLiveStartedAt = perfil.live_started_at;
+    const normalizedLiveStartedAt = (() => {
+      if (rawLiveStartedAt instanceof Date) {
+        return Number.isNaN(rawLiveStartedAt.getTime())
+          ? null
+          : rawLiveStartedAt.toISOString();
+      }
+
+      if (typeof rawLiveStartedAt === "string") {
+        const parsed = new Date(rawLiveStartedAt);
+        return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+      }
+
+      return null;
+    })();
+
     res.json({
-      ...perfil.toJSON(),
+      ...perfilJson,
+      live_started_at: normalizedLiveStartedAt,
       rating_avg: Number(ratingData.rating_avg),
       rating_count: Number(ratingData.rating_count),
     });
@@ -1043,7 +1061,11 @@ export const startLive: RequestHandler = async (req, res) => {
 
     emitAppEvent("seller.went_live", { sellerId: userId, startedAt });
 
-    res.json({ success: true, is_live: true });
+    res.json({
+      success: true,
+      is_live: true,
+      live_started_at: startedAt.toISOString(),
+    });
   } catch (err) {
     console.error("startLive error:", err);
     res.status(500).json({ message: "Error interno" });
@@ -1063,7 +1085,7 @@ export const endLive: RequestHandler = async (req, res) => {
       return;
     }
 
-    res.json({ success: true, is_live: false });
+    res.json({ success: true, is_live: false, live_started_at: null });
   } catch (err) {
     console.error("endLive error:", err);
     res.status(500).json({ message: "Error interno" });

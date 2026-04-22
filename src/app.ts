@@ -39,6 +39,7 @@ import adminBillingRoutes  from "./routes/adminBilling.routes";
 import whatsappIntegrationRoutes from "./routes/whatsappIntegration.routes";
 import consentRoutes from "./routes/consent.routes";
 import collectionsRoutes from "./routes/collections.routes";
+import liveChatRoutes from "./routes/liveChat.routes";
 
 // Initialize Sequelize associations (must run before any query uses `include`)
 import "./models";
@@ -309,6 +310,7 @@ app.use("/api/favorites", favoritesRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/follows", followsRoutes);
 app.use("/api/collections", collectionsRoutes);
+app.use("/api", liveChatRoutes);
 
 // Phase 5: Payment Security
 // IMPORTANT: /api/payments must be mounted BEFORE express.json() would affect
