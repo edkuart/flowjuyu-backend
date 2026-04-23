@@ -24,7 +24,10 @@
     "ai:task": "node flow-ai/runners/run-claude-task-exporter.js",
     "ai:growth": "node flow-ai/runners/run-growth-agent.js",
     "backfill:codes": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/backfill-product-codes.ts",
-    "backfill:codes:dry": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt DRY_RUN=true ts-node --project tsconfig.json scripts/backfill-product-codes.ts"
+    "backfill:codes:dry": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt DRY_RUN=true ts-node --project tsconfig.json scripts/backfill-product-codes.ts",
+    "templates:import:crafted-heritage": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-crafted-heritage-template.ts",
+    "templates:import:lookbook-grid": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-lookbook-grid-template.ts",
+    "templates:prune:system": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/prune-system-templates.ts"
   },
   "keywords": [
     "express",

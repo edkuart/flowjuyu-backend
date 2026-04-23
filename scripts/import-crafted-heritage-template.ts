@@ -1,0 +1,533 @@
+import { QueryTypes } from "sequelize";
+import { sequelize } from "../src/config/db";
+
+type TemplateItem = {
+  element_type: "product" | "text" | "shape" | "image";
+  product_id: string | null;
+  pos_x: number;
+  pos_y: number;
+  width: number;
+  height: number;
+  z_index: number;
+  content: Record<string, unknown> | null;
+};
+
+const TEMPLATE_NAME = "Crafted Heritage / Landscape";
+const CANVAS_WIDTH = 1600;
+const CANVAS_HEIGHT = 900;
+const BACKGROUND_STYLE =
+  "radial-gradient(circle at 18% 18%, rgba(255,255,255,0.42) 0, rgba(255,255,255,0) 28%), radial-gradient(circle at 78% 20%, rgba(255,248,240,0.30) 0, rgba(255,248,240,0) 22%), linear-gradient(135deg, #eee3d8 0%, #e3d2c2 40%, #d8c0aa 100%)";
+
+const itemsSnapshot: TemplateItem[] = [
+  {
+    element_type: "shape",
+    product_id: null,
+    pos_x: 1310,
+    pos_y: -80,
+    width: 520,
+    height: 520,
+    z_index: 1,
+    content: {
+      shapeType: "circle",
+      fillColor: "#f5ebe2",
+      gradientEnabled: true,
+      gradientColor2: "#c79f79",
+      gradientAngle: 135,
+      gradientType: "radial",
+      borderRadius: 999,
+      opacity: 0.85,
+      shadowEnabled: false,
+      rotation: 0,
+    },
+  },
+  {
+    element_type: "shape",
+    product_id: null,
+    pos_x: -140,
+    pos_y: 510,
+    width: 560,
+    height: 560,
+    z_index: 1,
+    content: {
+      shapeType: "circle",
+      fillColor: "#f4e7d9",
+      gradientEnabled: true,
+      gradientColor2: "#b1825c",
+      gradientAngle: 135,
+      gradientType: "radial",
+      borderRadius: 999,
+      opacity: 0.9,
+      shadowEnabled: false,
+      rotation: 0,
+    },
+  },
+  {
+    element_type: "shape",
+    product_id: null,
+    pos_x: 940,
+    pos_y: 140,
+    width: 480,
+    height: 620,
+    z_index: 2,
+    content: {
+      shapeType: "arch",
+      fillColor: "#f8f1e9",
+      gradientEnabled: true,
+      gradientColor2: "#dbc4ad",
+      gradientAngle: 180,
+      gradientType: "linear",
+      borderRadius: 26,
+      opacity: 0.94,
+      strokeColor: "rgba(115,83,60,0.08)",
+      strokeWidth: 1,
+      shadowEnabled: false,
+      rotation: 0,
+    },
+  },
+  {
+    element_type: "shape",
+    product_id: null,
+    pos_x: 770,
+    pos_y: 92,
+    width: 180,
+    height: 180,
+    z_index: 2,
+    content: {
+      shapeType: "circle",
+      fillColor: "#ead8c6",
+      gradientEnabled: true,
+      gradientColor2: "#b47f58",
+      gradientAngle: 135,
+      gradientType: "radial",
+      borderRadius: 999,
+      opacity: 0.9,
+      shadowEnabled: true,
+      shadowX: 0,
+      shadowY: 18,
+      shadowBlur: 30,
+      shadowSpread: 0,
+      shadowColor: "rgba(91, 61, 39, 0.14)",
+      rotation: 0,
+    },
+  },
+  {
+    element_type: "shape",
+    product_id: null,
+    pos_x: 1265,
+    pos_y: 650,
+    width: 230,
+    height: 230,
+    z_index: 2,
+    content: {
+      shapeType: "circle",
+      fillColor: "#ead8c6",
+      gradientEnabled: true,
+      gradientColor2: "#b47f58",
+      gradientAngle: 135,
+      gradientType: "radial",
+      borderRadius: 999,
+      opacity: 0.68,
+      shadowEnabled: false,
+      rotation: 0,
+    },
+  },
+  {
+    element_type: "shape",
+    product_id: null,
+    pos_x: 130,
+    pos_y: 170,
+    width: 220,
+    height: 2,
+    z_index: 2,
+    content: {
+      shapeType: "line",
+      fillColor: "rgba(129,92,67,0.22)",
+      gradientEnabled: true,
+      gradientColor2: "rgba(129,92,67,0)",
+      gradientAngle: 0,
+      gradientType: "linear",
+      borderRadius: 999,
+      opacity: 1,
+      shadowEnabled: false,
+    },
+  },
+  {
+    element_type: "shape",
+    product_id: null,
+    pos_x: 130,
+    pos_y: 715,
+    width: 300,
+    height: 2,
+    z_index: 2,
+    content: {
+      shapeType: "line",
+      fillColor: "rgba(129,92,67,0.22)",
+      gradientEnabled: true,
+      gradientColor2: "rgba(129,92,67,0)",
+      gradientAngle: 0,
+      gradientType: "linear",
+      borderRadius: 999,
+      opacity: 1,
+      shadowEnabled: false,
+    },
+  },
+  {
+    element_type: "text",
+    product_id: null,
+    pos_x: 128,
+    pos_y: 150,
+    width: 220,
+    height: 26,
+    z_index: 3,
+    content: {
+      text: "ARTISAN COLLECTION",
+      fontSize: 16,
+      fontFamily: "Arial, Helvetica, sans-serif",
+      fontWeight: "bold",
+      fontStyle: "normal",
+      color: "rgba(82, 58, 42, 0.72)",
+      textAlign: "left",
+      letterSpacing: 4.5,
+      lineHeight: 1,
+      paddingX: 0,
+      paddingY: 0,
+    },
+  },
+  {
+    element_type: "text",
+    product_id: null,
+    pos_x: 128,
+    pos_y: 195,
+    width: 500,
+    height: 190,
+    z_index: 3,
+    content: {
+      text: "Crafted Heritage",
+      fontSize: 92,
+      fontFamily: "Georgia, 'Times New Roman', serif",
+      fontWeight: "bold",
+      fontStyle: "normal",
+      color: "#2e2119",
+      textAlign: "left",
+      letterSpacing: -3.2,
+      lineHeight: 0.94,
+      paddingX: 0,
+      paddingY: 0,
+    },
+  },
+  {
+    element_type: "text",
+    product_id: null,
+    pos_x: 128,
+    pos_y: 390,
+    width: 420,
+    height: 120,
+    z_index: 3,
+    content: {
+      text: "Textiles, origen y oficio con tono de lujo artesanal.",
+      fontSize: 24,
+      fontFamily: "Arial, Helvetica, sans-serif",
+      fontWeight: "normal",
+      fontStyle: "normal",
+      color: "#6f5a4c",
+      textAlign: "left",
+      letterSpacing: 0,
+      lineHeight: 1.55,
+      paddingX: 0,
+      paddingY: 0,
+    },
+  },
+  {
+    element_type: "shape",
+    product_id: null,
+    pos_x: 128,
+    pos_y: 635,
+    width: 214,
+    height: 62,
+    z_index: 4,
+    content: {
+      shapeType: "capsule",
+      fillColor: "#3d2b21",
+      gradientEnabled: true,
+      gradientColor2: "#2f2119",
+      gradientAngle: 180,
+      gradientType: "linear",
+      borderRadius: 999,
+      opacity: 1,
+      shadowEnabled: true,
+      shadowX: 0,
+      shadowY: 20,
+      shadowBlur: 38,
+      shadowSpread: 0,
+      shadowColor: "rgba(46, 31, 21, 0.22)",
+    },
+  },
+  {
+    element_type: "text",
+    product_id: null,
+    pos_x: 168,
+    pos_y: 651,
+    width: 180,
+    height: 26,
+    z_index: 5,
+    content: {
+      text: "Ver colección",
+      fontSize: 20,
+      fontFamily: "Arial, Helvetica, sans-serif",
+      fontWeight: "bold",
+      fontStyle: "normal",
+      color: "#f7efe8",
+      textAlign: "center",
+      letterSpacing: 0.2,
+      lineHeight: 1.1,
+      paddingX: 0,
+      paddingY: 0,
+    },
+  },
+  {
+    element_type: "shape",
+    product_id: null,
+    pos_x: 1068,
+    pos_y: 132,
+    width: 205,
+    height: 86,
+    z_index: 6,
+    content: {
+      shapeType: "rectangle",
+      fillColor: "rgba(247, 239, 232, 0.82)",
+      borderRadius: 22,
+      opacity: 1,
+      shadowEnabled: true,
+      shadowX: 0,
+      shadowY: 18,
+      shadowBlur: 38,
+      shadowSpread: 0,
+      shadowColor: "rgba(85, 56, 37, 0.12)",
+    },
+  },
+  {
+    element_type: "text",
+    product_id: null,
+    pos_x: 1090,
+    pos_y: 150,
+    width: 150,
+    height: 16,
+    z_index: 7,
+    content: {
+      text: "COLECCIÓN",
+      fontSize: 12,
+      fontFamily: "Arial, Helvetica, sans-serif",
+      fontWeight: "bold",
+      fontStyle: "normal",
+      color: "rgba(92, 67, 50, 0.62)",
+      textAlign: "left",
+      letterSpacing: 2.4,
+      lineHeight: 1,
+      paddingX: 0,
+      paddingY: 0,
+    },
+  },
+  {
+    element_type: "text",
+    product_id: null,
+    pos_x: 1090,
+    pos_y: 177,
+    width: 150,
+    height: 32,
+    z_index: 7,
+    content: {
+      text: "Noble Fiber",
+      fontSize: 28,
+      fontFamily: "Georgia, 'Times New Roman', serif",
+      fontWeight: "bold",
+      fontStyle: "normal",
+      color: "#2e2119",
+      textAlign: "left",
+      letterSpacing: 0,
+      lineHeight: 1,
+      paddingX: 0,
+      paddingY: 0,
+    },
+  },
+  {
+    element_type: "shape",
+    product_id: null,
+    pos_x: 930,
+    pos_y: 662,
+    width: 250,
+    height: 52,
+    z_index: 6,
+    content: {
+      shapeType: "capsule",
+      fillColor: "rgba(251, 246, 241, 0.82)",
+      borderRadius: 999,
+      opacity: 1,
+      shadowEnabled: true,
+      shadowX: 0,
+      shadowY: 14,
+      shadowBlur: 32,
+      shadowSpread: 0,
+      shadowColor: "rgba(84, 58, 39, 0.12)",
+    },
+  },
+  {
+    element_type: "text",
+    product_id: null,
+    pos_x: 958,
+    pos_y: 678,
+    width: 200,
+    height: 20,
+    z_index: 7,
+    content: {
+      text: "Hecho con herencia y detalle",
+      fontSize: 15,
+      fontFamily: "Arial, Helvetica, sans-serif",
+      fontWeight: "normal",
+      fontStyle: "normal",
+      color: "#5f4b3e",
+      textAlign: "center",
+      letterSpacing: 0,
+      lineHeight: 1,
+      paddingX: 0,
+      paddingY: 0,
+    },
+  },
+  {
+    element_type: "product",
+    product_id: null,
+    pos_x: 745,
+    pos_y: 170,
+    width: 315,
+    height: 430,
+    z_index: 8,
+    content: {
+      borderRadius: 180,
+      shadowEnabled: true,
+      shadowX: 0,
+      shadowY: 26,
+      shadowBlur: 70,
+      shadowSpread: 0,
+      shadowColor: "rgba(73, 49, 34, 0.14)",
+      rotation: -3,
+    },
+  },
+  {
+    element_type: "product",
+    product_id: null,
+    pos_x: 1028,
+    pos_y: 250,
+    width: 250,
+    height: 330,
+    z_index: 8,
+    content: {
+      borderRadius: 22,
+      shadowEnabled: true,
+      shadowX: 0,
+      shadowY: 26,
+      shadowBlur: 70,
+      shadowSpread: 0,
+      shadowColor: "rgba(73, 49, 34, 0.14)",
+      rotation: 7,
+    },
+  },
+  {
+    element_type: "product",
+    product_id: null,
+    pos_x: 1180,
+    pos_y: 520,
+    width: 240,
+    height: 290,
+    z_index: 8,
+    content: {
+      borderRadius: 140,
+      shadowEnabled: true,
+      shadowX: 0,
+      shadowY: 26,
+      shadowBlur: 70,
+      shadowSpread: 0,
+      shadowColor: "rgba(73, 49, 34, 0.14)",
+      rotation: -8,
+    },
+  },
+];
+
+async function upsertTemplate() {
+  const existing = await sequelize.query<{ id: number }>(
+    `
+    SELECT id
+    FROM collection_templates
+    WHERE seller_id IS NULL
+      AND name = :name
+    LIMIT 1
+    `,
+    {
+      replacements: { name: TEMPLATE_NAME },
+      type: QueryTypes.SELECT,
+    },
+  );
+
+  if (existing[0]?.id) {
+    await sequelize.query(
+      `
+      UPDATE collection_templates
+      SET
+        thumbnail_url = NULL,
+        items_snapshot = CAST(:itemsSnapshot AS jsonb),
+        canvas_width = :canvasWidth,
+        canvas_height = :canvasHeight,
+        background_color = :backgroundColor,
+        background_style = :backgroundStyle,
+        background_image_url = NULL,
+        is_public = true,
+        updated_at = NOW()
+      WHERE id = :id
+      `,
+      {
+        replacements: {
+          id: existing[0].id,
+          itemsSnapshot: JSON.stringify(itemsSnapshot),
+          canvasWidth: CANVAS_WIDTH,
+          canvasHeight: CANVAS_HEIGHT,
+          backgroundColor: "#eee3d8",
+          backgroundStyle: BACKGROUND_STYLE,
+        },
+        type: QueryTypes.UPDATE,
+      },
+    );
+
+    console.log(`Updated template ${TEMPLATE_NAME} (#${existing[0].id})`);
+    return;
+  }
+
+  const inserted = await sequelize.query<{ id: number }>(
+    `
+    INSERT INTO collection_templates
+      (seller_id, name, thumbnail_url, items_snapshot, canvas_width, canvas_height, background_color, background_style, background_image_url, is_public, created_at, updated_at)
+    VALUES
+      (NULL, :name, NULL, CAST(:itemsSnapshot AS jsonb), :canvasWidth, :canvasHeight, :backgroundColor, :backgroundStyle, NULL, true, NOW(), NOW())
+    RETURNING id
+    `,
+    {
+      replacements: {
+        name: TEMPLATE_NAME,
+        itemsSnapshot: JSON.stringify(itemsSnapshot),
+        canvasWidth: CANVAS_WIDTH,
+        canvasHeight: CANVAS_HEIGHT,
+        backgroundColor: "#eee3d8",
+        backgroundStyle: BACKGROUND_STYLE,
+      },
+      type: QueryTypes.SELECT,
+    },
+  );
+
+  console.log(`Inserted template ${TEMPLATE_NAME} (#${inserted[0]?.id ?? "n/a"})`);
+}
+
+upsertTemplate()
+  .catch((error) => {
+    console.error("Failed to import Crafted Heritage template:", error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await sequelize.close().catch(() => {});
+  });

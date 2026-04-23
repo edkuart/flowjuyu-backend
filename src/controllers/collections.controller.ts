@@ -890,6 +890,21 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
       .filter((item) => item?.element_type === "product" && item?.product_id)
       .map((item) => String(item.product_id));
 
+    const currentCollectionProducts = await sequelize.query<{ product_id: string }>(
+      `
+      SELECT DISTINCT product_id
+      FROM collection_items
+      WHERE collection_id = :collectionId
+        AND product_id IS NOT NULL
+      ORDER BY product_id ASC
+      `,
+      {
+        replacements: { collectionId },
+        type: QueryTypes.SELECT,
+        transaction,
+      }
+    );
+
     let validProductIds = new Set<string>();
     if (productIds.length > 0) {
       const rows = await sequelize.query<{ id: string }>(
@@ -908,6 +923,11 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
       );
       validProductIds = new Set(rows.map((row) => String(row.id)));
     }
+
+    const fallbackProductIds = currentCollectionProducts
+      .map((row) => String(row.product_id))
+      .filter((value, index, array) => array.indexOf(value) === index);
+    let fallbackProductIndex = 0;
 
     await sequelize.query(
       `
@@ -949,11 +969,20 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
     for (const rawItem of itemsSnapshot) {
       const elementType = rawItem?.element_type ?? "product";
       const isProduct = elementType === "product";
-      const productId = rawItem?.product_id ? String(rawItem.product_id) : null;
+      const requestedProductId = rawItem?.product_id ? String(rawItem.product_id) : null;
+      let productId = requestedProductId;
 
-      if (isProduct && (!productId || !validProductIds.has(productId))) {
-        skippedProducts += 1;
-        continue;
+      if (isProduct) {
+        if (!productId || !validProductIds.has(productId)) {
+          const fallbackProductId = fallbackProductIds[fallbackProductIndex] ?? null;
+          if (fallbackProductId) {
+            productId = fallbackProductId;
+            fallbackProductIndex += 1;
+          } else {
+            productId = null;
+            if (requestedProductId) skippedProducts += 1;
+          }
+        }
       }
 
       await sequelize.query(
