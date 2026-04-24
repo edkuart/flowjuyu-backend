@@ -571,6 +571,24 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
       : undefined;
     const promoImageUrl = normalizePromoImageUrl(body);
 
+    const hasBgColor = Object.prototype.hasOwnProperty.call(body, "background_color");
+    const backgroundColor = hasBgColor && typeof body.background_color === "string" && body.background_color.trim()
+      ? body.background_color.trim().slice(0, 50)
+      : null;
+
+    const hasBgStyle = Object.prototype.hasOwnProperty.call(body, "background_style");
+    const backgroundStyle = hasBgStyle
+      ? (body.background_style == null ? null : typeof body.background_style === "string" ? body.background_style.trim().slice(0, 500) : null)
+      : null;
+
+    const hasCanvasWidth = Object.prototype.hasOwnProperty.call(body, "canvas_width")
+      && typeof body.canvas_width === "number" && body.canvas_width >= 300 && body.canvas_width <= 3000;
+    const canvasWidth = hasCanvasWidth ? Math.round(body.canvas_width as number) : null;
+
+    const hasCanvasHeight = Object.prototype.hasOwnProperty.call(body, "canvas_height")
+      && typeof body.canvas_height === "number" && body.canvas_height >= 200 && body.canvas_height <= 3000;
+    const canvasHeight = hasCanvasHeight ? Math.round(body.canvas_height as number) : null;
+
     if (Object.prototype.hasOwnProperty.call(body, "name") && !name) {
       res.status(400).json({ ok: false, message: "El nombre es requerido" });
       return;
@@ -580,10 +598,14 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
       `
       UPDATE collections
       SET
-        name = CASE WHEN :hasName THEN :name ELSE name END,
-        description = CASE WHEN :hasDescription THEN :description ELSE description END,
-        promo_image_url = CASE WHEN :hasPromoImage THEN :promoImageUrl ELSE promo_image_url END,
+        name             = CASE WHEN :hasName        THEN :name            ELSE name             END,
+        description      = CASE WHEN :hasDescription THEN :description     ELSE description      END,
+        promo_image_url  = CASE WHEN :hasPromoImage  THEN :promoImageUrl   ELSE promo_image_url  END,
         background_image_url = CASE WHEN :hasPromoImage THEN :promoImageUrl ELSE background_image_url END,
+        background_color = CASE WHEN :hasBgColor     THEN :backgroundColor ELSE background_color END,
+        background_style = CASE WHEN :hasBgStyle     THEN :backgroundStyle ELSE background_style END,
+        canvas_width     = CASE WHEN :hasCanvasWidth  THEN :canvasWidth    ELSE canvas_width     END,
+        canvas_height    = CASE WHEN :hasCanvasHeight THEN :canvasHeight   ELSE canvas_height    END,
         updated_at = NOW()
       WHERE id = :collectionId
       `,
@@ -596,6 +618,14 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
           description: description ?? null,
           hasPromoImage: promoImageUrl !== undefined,
           promoImageUrl: promoImageUrl ?? null,
+          hasBgColor,
+          backgroundColor,
+          hasBgStyle,
+          backgroundStyle,
+          hasCanvasWidth,
+          canvasWidth,
+          hasCanvasHeight,
+          canvasHeight,
         },
         type: QueryTypes.UPDATE,
       }
