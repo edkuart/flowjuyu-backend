@@ -27,6 +27,14 @@
     "backfill:codes:dry": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt DRY_RUN=true ts-node --project tsconfig.json scripts/backfill-product-codes.ts",
     "templates:import:crafted-heritage": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-crafted-heritage-template.ts",
     "templates:import:lookbook-grid": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-lookbook-grid-template.ts",
+    "templates:import:maison-editorial": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-maison-editorial-template.ts",
+    "templates:import:signature-drop": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-signature-drop-template.ts",
+    "templates:import:modern-atelier": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-modern-atelier-template.ts",
+    "templates:import:premium-offer": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-premium-offer-template.ts",
+    "templates:import:noir-studio": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-noir-studio-template.ts",
+    "templates:import:vivid-market": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-vivid-market-template.ts",
+    "templates:import:color-block": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-color-block-template.ts",
+    "templates:import:fiesta-drop": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/import-fiesta-drop-template.ts",
     "templates:prune:system": "cross-env NODE_EXTRA_CA_CERTS=./config/supabase-ca.crt ts-node --project tsconfig.json scripts/prune-system-templates.ts"
   },
   "keywords": [

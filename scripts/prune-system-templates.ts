@@ -4,6 +4,14 @@ import { sequelize } from "../src/config/db";
 const CURATED_SYSTEM_TEMPLATE_NAMES = [
   "Crafted Heritage / Landscape",
   "Lookbook Grid / Landscape",
+  "Maison Editorial / Landscape",
+  "Signature Drop / Landscape",
+  "Modern Atelier / Landscape",
+  "Premium Offer / Landscape",
+  "Noir Studio / Landscape",
+  "Vivid Market / Landscape",
+  "Color Block / Landscape",
+  "Fiesta Drop / Landscape",
 ] as const;
 
 async function pruneSystemTemplates() {

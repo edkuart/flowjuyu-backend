@@ -797,6 +797,22 @@ export async function setupCollectionTables(): Promise<void> {
     `ALTER TABLE collection_templates ADD COLUMN IF NOT EXISTS background_image_url TEXT`
   );
 
+  // public_id: random 9-digit string used for shareable URLs (/c/:publicId)
+  await run(
+    "collections col public_id",
+    `ALTER TABLE collections ADD COLUMN IF NOT EXISTS public_id VARCHAR(12) UNIQUE`
+  );
+
+  // Backfill existing collections that don't have a public_id yet
+  await run(
+    "collections backfill public_id",
+    `
+    UPDATE collections
+    SET public_id = LPAD((FLOOR(RANDOM() * 900000000) + 100000000)::bigint::text, 9, '0')
+    WHERE public_id IS NULL
+    `
+  );
+
   try {
     for (const legacyName of LEGACY_COLLECTION_TEMPLATE_NAMES) {
       await sequelize.query(
@@ -805,17 +821,17 @@ export async function setupCollectionTables(): Promise<void> {
       );
     }
 
+    // INSERT only when the name doesn't already exist — never overwrite an
+    // existing system template. Import scripts (scripts/import-*.ts) are the
+    // authoritative way to update curated templates; the seeder only runs on
+    // fresh installs where no row exists yet.
+    let seeded = 0;
     for (const template of DEFAULT_COLLECTION_TEMPLATES) {
-      await sequelize.query(
-        `DELETE FROM collection_templates WHERE seller_id IS NULL AND name = :name`,
-        { replacements: { name: template.name } }
-      );
-
-      await sequelize.query(
+      const [, meta] = await sequelize.query(
         `
         INSERT INTO collection_templates
           (seller_id, name, thumbnail_url, items_snapshot, canvas_width, canvas_height, background_color, background_style, background_image_url, is_public, created_at, updated_at)
-        VALUES (
+        SELECT
           NULL,
           :name,
           :thumbnailUrl,
@@ -828,6 +844,8 @@ export async function setupCollectionTables(): Promise<void> {
           :isPublic,
           NOW(),
           NOW()
+        WHERE NOT EXISTS (
+          SELECT 1 FROM collection_templates WHERE seller_id IS NULL AND name = :name
         )
         `,
         {
@@ -844,8 +862,9 @@ export async function setupCollectionTables(): Promise<void> {
           },
         }
       );
+      if ((meta as any)?.rowCount > 0) seeded++;
     }
-    console.log(`  ✅ collection_templates seed (${DEFAULT_COLLECTION_TEMPLATES.length} base templates)`);
+    console.log(`  ✅ collection_templates seed (${seeded} inserted, ${DEFAULT_COLLECTION_TEMPLATES.length - seeded} already existed)`);
   } catch (err: any) {
     console.error("  ❌ collection_templates seed:", err?.original?.message ?? err?.message ?? err);
   }

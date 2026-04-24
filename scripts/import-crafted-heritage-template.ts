@@ -4,6 +4,7 @@ import { sequelize } from "../src/config/db";
 type TemplateItem = {
   element_type: "product" | "text" | "shape" | "image";
   product_id: string | null;
+  product_image?: string | null;
   pos_x: number;
   pos_y: number;
   width: number;
@@ -395,6 +396,7 @@ const itemsSnapshot: TemplateItem[] = [
   {
     element_type: "product",
     product_id: null,
+    product_image: "https://images.unsplash.com/photo-1616628182509-6c6a98f2d3f9?auto=format&fit=crop&w=1200&q=80",
     pos_x: 745,
     pos_y: 170,
     width: 315,
@@ -414,6 +416,7 @@ const itemsSnapshot: TemplateItem[] = [
   {
     element_type: "product",
     product_id: null,
+    product_image: "https://images.unsplash.com/photo-1517705008128-361805f42e86?auto=format&fit=crop&w=1200&q=80",
     pos_x: 1028,
     pos_y: 250,
     width: 250,
@@ -433,6 +436,7 @@ const itemsSnapshot: TemplateItem[] = [
   {
     element_type: "product",
     product_id: null,
+    product_image: "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1200&q=80",
     pos_x: 1180,
     pos_y: 520,
     width: 240,
@@ -451,53 +455,11 @@ const itemsSnapshot: TemplateItem[] = [
   },
 ];
 
-async function upsertTemplate() {
-  const existing = await sequelize.query<{ id: number }>(
-    `
-    SELECT id
-    FROM collection_templates
-    WHERE seller_id IS NULL
-      AND name = :name
-    LIMIT 1
-    `,
-    {
-      replacements: { name: TEMPLATE_NAME },
-      type: QueryTypes.SELECT,
-    },
+async function replaceTemplate() {
+  await sequelize.query(
+    `DELETE FROM collection_templates WHERE seller_id IS NULL AND name = :name`,
+    { replacements: { name: TEMPLATE_NAME }, type: QueryTypes.DELETE },
   );
-
-  if (existing[0]?.id) {
-    await sequelize.query(
-      `
-      UPDATE collection_templates
-      SET
-        thumbnail_url = NULL,
-        items_snapshot = CAST(:itemsSnapshot AS jsonb),
-        canvas_width = :canvasWidth,
-        canvas_height = :canvasHeight,
-        background_color = :backgroundColor,
-        background_style = :backgroundStyle,
-        background_image_url = NULL,
-        is_public = true,
-        updated_at = NOW()
-      WHERE id = :id
-      `,
-      {
-        replacements: {
-          id: existing[0].id,
-          itemsSnapshot: JSON.stringify(itemsSnapshot),
-          canvasWidth: CANVAS_WIDTH,
-          canvasHeight: CANVAS_HEIGHT,
-          backgroundColor: "#eee3d8",
-          backgroundStyle: BACKGROUND_STYLE,
-        },
-        type: QueryTypes.UPDATE,
-      },
-    );
-
-    console.log(`Updated template ${TEMPLATE_NAME} (#${existing[0].id})`);
-    return;
-  }
 
   const inserted = await sequelize.query<{ id: number }>(
     `
@@ -520,10 +482,10 @@ async function upsertTemplate() {
     },
   );
 
-  console.log(`Inserted template ${TEMPLATE_NAME} (#${inserted[0]?.id ?? "n/a"})`);
+  console.log(`Replaced template ${TEMPLATE_NAME} → new id #${inserted[0]?.id ?? "n/a"}`);
 }
 
-upsertTemplate()
+replaceTemplate()
   .catch((error) => {
     console.error("Failed to import Crafted Heritage template:", error);
     process.exitCode = 1;

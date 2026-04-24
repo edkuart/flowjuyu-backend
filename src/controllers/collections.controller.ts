@@ -9,6 +9,7 @@ type AuthUser = { id: number };
 type CollectionRow = {
   id: number;
   seller_id: number;
+  public_id: string | null;
   name: string;
   description: string | null;
   status: "draft" | "published";
@@ -47,6 +48,23 @@ type CollectionCanvasItemRow = {
   product_image: string | null;
   product_price: number | string | null;
 };
+
+const CURATED_SYSTEM_TEMPLATE_NAMES = [
+  "Crafted Heritage / Landscape",
+  "Lookbook Grid / Landscape",
+  "Maison Editorial / Landscape",
+  "Signature Drop / Landscape",
+  "Modern Atelier / Landscape",
+  "Premium Offer / Landscape",
+  "Noir Studio / Landscape",
+  "Vivid Market / Landscape",
+  "Color Block / Landscape",
+  "Fiesta Drop / Landscape",
+] as const;
+
+function generatePublicId(): string {
+  return String(Math.floor(100_000_000 + Math.random() * 900_000_000));
+}
 
 function getUser(req: unknown): AuthUser | null {
   const user = (req as { user?: AuthUser }).user;
@@ -249,6 +267,7 @@ function buildCollectionPayload(
   return {
     id: collection.id,
     seller_id: collection.seller_id,
+    public_id: collection.public_id ?? null,
     name: collection.name,
     description: collection.description,
     status: collection.status,
@@ -354,6 +373,7 @@ async function getPublishedCollectionsByQuery(
     SELECT
       c.id,
       c.seller_id,
+      c.public_id,
       c.name,
       c.description,
       c.status,
@@ -492,9 +512,9 @@ export const createCollection: RequestHandler = async (req, res): Promise<void> 
     const rows = await sequelize.query<{ id: number }>(
       `
       INSERT INTO collections
-        (seller_id, name, description, promo_image_url, background_image_url, background_color, canvas_width, canvas_height, status, created_at, updated_at)
+        (seller_id, name, description, promo_image_url, background_image_url, background_color, canvas_width, canvas_height, public_id, status, created_at, updated_at)
       VALUES
-        (:sellerId, :name, :description, :promoImageUrl, :backgroundImageUrl, '#FFFFFF', 800, 600, 'draft', NOW(), NOW())
+        (:sellerId, :name, :description, :promoImageUrl, :backgroundImageUrl, '#FFFFFF', 800, 600, :publicId, 'draft', NOW(), NOW())
       RETURNING id
       `,
       {
@@ -504,6 +524,7 @@ export const createCollection: RequestHandler = async (req, res): Promise<void> 
           description,
           promoImageUrl,
           backgroundImageUrl: promoImageUrl,
+          publicId: generatePublicId(),
         },
         type: QueryTypes.SELECT,
       }
@@ -642,9 +663,16 @@ export const getPublicCollectionTemplates: RequestHandler = async (_req, res): P
         created_at
       FROM collection_templates
       WHERE is_public = true
+        AND (
+          seller_id IS NOT NULL
+          OR (seller_id IS NULL AND name IN (:curatedSystemTemplateNames))
+        )
       ORDER BY created_at DESC
       `,
-      { type: QueryTypes.SELECT }
+      {
+        replacements: { curatedSystemTemplateNames: [...CURATED_SYSTEM_TEMPLATE_NAMES] },
+        type: QueryTypes.SELECT,
+      }
     );
 
     res.json({ ok: true, data: templates });
@@ -678,14 +706,20 @@ export const getMyCollectionTemplates: RequestHandler = async (req, res): Promis
         created_at,
         CASE WHEN seller_id IS NULL THEN 'system' ELSE 'mine' END AS owner_scope
       FROM collection_templates
-      WHERE seller_id IS NULL
-         OR seller_id = :sellerId
+      WHERE seller_id = :sellerId
+         OR id IN (
+           SELECT DISTINCT ON (name) id
+           FROM collection_templates
+           WHERE seller_id IS NULL
+             AND name IN (:curatedSystemTemplateNames)
+           ORDER BY name, updated_at DESC
+         )
       ORDER BY
         CASE WHEN seller_id IS NULL THEN 0 ELSE 1 END,
         created_at DESC
       `,
       {
-        replacements: { sellerId: user.id },
+        replacements: { sellerId: user.id, curatedSystemTemplateNames: [...CURATED_SYSTEM_TEMPLATE_NAMES] },
         type: QueryTypes.SELECT,
       }
     );
@@ -729,13 +763,17 @@ export const getCollectionTemplateById: RequestHandler = async (req, res): Promi
         updated_at
       FROM collection_templates
       WHERE id = :templateId
-        AND (seller_id IS NULL OR seller_id = :sellerId)
+        AND (
+          seller_id = :sellerId
+          OR (seller_id IS NULL AND name IN (:curatedSystemTemplateNames))
+        )
       LIMIT 1
       `,
       {
         replacements: {
           templateId,
           sellerId: user.id,
+          curatedSystemTemplateNames: [...CURATED_SYSTEM_TEMPLATE_NAMES],
         },
         type: QueryTypes.SELECT,
       }
@@ -868,11 +906,22 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
       SELECT *
       FROM collection_templates
       WHERE id = :templateId
-        AND (is_public = true OR seller_id = :sellerId)
+        AND (
+          seller_id = :sellerId
+          OR (
+            seller_id IS NULL
+            AND is_public = true
+            AND name IN (:curatedSystemTemplateNames)
+          )
+        )
       LIMIT 1
       `,
       {
-        replacements: { templateId, sellerId: user.id },
+        replacements: {
+          templateId,
+          sellerId: user.id,
+          curatedSystemTemplateNames: [...CURATED_SYSTEM_TEMPLATE_NAMES],
+        },
         type: QueryTypes.SELECT,
         transaction,
       }
@@ -889,21 +938,6 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
     const productIds = itemsSnapshot
       .filter((item) => item?.element_type === "product" && item?.product_id)
       .map((item) => String(item.product_id));
-
-    const currentCollectionProducts = await sequelize.query<{ product_id: string }>(
-      `
-      SELECT DISTINCT product_id
-      FROM collection_items
-      WHERE collection_id = :collectionId
-        AND product_id IS NOT NULL
-      ORDER BY product_id ASC
-      `,
-      {
-        replacements: { collectionId },
-        type: QueryTypes.SELECT,
-        transaction,
-      }
-    );
 
     let validProductIds = new Set<string>();
     if (productIds.length > 0) {
@@ -924,9 +958,23 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
       validProductIds = new Set(rows.map((row) => String(row.id)));
     }
 
-    const fallbackProductIds = currentCollectionProducts
-      .map((row) => String(row.product_id))
-      .filter((value, index, array) => array.indexOf(value) === index);
+    // Fallback: all seller products ordered by most recent, for slots whose template product_id doesn't belong to this seller
+    const allSellerProducts = await sequelize.query<{ id: string }>(
+      `
+      SELECT id
+      FROM productos
+      WHERE vendedor_id = :sellerId
+        AND activo = true
+      ORDER BY created_at DESC
+      `,
+      {
+        replacements: { sellerId: user.id },
+        type: QueryTypes.SELECT,
+        transaction,
+      }
+    );
+
+    const fallbackProductIds = allSellerProducts.map((row) => String(row.id));
     let fallbackProductIndex = 0;
 
     await sequelize.query(
@@ -1113,46 +1161,52 @@ export const addItem: RequestHandler = async (req, res): Promise<void> => {
       return;
     }
 
-    const productId = typeof req.body?.product_id === "string" ? req.body.product_id.trim() : "";
-    if (!productId) {
-      res.status(400).json({ ok: false, message: "product_id es requerido" });
-      return;
-    }
+    const elementType: string = req.body?.element_type ?? "product";
+    const posX = Number(req.body?.pos_x ?? 0);
+    const posY = Number(req.body?.pos_y ?? 0);
+    const width = Number(req.body?.width ?? 150);
+    const height = Number(req.body?.height ?? 150);
+    const zIndex = Number(req.body?.z_index ?? 0);
+    const content = req.body?.content ?? null;
 
-    const validProducts = await validateSellerProducts([productId], user.id);
-    if (!validProducts.length) {
-      res.status(400).json({ ok: false, message: "Producto no válido para esta colección" });
-      return;
-    }
+    let productId: string | null = null;
 
-    const currentRows = await sequelize.query<{ next_index: number }>(
-      `
-      SELECT COALESCE(MAX(z_index), -1) + 1 AS next_index
-      FROM collection_items
-      WHERE collection_id = :collectionId
-        AND (element_type = 'product' OR element_type IS NULL)
-      `,
-      {
-        replacements: { collectionId },
-        type: QueryTypes.SELECT,
+    if (elementType === "product") {
+      const rawId = typeof req.body?.product_id === "string" ? req.body.product_id.trim() : "";
+      if (!rawId) {
+        res.status(400).json({ ok: false, message: "product_id es requerido" });
+        return;
       }
-    );
-
-    const nextIndex = Number(currentRows[0]?.next_index ?? 0);
+      const validProducts = await validateSellerProducts([rawId], user.id);
+      if (!validProducts.length) {
+        res.status(400).json({ ok: false, message: "Producto no válido para esta colección" });
+        return;
+      }
+      productId = rawId;
+    } else if (!["text", "shape", "image"].includes(elementType)) {
+      res.status(400).json({ ok: false, message: "element_type inválido" });
+      return;
+    }
 
     const rows = await sequelize.query<{ id: number }>(
       `
       INSERT INTO collection_items
         (collection_id, product_id, element_type, content, pos_x, pos_y, width, height, z_index, created_at, updated_at)
       VALUES
-        (:collectionId, :productId, 'product', NULL, 0, 0, 0, 0, :zIndex, NOW(), NOW())
+        (:collectionId, :productId, :elementType, CAST(:content AS jsonb), :posX, :posY, :width, :height, :zIndex, NOW(), NOW())
       RETURNING id
       `,
       {
         replacements: {
           collectionId,
           productId,
-          zIndex: nextIndex,
+          elementType,
+          content: JSON.stringify(content),
+          posX,
+          posY,
+          width,
+          height,
+          zIndex,
         },
         type: QueryTypes.SELECT,
       }
@@ -1181,8 +1235,13 @@ export const updateItem: RequestHandler = async (req, res): Promise<void> => {
       return;
     }
 
-    const zIndex = req.body?.z_index;
     const productId = typeof req.body?.product_id === "string" ? req.body.product_id.trim() : undefined;
+    const content = req.body?.content !== undefined ? req.body.content : undefined;
+    const posX = req.body?.pos_x !== undefined ? Number(req.body.pos_x) : undefined;
+    const posY = req.body?.pos_y !== undefined ? Number(req.body.pos_y) : undefined;
+    const width = req.body?.width !== undefined ? Number(req.body.width) : undefined;
+    const height = req.body?.height !== undefined ? Number(req.body.height) : undefined;
+    const zIndex = req.body?.z_index !== undefined ? Number(req.body.z_index) : undefined;
 
     if (productId) {
       const validProducts = await validateSellerProducts([productId], user.id);
@@ -1196,20 +1255,33 @@ export const updateItem: RequestHandler = async (req, res): Promise<void> => {
       `
       UPDATE collection_items
       SET
-        product_id = CASE WHEN :hasProductId THEN :productId ELSE product_id END,
-        z_index = COALESCE(:zIndex, z_index),
-        updated_at = NOW()
+        product_id  = CASE WHEN :hasProductId THEN :productId  ELSE product_id END,
+        content     = CASE WHEN :hasContent   THEN CAST(:content AS jsonb)  ELSE content END,
+        pos_x       = CASE WHEN :hasPos       THEN :posX       ELSE pos_x END,
+        pos_y       = CASE WHEN :hasPos       THEN :posY       ELSE pos_y END,
+        width       = CASE WHEN :hasDims      THEN :width      ELSE width END,
+        height      = CASE WHEN :hasDims      THEN :height     ELSE height END,
+        z_index     = CASE WHEN :hasZIndex    THEN :zIndex     ELSE z_index END,
+        updated_at  = NOW()
       WHERE id = :itemId
         AND collection_id = :collectionId
-        AND (element_type = 'product' OR element_type IS NULL)
       `,
       {
         replacements: {
           itemId,
           collectionId,
-          hasProductId: Boolean(productId),
+          hasProductId: productId !== undefined,
           productId: productId ?? null,
-          zIndex: typeof zIndex === "number" ? zIndex : null,
+          hasContent: content !== undefined,
+          content: content !== undefined ? JSON.stringify(content) : "null",
+          hasPos: posX !== undefined && posY !== undefined,
+          posX: posX ?? 0,
+          posY: posY ?? 0,
+          hasDims: width !== undefined && height !== undefined,
+          width: width ?? 0,
+          height: height ?? 0,
+          hasZIndex: zIndex !== undefined,
+          zIndex: zIndex ?? 0,
         },
         type: QueryTypes.UPDATE,
       }
@@ -1243,7 +1315,6 @@ export const removeItem: RequestHandler = async (req, res): Promise<void> => {
       DELETE FROM collection_items
       WHERE id = :itemId
         AND collection_id = :collectionId
-        AND (element_type = 'product' OR element_type IS NULL)
       `,
       {
         replacements: { itemId, collectionId },
@@ -1359,6 +1430,73 @@ export const getPublicCollections: RequestHandler = async (req, res): Promise<vo
     res.json({ ok: true, data });
   } catch (error) {
     console.error("[collections] getPublicCollections:", error);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+export const getPublicCollectionByPublicId: RequestHandler = async (req, res): Promise<void> => {
+  try {
+    const { publicId } = req.params;
+
+    const rows = await sequelize.query<CollectionRow & {
+      seller_nombre_comercio: string;
+      seller_logo_url: string | null;
+      seller_user_id: number;
+    }>(
+      `
+      SELECT
+        c.id,
+        c.seller_id,
+        c.public_id,
+        c.name,
+        c.description,
+        c.status,
+        COALESCE(c.promo_image_url, c.background_image_url) AS promo_image_url,
+        c.background_image_url,
+        c.background_color,
+        c.background_style,
+        c.canvas_width,
+        c.canvas_height,
+        c.created_at,
+        c.updated_at,
+        vp.nombre_comercio AS seller_nombre_comercio,
+        vp.logo            AS seller_logo_url,
+        vp.user_id         AS seller_user_id
+      FROM collections c
+      JOIN vendedor_perfil vp ON vp.user_id = c.seller_id
+      WHERE c.public_id = :publicId
+        AND c.status = 'published'
+      LIMIT 1
+      `,
+      { replacements: { publicId }, type: QueryTypes.SELECT }
+    );
+
+    const row = rows[0];
+    if (!row) {
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
+
+    const [products, canvasItems] = await Promise.all([
+      getCollectionProducts(row.id),
+      getCollectionCanvasItems(row.id, row.seller_id),
+    ]);
+
+    const payload = buildCollectionPayload(row, products, canvasItems);
+
+    res.json({
+      ok: true,
+      data: {
+        ...payload,
+        seller: {
+          nombre_comercio: row.seller_nombre_comercio,
+          user_id: row.seller_user_id,
+          logo_url: row.seller_logo_url,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("[collections] getPublicCollectionByPublicId:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };

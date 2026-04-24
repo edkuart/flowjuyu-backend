@@ -22,6 +22,12 @@ router.get(
   asyncHandler(CollectionsController.getPublicCollectionsBySellerId)
 );
 
+// by public_id — shareable collection page (/c/:publicId)
+router.get(
+  "/public/c/:publicId",
+  asyncHandler(CollectionsController.getPublicCollectionByPublicId)
+);
+
 // by slug (legacy / direct link)
 router.get(
   "/public/:slug",
