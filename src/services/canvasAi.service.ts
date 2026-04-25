@@ -2,8 +2,19 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const openai    = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Lazy singletons — instantiated on first use so missing env vars don't crash the server at boot
+let _anthropic: Anthropic | null = null;
+let _openai: OpenAI | null = null;
+
+function getAnthropic(): Anthropic {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _anthropic;
+}
+
+function getOpenAI(): OpenAI {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _openai;
+}
 
 export type AiProduct = {
   id: string;
@@ -294,7 +305,7 @@ async function generateBackgroundImage(
 
     let b64: string | null = null;
     try {
-      const resp = await (openai.images as any).generate({
+      const resp = await (getOpenAI().images as any).generate({
         model: "gpt-image-1",
         prompt: imagePrompt,
         size,
@@ -305,7 +316,7 @@ async function generateBackgroundImage(
       b64 = resp.data?.[0]?.b64_json ?? null;
     } catch {
       const dalleSize = size === "1536x1024" ? "1792x1024" : size === "1024x1536" ? "1024x1792" : "1024x1024";
-      const resp = await openai.images.generate({
+      const resp = await getOpenAI().images.generate({
         model: "dall-e-3",
         prompt: imagePrompt,
         size: dalleSize as any,
@@ -326,7 +337,7 @@ async function generateBackgroundImage(
 export async function generateCanvas(req: AiCanvasRequest): Promise<AiCanvasResult> {
   const validProductIds = new Set(req.products.map((p) => p.id));
 
-  const response = await anthropic.messages.create({
+  const response = await getAnthropic().messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 4096,
     system: buildSystemPrompt(req),
