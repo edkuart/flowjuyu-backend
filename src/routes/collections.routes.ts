@@ -126,4 +126,10 @@ router.post(
   asyncHandler(CollectionsController.applyCollectionTemplate)
 );
 
+// AI canvas generation
+router.post(
+  "/:id/ai-generate",
+  asyncHandler(CollectionsController.generateCanvasWithAi)
+);
+
 export default router;

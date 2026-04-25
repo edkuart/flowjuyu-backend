@@ -3,6 +3,7 @@ import { QueryTypes } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
 import { sequelize } from "../config/db";
 import supabase from "../lib/supabase";
+import { generateCanvas as aiGenerateCanvas } from "../services/canvasAi.service";
 
 type AuthUser = { id: number };
 
@@ -250,7 +251,6 @@ function buildCollectionPayload(
   products: CollectionProductRow[],
   canvasItems?: CollectionCanvasItemRow[]
 ) {
-  const promoImageUrl = collection.promo_image_url ?? collection.background_image_url ?? null;
   const productItems = products.map((product, index) => ({
     id: product.item_id,
     element_type: "product" as const,
@@ -271,8 +271,8 @@ function buildCollectionPayload(
     name: collection.name,
     description: collection.description,
     status: collection.status,
-    promo_image_url: promoImageUrl,
-    background_image_url: promoImageUrl,
+    promo_image_url: collection.promo_image_url ?? null,
+    background_image_url: collection.background_image_url ?? null,
     background_color: collection.background_color,
     background_style: collection.background_style,
     canvas_width: collection.canvas_width,
@@ -1527,6 +1527,222 @@ export const getPublicCollectionByPublicId: RequestHandler = async (req, res): P
     });
   } catch (error) {
     console.error("[collections] getPublicCollectionByPublicId:", error);
+    res.status(500).json({ ok: false, message: "Error del servidor" });
+  }
+};
+
+// ─── AI canvas generation ─────────────────────────────────────────────────────
+
+export const generateCanvasWithAi: RequestHandler = async (req, res): Promise<void> => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const user = getUser(req);
+    if (!user) {
+      await transaction.rollback();
+      res.status(401).json({ ok: false, message: "No autenticado" });
+      return;
+    }
+
+    const collectionId = Number(req.params.id);
+    const collection = await getCollectionRowForSeller(collectionId, user.id);
+    if (!collection) {
+      await transaction.rollback();
+      res.status(404).json({ ok: false, message: "Colección no encontrada" });
+      return;
+    }
+
+    const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+    if (!prompt) {
+      await transaction.rollback();
+      res.status(400).json({ ok: false, message: "Prompt requerido" });
+      return;
+    }
+
+    const title   = typeof req.body?.title   === "string" ? req.body.title.trim()   : collection.name ?? "Mi colección";
+    const tagline = typeof req.body?.tagline  === "string" ? req.body.tagline.trim() : undefined;
+    const cta     = typeof req.body?.cta      === "string" ? req.body.cta.trim()     : undefined;
+
+    const VALID_STYLES   = ["minimal", "bold", "editorial", "playful", "luxury", "artisanal"];
+    const VALID_PALETTES = ["auto", "neutral", "earth", "dark", "vibrant"];
+    const VALID_LAYOUTS  = ["hero", "grid", "asymmetric", "collage"];
+
+    const style   = VALID_STYLES.includes(req.body?.style)     ? req.body.style     : "minimal";
+    const palette = VALID_PALETTES.includes(req.body?.palette)  ? req.body.palette   : "auto";
+    const layout  = VALID_LAYOUTS.includes(req.body?.layout)    ? req.body.layout    : "hero";
+
+    const productCount = Math.min(6, Math.max(1, Number(req.body?.product_count) || 3));
+
+    // Selected product IDs from the frontend (optional filter)
+    const selectedIds: string[] | null = Array.isArray(req.body?.selected_product_ids)
+      ? (req.body.selected_product_ids as unknown[]).map(String)
+      : null;
+
+    const generateBgImage = Boolean(req.body?.generate_bg_image);
+
+    // Fetch seller name
+    const sellerRows = await sequelize.query<{ nombre_comercio: string }>(
+      `SELECT nombre_comercio FROM vendedor_perfil WHERE user_id = :userId LIMIT 1`,
+      { replacements: { userId: user.id }, type: QueryTypes.SELECT }
+    );
+    const sellerName = sellerRows[0]?.nombre_comercio ?? "Mi tienda";
+
+    // Fetch seller's active products — filter to selected if provided, else up to 20
+    const productRows = await sequelize.query<{
+      id: string; nombre: string; precio: string | number; imagen_url: string | null;
+    }>(
+      `SELECT id, nombre, precio, imagen_url FROM productos WHERE vendedor_id = :sellerId AND activo = true ORDER BY created_at DESC LIMIT 20`,
+      { replacements: { sellerId: user.id }, type: QueryTypes.SELECT }
+    );
+
+    // Apply selection filter from frontend (if provided)
+    const filteredProducts = selectedIds && selectedIds.length > 0
+      ? productRows.filter((p) => selectedIds.includes(String(p.id)))
+      : productRows;
+
+    const aiProducts = filteredProducts.map((p) => ({
+      id: p.id, nombre: p.nombre, precio: p.precio, imagen_url: p.imagen_url,
+    }));
+
+    // Generate layout (Claude) + optional background image (OpenAI)
+    let aiResult;
+    try {
+      aiResult = await aiGenerateCanvas({
+        prompt,
+        title,
+        tagline,
+        cta,
+        style,
+        palette,
+        layout,
+        productCount,
+        canvasWidth: collection.canvas_width,
+        canvasHeight: collection.canvas_height,
+        sellerName,
+        products: aiProducts,
+        generateBgImage,
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.error("[collections] AI generation failed:", err);
+      res.status(502).json({ ok: false, message: "Error al generar el diseño con IA. Intenta de nuevo." });
+      return;
+    }
+
+    // Upload background image to Supabase if generated
+    let backgroundImageUrl: string | null = collection.background_image_url;
+    if (aiResult.background_image_base64 && aiResult.background_image_content_type) {
+      try {
+        const imageBuffer = Buffer.from(aiResult.background_image_base64, "base64");
+        const fileName = `ai-bg-${collectionId}-${Date.now()}.png`;
+        const { error: uploadError } = await supabase.storage
+          .from("collection-images")
+          .upload(fileName, imageBuffer, {
+            contentType: aiResult.background_image_content_type,
+            upsert: true,
+          });
+        if (!uploadError) {
+          const { data: urlData } = supabase.storage.from("collection-images").getPublicUrl(fileName);
+          backgroundImageUrl = urlData?.publicUrl ?? null;
+        }
+      } catch (err) {
+        console.error("[collections] background image upload failed (non-fatal):", err);
+        // Non-fatal: continue without background image
+      }
+    }
+
+    // Validate product_ids against the selected product set
+    const validProductIds = new Set(filteredProducts.map((p) => String(p.id)));
+
+    // Apply atomically: update background → delete existing items → insert AI items
+    await sequelize.query(
+      `UPDATE collections SET background_color = :bgColor, background_style = :bgStyle, background_image_url = :bgImg, updated_at = NOW() WHERE id = :collectionId`,
+      {
+        replacements: {
+          collectionId,
+          bgColor: aiResult.background_color,
+          bgStyle: aiResult.background_style ?? null,
+          bgImg: backgroundImageUrl ?? null,
+        },
+        type: QueryTypes.UPDATE,
+        transaction,
+      }
+    );
+
+    await sequelize.query(
+      `DELETE FROM collection_items WHERE collection_id = :collectionId`,
+      { replacements: { collectionId }, type: QueryTypes.DELETE, transaction }
+    );
+
+    const insertedItems: Array<{ id: number } & typeof aiResult.items[0]> = [];
+
+    for (const item of aiResult.items) {
+      const productId = item.element_type === "product" && item.product_id && validProductIds.has(item.product_id)
+        ? item.product_id
+        : null;
+
+      if (item.element_type === "product" && !productId) continue; // skip invalid product refs
+
+      const rows = await sequelize.query<{ id: number }>(
+        `INSERT INTO collection_items (collection_id, product_id, element_type, content, pos_x, pos_y, width, height, z_index, created_at, updated_at)
+         VALUES (:collectionId, :productId, :elementType, CAST(:content AS jsonb), :posX, :posY, :width, :height, :zIndex, NOW(), NOW())
+         RETURNING id`,
+        {
+          replacements: {
+            collectionId,
+            productId: productId ?? null,
+            elementType: item.element_type,
+            content: JSON.stringify(item.content ?? null),
+            posX: item.pos_x,
+            posY: item.pos_y,
+            width: item.width,
+            height: item.height,
+            zIndex: item.z_index,
+          },
+          type: QueryTypes.SELECT,
+          transaction,
+        }
+      );
+
+      if (rows[0]?.id) {
+        insertedItems.push({ id: rows[0].id, ...item });
+      }
+    }
+
+    await transaction.commit();
+
+    // Build enriched items (inject product_name + product_image for frontend)
+    const productMap = new Map(filteredProducts.map((p) => [p.id, p]));
+    const enrichedItems = insertedItems.map((item) => {
+      const product = item.product_id ? productMap.get(item.product_id) : null;
+      return {
+        id: item.id,
+        element_type: item.element_type,
+        content: item.content,
+        product_id: item.product_id ?? null,
+        pos_x: item.pos_x,
+        pos_y: item.pos_y,
+        width: item.width,
+        height: item.height,
+        z_index: item.z_index,
+        product_name:  product?.nombre  ?? null,
+        product_image: product?.imagen_url ?? null,
+        product_price: product?.precio ?? null,
+      };
+    });
+
+    res.json({
+      ok: true,
+      data: {
+        background_color: aiResult.background_color,
+        background_style: aiResult.background_style ?? null,
+        background_image_url: backgroundImageUrl,
+        items: enrichedItems,
+      },
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error("[collections] generateCanvasWithAi:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
