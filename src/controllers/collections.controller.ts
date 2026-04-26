@@ -315,20 +315,21 @@ async function validateSellerProducts(productIds: string[], sellerId: number): P
 }
 
 async function replaceCollectionProducts(collectionId: number, sellerId: number, productIds: string[]): Promise<void> {
+  // Only keep products that belong to this seller and are active — skip the rest silently
   const validProductIds = await validateSellerProducts(productIds, sellerId);
-
-  if (validProductIds.length !== productIds.length) {
-    throw Object.assign(new Error("INVALID_PRODUCTS"), { statusCode: 400 });
-  }
 
   const transaction = await sequelize.transaction();
 
   try {
+    // Only delete bare linked items (pos_x=0, pos_y=0, width=0, height=0).
+    // This preserves canvas-positioned product items so the canvas layout is not destroyed.
     await sequelize.query(
       `
       DELETE FROM collection_items
       WHERE collection_id = :collectionId
         AND (element_type = 'product' OR element_type IS NULL)
+        AND COALESCE(width, 0) = 0
+        AND COALESCE(height, 0) = 0
       `,
       {
         replacements: { collectionId },
@@ -344,6 +345,7 @@ async function replaceCollectionProducts(collectionId: number, sellerId: number,
           (collection_id, product_id, element_type, content, pos_x, pos_y, width, height, z_index, created_at, updated_at)
         VALUES
           (:collectionId, :productId, 'product', NULL, 0, 0, 0, 0, :zIndex, NOW(), NOW())
+        ON CONFLICT DO NOTHING
         `,
         {
           replacements: {
@@ -638,10 +640,6 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
     res.json({ ok: true });
   } catch (error) {
     console.error("[collections] updateCollection:", error);
-    if ((error as { statusCode?: number }).statusCode === 400) {
-      res.status(400).json({ ok: false, message: "Uno o más productos no son válidos para esta colección" });
-      return;
-    }
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
@@ -667,10 +665,6 @@ export const setCollectionProducts: RequestHandler = async (req, res): Promise<v
     res.json({ ok: true, data: { product_count: productIds.length } });
   } catch (error) {
     console.error("[collections] setCollectionProducts:", error);
-    if ((error as { statusCode?: number }).statusCode === 400) {
-      res.status(400).json({ ok: false, message: "Uno o más productos no son válidos para esta colección" });
-      return;
-    }
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
@@ -1472,6 +1466,7 @@ export const getPublicCollectionByPublicId: RequestHandler = async (req, res): P
       seller_nombre_comercio: string;
       seller_logo_url: string | null;
       seller_user_id: number;
+      seller_whatsapp: string | null;
     }>(
       `
       SELECT
@@ -1489,9 +1484,10 @@ export const getPublicCollectionByPublicId: RequestHandler = async (req, res): P
         c.canvas_height,
         c.created_at,
         c.updated_at,
-        vp.nombre_comercio AS seller_nombre_comercio,
-        vp.logo            AS seller_logo_url,
-        vp.user_id         AS seller_user_id
+        vp.nombre_comercio  AS seller_nombre_comercio,
+        vp.logo             AS seller_logo_url,
+        vp.user_id          AS seller_user_id,
+        vp.whatsapp_numero  AS seller_whatsapp
       FROM collections c
       JOIN vendedor_perfil vp ON vp.user_id = c.seller_id
       WHERE c.public_id = :publicId
@@ -1522,6 +1518,7 @@ export const getPublicCollectionByPublicId: RequestHandler = async (req, res): P
           nombre_comercio: row.seller_nombre_comercio,
           user_id: row.seller_user_id,
           logo_url: row.seller_logo_url,
+          whatsapp: row.seller_whatsapp ?? null,
         },
       },
     });
