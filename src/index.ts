@@ -3,7 +3,7 @@ import "./config/env";
 
 import app from "./app";
 import { assertDbConnection } from "./config/db";
-import { setupConsentTables, setupPhase2Tables, setupCollectionTables } from "./utils/setupTables";
+import { setupConsentTables, setupPhase2Tables, setupCollectionTables, setupVideoStudioTables, setupAiCreditsTables } from "./utils/setupTables";
 import { verifyFailureIntelligenceInfra } from "./services/conversations/conversationInfraHealth.service";
 
 // Register event listeners (side-effects only — import once here)
@@ -48,6 +48,8 @@ async function bootstrap() {
     await setupPhase2Tables();
     await setupConsentTables();
     await setupCollectionTables();
+    await setupVideoStudioTables();
+    await setupAiCreditsTables();
     await verifyFailureIntelligenceInfra();
 
     app.listen(PORT, () => {

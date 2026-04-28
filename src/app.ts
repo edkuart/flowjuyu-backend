@@ -40,6 +40,9 @@ import whatsappIntegrationRoutes from "./routes/whatsappIntegration.routes";
 import consentRoutes from "./routes/consent.routes";
 import collectionsRoutes from "./routes/collections.routes";
 import liveChatRoutes from "./routes/liveChat.routes";
+import videoStudioRoutes from "./routes/videoStudio.routes";
+import sellerAiCreditsRoutes from "./routes/sellerAiCredits.routes";
+import stripeWebhooksRoutes from "./routes/stripeWebhooks.routes";
 
 // Initialize Sequelize associations (must run before any query uses `include`)
 import "./models";
@@ -153,6 +156,7 @@ app.options(/.*/, cors(corsOptions));
 // Parsers
 // ===========================
 app.use("/api/payments/webhooks/:provider", express.raw({ type: "*/*", limit: "1mb" }));
+app.use("/api/webhooks/stripe", express.raw({ type: "*/*", limit: "1mb" }));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -311,12 +315,15 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/follows", followsRoutes);
 app.use("/api/collections", collectionsRoutes);
 app.use("/api", liveChatRoutes);
+app.use("/api/seller", videoStudioRoutes);
+app.use("/api/seller/ai-credits", sellerAiCreditsRoutes);
 
 // Phase 5: Payment Security
 // IMPORTANT: /api/payments must be mounted BEFORE express.json() would affect
 // the raw webhook body. The route file applies express.raw() on /webhooks/:provider.
 app.use("/api/orders",   orderRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/webhooks/stripe", stripeWebhooksRoutes);
 app.use("/api/integrations/whatsapp", whatsappIntegrationRoutes);
 
 // ===========================

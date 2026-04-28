@@ -4,6 +4,11 @@ import { v4 as uuidv4 } from "uuid";
 import { sequelize } from "../config/db";
 import supabase from "../lib/supabase";
 import { generateCanvas as aiGenerateCanvas } from "../services/canvasAi.service";
+import {
+  deductAiCredits,
+  refundAiCredits,
+  InsufficientAiCreditsError,
+} from "../services/aiCredits.service";
 
 type AuthUser = { id: number };
 
@@ -1601,6 +1606,26 @@ export const generateCanvasWithAi: RequestHandler = async (req, res): Promise<vo
       id: p.id, nombre: p.nombre, precio: p.precio, imagen_url: p.imagen_url,
     }));
 
+    // Deduct AI credits before calling the AI (optimistic deduction, refund on failure)
+    let creditTxId: string | null = null;
+    try {
+      const { txId } = await deductAiCredits(user.id, "canvas_ai", "collection", String(collectionId));
+      creditTxId = txId;
+    } catch (err) {
+      await transaction.rollback();
+      if (err instanceof InsufficientAiCreditsError) {
+        res.status(402).json({
+          ok: false,
+          code: "INSUFFICIENT_CREDITS",
+          message: err.message,
+          balance: err.balance,
+          required: err.required,
+        });
+        return;
+      }
+      throw err;
+    }
+
     // Generate layout (Claude) + optional background image (OpenAI)
     let aiResult;
     try {
@@ -1621,6 +1646,10 @@ export const generateCanvasWithAi: RequestHandler = async (req, res): Promise<vo
       });
     } catch (err) {
       await transaction.rollback();
+      // Refund credits — the AI never ran or returned an error
+      if (creditTxId) {
+        await refundAiCredits(user.id, 8, "Reembolso por fallo en generación de canvas IA", "collection", String(collectionId)).catch(() => {});
+      }
       console.error("[collections] AI generation failed:", err);
       res.status(502).json({ ok: false, message: "Error al generar el diseño con IA. Intenta de nuevo." });
       return;

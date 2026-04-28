@@ -13,6 +13,13 @@ import {
   adminApproveManualPayment,
   adminRejectManualPayment,
 } from "../controllers/adminBilling.controller";
+import { adminAddCredits } from "../controllers/videoStudio.controller";
+import {
+  adminListAiCreditPurchaseRequests,
+  adminApproveAiCreditRequest,
+  adminRejectAiCreditRequest,
+  adminGrantAiCredits,
+} from "../controllers/sellerAiCredits.controller";
 
 const router: IRouter = Router();
 
@@ -58,6 +65,48 @@ router.post(
   "/manual-payment-reports/:reportId/reject",
   verifyToken(["admin"]),
   asyncHandler(adminRejectManualPayment),
+);
+
+// POST   /api/admin/billing/video-credits/:sellerId
+//        Add GTQ centavos to a seller's video credit wallet (manual top-up)
+router.post(
+  "/video-credits/:sellerId",
+  verifyToken(["admin"]),
+  asyncHandler(adminAddCredits),
+);
+
+// ─── AI Credits admin queue ────────────────────────────────────────────────────
+
+// GET    /api/admin/billing/ai-credits/purchase-requests
+//        List all pending/under_review AI credit purchase requests
+router.get(
+  "/ai-credits/purchase-requests",
+  verifyToken(["admin"]),
+  asyncHandler(adminListAiCreditPurchaseRequests),
+);
+
+// POST   /api/admin/billing/ai-credits/purchase-requests/:requestId/approve
+//        Approve → credits added to seller wallet atomically
+router.post(
+  "/ai-credits/purchase-requests/:requestId/approve",
+  verifyToken(["admin"]),
+  asyncHandler(adminApproveAiCreditRequest),
+);
+
+// POST   /api/admin/billing/ai-credits/purchase-requests/:requestId/reject
+//        Reject → seller notified, no credits added
+router.post(
+  "/ai-credits/purchase-requests/:requestId/reject",
+  verifyToken(["admin"]),
+  asyncHandler(adminRejectAiCreditRequest),
+);
+
+// POST   /api/admin/billing/ai-credits/grant/:sellerId
+//        Manually grant AI credits to a seller (promotions, support, etc.)
+router.post(
+  "/ai-credits/grant/:sellerId",
+  verifyToken(["admin"]),
+  asyncHandler(adminGrantAiCredits),
 );
 
 export default router;
