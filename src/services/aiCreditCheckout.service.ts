@@ -19,7 +19,15 @@ import type {
   PaymentProviderOption,
 } from "./payments/paymentProviders.types";
 
-const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:3000";
+function getFrontendUrl(): string {
+  const configured = process.env.FRONTEND_URL?.trim();
+  const fallback =
+    process.env.NODE_ENV === "production"
+      ? "https://www.flowjuyu.com"
+      : "http://localhost:3000";
+
+  return (configured || fallback).replace(/\/+$/, "");
+}
 
 export interface CreateAiCreditCheckoutInput {
   sellerId: number;
@@ -80,7 +88,7 @@ export async function createAiCreditCheckoutSession(
   const returnTo = safeReturnTo(input.returnTo);
   const returnParam = encodeURIComponent(returnTo);
   const source = input.source?.trim().slice(0, 40) || "ai_credits";
-  const paymentReturnUrl = `${FRONTEND_URL}/seller/payments/return?provider=${provider}&returnTo=${returnParam}`;
+  const paymentReturnUrl = `${getFrontendUrl()}/seller/payments/return?provider=${provider}&returnTo=${returnParam}`;
 
   const checkout = await createPaymentCheckout({
     provider,

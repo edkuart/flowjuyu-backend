@@ -12,22 +12,33 @@
 //   - Duplicate captures rejected via unique constraint on provider_transaction_id.
 
 import { createOrder, captureOrder, getOrder } from "../../lib/paypal";
-import { CREDIT_PACKAGES, isValidPackageId } from "../../config/videoCreditPackages";
+import {
+  CREDIT_PACKAGES,
+  isValidPackageId,
+} from "../../config/videoCreditPackages";
 import VideoCreditTransaction from "../../models/VideoCreditTransaction.model";
 import { addCredits } from "./videoCredit.service";
 
-const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:3000";
+function getFrontendUrl(): string {
+  const configured = process.env.FRONTEND_URL?.trim();
+  const fallback =
+    process.env.NODE_ENV === "production"
+      ? "https://www.flowjuyu.com"
+      : "http://localhost:3000";
+
+  return (configured || fallback).replace(/\/+$/, "");
+}
 
 // ─── Create checkout ───────────────────────────────────────────────────────────
 
 export interface CreateCheckoutInput {
-  userId:    number;
+  userId: number;
   packageId: string;
   projectId: string;
 }
 
 export async function createCheckoutSession(
-  input: CreateCheckoutInput
+  input: CreateCheckoutInput,
 ): Promise<{ approveUrl: string; orderId: string }> {
   const { userId, packageId, projectId } = input;
 
@@ -38,20 +49,20 @@ export async function createCheckoutSession(
   const pkg = CREDIT_PACKAGES[packageId];
 
   const txn = await VideoCreditTransaction.create({
-    user_id:          userId,
-    package_id:       pkg.id,
-    gtq_cents:        pkg.gtqCents,
+    user_id: userId,
+    package_id: pkg.id,
+    gtq_cents: pkg.gtqCents,
     amount_usd_cents: pkg.priceUsdCents,
-    provider:         "paypal",
-    status:           "pending",
+    provider: "paypal",
+    status: "pending",
   });
 
   const result = await createOrder({
     amountUsdCents: pkg.priceUsdCents,
-    description:    `${pkg.clips} · Q${(pkg.gtqCents / 100).toFixed(2)} en créditos de video`,
-    referenceId:    txn.id,
-    returnUrl:      `${FRONTEND_URL}/seller/video-studio/${projectId}`,
-    cancelUrl:      `${FRONTEND_URL}/seller/video-studio/${projectId}?credit_cancel=1`,
+    description: `${pkg.clips} · Q${(pkg.gtqCents / 100).toFixed(2)} en créditos de video`,
+    referenceId: txn.id,
+    returnUrl: `${getFrontendUrl()}/seller/video-studio/${projectId}`,
+    cancelUrl: `${getFrontendUrl()}/seller/video-studio/${projectId}?credit_cancel=1`,
   });
 
   await txn.update({ provider_session_id: result.orderId });
@@ -62,12 +73,12 @@ export async function createCheckoutSession(
 // ─── Capture payment ───────────────────────────────────────────────────────────
 
 export interface CaptureInput {
-  userId:        number;
+  userId: number;
   paypalOrderId: string;
 }
 
 export async function captureCreditPayment(
-  input: CaptureInput
+  input: CaptureInput,
 ): Promise<{ gtqCents: number; newBalance?: number }> {
   const { userId, paypalOrderId } = input;
 
@@ -76,7 +87,9 @@ export async function captureCreditPayment(
   });
 
   if (!txn) {
-    throw Object.assign(new Error("Orden de pago no encontrada"), { code: "ORDER_NOT_FOUND" });
+    throw Object.assign(new Error("Orden de pago no encontrada"), {
+      code: "ORDER_NOT_FOUND",
+    });
   }
 
   if (txn.user_id !== userId) {
@@ -90,14 +103,16 @@ export async function captureCreditPayment(
   if (txn.status !== "pending") {
     throw Object.assign(
       new Error(`La transacción ya no está pendiente (estado: ${txn.status})`),
-      { code: "INVALID_STATUS" }
+      { code: "INVALID_STATUS" },
     );
   }
 
   // Verify PayPal's reference matches our transaction ID
   const order = await getOrder(paypalOrderId);
   if (order.referenceId !== txn.id) {
-    throw Object.assign(new Error("Referencia de orden inválida"), { code: "REFERENCE_MISMATCH" });
+    throw Object.assign(new Error("Referencia de orden inválida"), {
+      code: "REFERENCE_MISMATCH",
+    });
   }
 
   let captureResult: { captureId: string; status: string };
@@ -107,7 +122,7 @@ export async function captureCreditPayment(
     await txn.update({ status: "failed" });
     throw Object.assign(
       new Error("No se pudo capturar el pago. Intenta de nuevo o contáctanos."),
-      { code: "CAPTURE_FAILED" }
+      { code: "CAPTURE_FAILED" },
     );
   }
 
@@ -115,21 +130,21 @@ export async function captureCreditPayment(
     await txn.update({ status: "failed" });
     throw Object.assign(
       new Error(`El pago no se completó (estado: ${captureResult.status})`),
-      { code: "CAPTURE_NOT_COMPLETED" }
+      { code: "CAPTURE_NOT_COMPLETED" },
     );
   }
 
   await txn.update({
-    status:                  "completed",
+    status: "completed",
     provider_transaction_id: captureResult.captureId,
-    completed_at:            new Date(),
+    completed_at: new Date(),
   });
 
   const newBalance = await addCredits(userId, txn.gtq_cents);
 
   console.log(
     `[paypal] Credits added: user_id=${userId}  gtq_cents=${txn.gtq_cents}  ` +
-    `capture=${captureResult.captureId}  txn=${txn.id}`
+      `capture=${captureResult.captureId}  txn=${txn.id}`,
   );
 
   return { gtqCents: txn.gtq_cents, newBalance };
