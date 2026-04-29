@@ -2327,6 +2327,7 @@ export async function setupAiCreditsTables(): Promise<void> {
       seller_id     INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       type          VARCHAR(20)  NOT NULL CHECK (type IN ('purchase', 'debit', 'refund', 'manual_grant', 'plan_renewal')),
       credits       INTEGER      NOT NULL,
+      balance_before INTEGER,
       balance_after INTEGER      NOT NULL,
       description   VARCHAR(255) NOT NULL,
       ref_type      VARCHAR(50),
@@ -2339,6 +2340,11 @@ export async function setupAiCreditsTables(): Promise<void> {
   await run(
     "ai_credit_transactions index seller_created",
     `CREATE INDEX IF NOT EXISTS ai_credit_tx_seller_created_idx ON ai_credit_transactions (seller_id, created_at DESC)`,
+  );
+
+  await run(
+    "ai_credit_transactions add balance_before",
+    `ALTER TABLE ai_credit_transactions ADD COLUMN IF NOT EXISTS balance_before INTEGER`,
   );
 
   await run(
@@ -2366,25 +2372,32 @@ export async function setupAiCreditsTables(): Promise<void> {
   // Seed default packages (idempotent)
   const packages = [
     {
-      slug: "starter-50",
+      slug: "starter-70",
       name: "Paquete Inicio",
-      credits: 50,
-      price_gtq: 22.0,
+      credits: 70,
+      price_gtq: 38.5,
       sort_order: 1,
     },
     {
-      slug: "growth-150",
-      name: "Paquete Crecimiento",
-      credits: 150,
-      price_gtq: 60.0,
+      slug: "creator-200",
+      name: "Paquete Creador",
+      credits: 200,
+      price_gtq: 86.9,
       sort_order: 2,
     },
     {
-      slug: "pro-400",
+      slug: "pro-450",
       name: "Paquete Pro",
-      credits: 400,
-      price_gtq: 140.0,
+      credits: 450,
+      price_gtq: 163.9,
       sort_order: 3,
+    },
+    {
+      slug: "studio-1000",
+      name: "Paquete Studio",
+      credits: 1000,
+      price_gtq: 328.9,
+      sort_order: 4,
     },
   ];
 
@@ -2394,10 +2407,24 @@ export async function setupAiCreditsTables(): Promise<void> {
       `
       INSERT INTO ai_credit_packages (slug, name, credits, price_gtq, is_active, sort_order)
       VALUES ('${pkg.slug}', '${pkg.name}', ${pkg.credits}, ${pkg.price_gtq}, true, ${pkg.sort_order})
-      ON CONFLICT (slug) DO NOTHING
+      ON CONFLICT (slug) DO UPDATE
+      SET name = EXCLUDED.name,
+          credits = EXCLUDED.credits,
+          price_gtq = EXCLUDED.price_gtq,
+          is_active = true,
+          sort_order = EXCLUDED.sort_order
       `,
     );
   }
+
+  await run(
+    "ai_credit_packages deactivate old packs",
+    `
+    UPDATE ai_credit_packages
+    SET is_active = false
+    WHERE slug IN ('starter-50', 'growth-150', 'pro-400')
+    `,
+  );
 
   // Purchase requests: seller declares intent → admin approves → credits added
   await run(

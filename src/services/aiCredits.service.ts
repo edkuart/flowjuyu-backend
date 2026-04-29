@@ -12,13 +12,14 @@ import AiCreditTransaction, {
 // ─── Credit cost catalog ──────────────────────────────────────────────────────
 
 export const AI_CREDIT_COSTS = {
-  content_caption: 2,
+  content_caption: 1,
   content_description: 2,
-  content_image_prompt: 2,
-  canvas_ai: 8,
-  video_10s_kling: 5,
-  video_10s_luma: 10,
-  video_10s_runway: 20,
+  content_image_prompt: 1,
+  canvas_ai: 5,
+  canvas_ai_with_image: 11,
+  video_10s_kling: 7,
+  video_10s_luma: 14,
+  video_10s_runway: 31,
 } as const;
 
 export type AiCreditOperation = keyof typeof AI_CREDIT_COSTS;
@@ -86,7 +87,23 @@ async function writeLedgerEntry(
   opts: CreditLedgerOptions,
   txn: any,
 ): Promise<{ balanceAfter: number; txId: string }> {
-  // Atomic update: increment/decrement with floor at 0 for debits, return new balance
+  const [current] = await sequelize.query<{ ai_credits_balance: number }>(
+    `SELECT ai_credits_balance FROM vendedor_perfil WHERE user_id = :sellerId FOR UPDATE`,
+    {
+      replacements: { sellerId: opts.sellerId },
+      type: QueryTypes.SELECT,
+      transaction: txn,
+    },
+  );
+
+  if (!current) throw new AiCreditsNotFoundError();
+
+  const balanceBefore = current.ai_credits_balance;
+
+  if (opts.credits < 0 && balanceBefore < Math.abs(opts.credits)) {
+    throw new InsufficientAiCreditsError(balanceBefore, Math.abs(opts.credits));
+  }
+
   const sign = opts.credits < 0 ? "-" : "+";
   const abs = Math.abs(opts.credits);
 
@@ -113,6 +130,7 @@ async function writeLedgerEntry(
       seller_id: opts.sellerId,
       type: opts.type,
       credits: opts.credits,
+      balance_before: balanceBefore,
       balance_after: balanceAfter,
       description: opts.description,
       ref_type: opts.refType ?? null,
@@ -135,16 +153,6 @@ export async function deductAiCredits(
   const cost = AI_CREDIT_COSTS[operation];
 
   return sequelize.transaction(async (t) => {
-    // Lock the row to prevent concurrent overdrafts
-    const [row] = await sequelize.query<{ ai_credits_balance: number }>(
-      `SELECT ai_credits_balance FROM vendedor_perfil WHERE user_id = :sellerId FOR UPDATE`,
-      { replacements: { sellerId }, type: QueryTypes.SELECT, transaction: t },
-    );
-    if (!row) throw new AiCreditsNotFoundError();
-    if (row.ai_credits_balance < cost) {
-      throw new InsufficientAiCreditsError(row.ai_credits_balance, cost);
-    }
-
     const { balanceAfter, txId } = await writeLedgerEntry(
       {
         sellerId,
@@ -303,6 +311,26 @@ export async function attachProviderSessionToPurchaseRequest(
   return updated;
 }
 
+export async function findPurchaseRequestByProviderSession(
+  provider: string,
+  providerSessionId: string,
+): Promise<AiCreditPurchaseRequest | null> {
+  const [row] = await sequelize.query<AiCreditPurchaseRequest>(
+    `
+    SELECT *
+    FROM ai_credit_purchase_requests
+    WHERE provider = :provider
+      AND provider_session_id = :providerSessionId
+    LIMIT 1
+    `,
+    {
+      replacements: { provider, providerSessionId },
+      type: QueryTypes.SELECT,
+    },
+  );
+  return row ?? null;
+}
+
 export async function completePurchaseRequestFromProvider(input: {
   requestId: string;
   provider: string;
@@ -327,7 +355,8 @@ export async function completePurchaseRequestFromProvider(input: {
       return { outcome: "ignored", detail: "request_not_found" as const };
     if (
       req.provider_session_id &&
-      req.provider_session_id !== input.providerSessionId
+      req.provider_session_id !== input.providerSessionId &&
+      req.provider_session_id !== input.requestId
     ) {
       return {
         outcome: "ignored",
@@ -433,18 +462,27 @@ export async function listPendingPurchaseRequests(
   limit = 50,
   offset = 0,
 ): Promise<{ rows: AiCreditPurchaseRequest[]; total: number }> {
-  const whereStatus = status
-    ? `AND r.status = '${status}'`
-    : `AND r.status IN ('pending', 'under_review')`;
+  const allowedStatuses = new Set([
+    "pending",
+    "under_review",
+    "approved",
+    "rejected",
+  ]);
+  const normalizedStatus =
+    status && allowedStatuses.has(status) ? status : undefined;
+  const whereStatus = normalizedStatus
+    ? "AND r.status = :status"
+    : "AND r.status IN ('pending', 'under_review')";
+  const replacements = { limit, offset, status: normalizedStatus };
 
   const [countRow] = await sequelize.query<{ total: string }>(
     `SELECT COUNT(*) AS total FROM ai_credit_purchase_requests r WHERE 1=1 ${whereStatus}`,
-    { type: QueryTypes.SELECT },
+    { replacements, type: QueryTypes.SELECT },
   );
   const rows = await sequelize.query<any>(
     `
     SELECT r.*, p.name AS package_name, p.slug AS package_slug,
-           u.email AS seller_email, vp.nombre_tienda
+           u.correo AS seller_email, vp.nombre_comercio
     FROM ai_credit_purchase_requests r
     JOIN ai_credit_packages p ON p.id = r.package_id
     JOIN users u ON u.id = r.seller_id
@@ -453,7 +491,7 @@ export async function listPendingPurchaseRequests(
     ORDER BY r.created_at ASC
     LIMIT :limit OFFSET :offset
     `,
-    { replacements: { limit, offset }, type: QueryTypes.SELECT },
+    { replacements, type: QueryTypes.SELECT },
   );
   return { rows, total: parseInt(countRow.total, 10) };
 }

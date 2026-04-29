@@ -25,6 +25,7 @@ import adminAnalyticsRoutes from "./routes/admin.analytics.routes";
 import adminTicketRoutes from "./routes/admin.ticket.routes";
 import adminAiRoutes from "./routes/admin.ai.routes";
 import adminContentRoutes from "./routes/admin.content.routes"; // Phase 2: AI Content
+import adminAiCreditsRoutes from "./routes/adminAiCredits.routes";
 import intentionRoutes from "./routes/intention.routes";
 import categoriesRoutes from "./routes/categories.routes";
 import reviewRoutes from "./routes/review.routes";
@@ -32,10 +33,10 @@ import favoritesRoutes from "./routes/favorites.routes";
 import notificationsRoutes from "./routes/notifications.routes";
 import followsRoutes from "./routes/follows.routes";
 import recommendationsRoutes from "./routes/recommendations.routes";
-import orderRoutes         from "./routes/order.routes";
-import paymentRoutes       from "./routes/payment.routes";
+import orderRoutes from "./routes/order.routes";
+import paymentRoutes from "./routes/payment.routes";
 import sellerBillingRoutes from "./routes/sellerBilling.routes";
-import adminBillingRoutes  from "./routes/adminBilling.routes";
+import adminBillingRoutes from "./routes/adminBilling.routes";
 import whatsappIntegrationRoutes from "./routes/whatsappIntegration.routes";
 import consentRoutes from "./routes/consent.routes";
 import collectionsRoutes from "./routes/collections.routes";
@@ -43,16 +44,17 @@ import liveChatRoutes from "./routes/liveChat.routes";
 import videoStudioRoutes from "./routes/videoStudio.routes";
 import sellerAiCreditsRoutes from "./routes/sellerAiCredits.routes";
 import stripeWebhooksRoutes from "./routes/stripeWebhooks.routes";
+import recurrenteWebhooksRoutes from "./routes/recurrenteWebhooks.routes";
 
 // Initialize Sequelize associations (must run before any query uses `include`)
 import "./models";
 import { sessionPool } from "./config/db";
 
 // Middleware global
-import { errorHandler }        from "./middleware/errorHandler";
-import { multerErrorHandler }  from "./middleware/multerError.middleware";
-import { httpLogger }          from "./middleware/httpLogger";
-import { responseTimeLogger }  from "./middleware/responseTime";
+import { errorHandler } from "./middleware/errorHandler";
+import { multerErrorHandler } from "./middleware/multerError.middleware";
+import { httpLogger } from "./middleware/httpLogger";
+import { responseTimeLogger } from "./middleware/responseTime";
 
 // ===========================
 // App base
@@ -81,7 +83,7 @@ app.use(
         ],
       },
     },
-  })
+  }),
 );
 
 // ===========================
@@ -155,8 +157,12 @@ app.options(/.*/, cors(corsOptions));
 // ===========================
 // Parsers
 // ===========================
-app.use("/api/payments/webhooks/:provider", express.raw({ type: "*/*", limit: "1mb" }));
+app.use(
+  "/api/payments/webhooks/:provider",
+  express.raw({ type: "*/*", limit: "1mb" }),
+);
 app.use("/api/webhooks/stripe", express.raw({ type: "*/*", limit: "1mb" }));
+app.use("/api/webhooks/recurrente", express.raw({ type: "*/*", limit: "1mb" }));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -193,7 +199,7 @@ app.use(
         return process.env.NODE_ENV === "production" ? "none" : "lax";
       })(),
     },
-  })
+  }),
 );
 
 // ===========================
@@ -210,52 +216,87 @@ app.use("/api", apiLimiter);
 
 // Login with credentials — count every attempt (success + failure) to prevent
 // brute-force enumeration. 20 attempts per 15 min is generous for a human.
-app.use("/api/login", rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { ok: false, code: "RATE_LIMITED", message: "Demasiados intentos de inicio de sesión. Espera 15 minutos." },
-}));
+app.use(
+  "/api/login",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      ok: false,
+      code: "RATE_LIMITED",
+      message: "Demasiados intentos de inicio de sesión. Espera 15 minutos.",
+    },
+  }),
+);
 
 // Legacy Google login endpoint — same policy as /api/login.
-app.use("/api/login/google", rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { ok: false, code: "RATE_LIMITED", message: "Demasiados intentos con Google. Espera 15 minutos." },
-}));
+app.use(
+  "/api/login/google",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      ok: false,
+      code: "RATE_LIMITED",
+      message: "Demasiados intentos con Google. Espera 15 minutos.",
+    },
+  }),
+);
 
 // Social / OAuth auth — redirect flows can legitimately retry on network hiccups,
 // so the window is slightly wider (30 vs 20). Still counts every attempt.
-app.use("/api/auth/social", rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { ok: false, code: "RATE_LIMITED", message: "Demasiados intentos con Google. Espera 15 minutos." },
-}));
+app.use(
+  "/api/auth/social",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      ok: false,
+      code: "RATE_LIMITED",
+      message: "Demasiados intentos con Google. Espera 15 minutos.",
+    },
+  }),
+);
 
 // Token refresh — skipSuccessfulRequests: true means only FAILED refreshes
 // (invalid/expired cookie) count toward the limit. Successful refreshes from
 // active sessions never burn through this quota.
-app.use("/api/refresh", rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 60,
-  skipSuccessfulRequests: true,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { ok: false, code: "RATE_LIMITED", message: "Demasiadas solicitudes de renovación. Espera 15 minutos." },
-}));
+app.use(
+  "/api/refresh",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 60,
+    skipSuccessfulRequests: true,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      ok: false,
+      code: "RATE_LIMITED",
+      message: "Demasiadas solicitudes de renovación. Espera 15 minutos.",
+    },
+  }),
+);
 
-app.use("/api/forgot-password", rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { ok: false, code: "RATE_LIMITED", message: "Demasiados intentos. Espera un momento." },
-}));
+app.use(
+  "/api/forgot-password",
+  rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      ok: false,
+      code: "RATE_LIMITED",
+      message: "Demasiados intentos. Espera un momento.",
+    },
+  }),
+);
 
 // ===========================
 // Healthcheck
@@ -300,7 +341,8 @@ app.use("/api/admin/analytics", adminAnalyticsRoutes);
 app.use("/api/admin", adminTicketRoutes);
 app.use("/api/admin/ai", adminAiRoutes);
 app.use("/api/admin/ai/content", adminContentRoutes); // Phase 2: AI Content Intelligence
-app.use("/api/admin/billing", adminBillingRoutes);    // Phase 3: Seller Billing admin review
+app.use("/api/admin/ai-credits", adminAiCreditsRoutes);
+app.use("/api/admin/billing", adminBillingRoutes); // Phase 3: Seller Billing admin review
 
 // ===========================
 // Dominio
@@ -321,9 +363,10 @@ app.use("/api/seller/ai-credits", sellerAiCreditsRoutes);
 // Phase 5: Payment Security
 // IMPORTANT: /api/payments must be mounted BEFORE express.json() would affect
 // the raw webhook body. The route file applies express.raw() on /webhooks/:provider.
-app.use("/api/orders",   orderRoutes);
+app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/webhooks/stripe", stripeWebhooksRoutes);
+app.use("/api/webhooks/recurrente", recurrenteWebhooksRoutes);
 app.use("/api/integrations/whatsapp", whatsappIntegrationRoutes);
 
 // ===========================

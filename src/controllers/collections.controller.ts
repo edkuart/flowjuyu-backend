@@ -91,7 +91,9 @@ function normalizeDescription(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
-function normalizePromoImageUrl(body: Record<string, unknown>): string | null | undefined {
+function normalizePromoImageUrl(
+  body: Record<string, unknown>,
+): string | null | undefined {
   if (Object.prototype.hasOwnProperty.call(body, "promo_image_url")) {
     const value = body.promo_image_url;
     return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -124,20 +126,25 @@ function normalizeProductIds(input: unknown): string[] {
 function deriveTemplateThumbnail(
   backgroundImageUrl: string | null | undefined,
   thumbnailUrl: string | null | undefined,
-  itemsSnapshot: any[]
+  itemsSnapshot: any[],
 ): string | null {
   if (thumbnailUrl) return thumbnailUrl;
   if (backgroundImageUrl) return backgroundImageUrl;
 
   for (const item of itemsSnapshot) {
-    if (item?.element_type === "image" && item?.content?.url) return String(item.content.url);
-    if (item?.element_type === "product" && item?.product_image) return String(item.product_image);
+    if (item?.element_type === "image" && item?.content?.url)
+      return String(item.content.url);
+    if (item?.element_type === "product" && item?.product_image)
+      return String(item.product_image);
   }
 
   return null;
 }
 
-async function assertOwnership(collectionId: number, sellerId: number): Promise<boolean> {
+async function assertOwnership(
+  collectionId: number,
+  sellerId: number,
+): Promise<boolean> {
   const rows = await sequelize.query<{ id: number }>(
     `
     SELECT id
@@ -149,13 +156,16 @@ async function assertOwnership(collectionId: number, sellerId: number): Promise<
     {
       replacements: { collectionId, sellerId },
       type: QueryTypes.SELECT,
-    }
+    },
   );
 
   return rows.length > 0;
 }
 
-async function getCollectionRowForSeller(collectionId: number, sellerId: number): Promise<CollectionRow | null> {
+async function getCollectionRowForSeller(
+  collectionId: number,
+  sellerId: number,
+): Promise<CollectionRow | null> {
   const rows = await sequelize.query<CollectionRow>(
     `
     SELECT
@@ -180,13 +190,16 @@ async function getCollectionRowForSeller(collectionId: number, sellerId: number)
     {
       replacements: { collectionId, sellerId },
       type: QueryTypes.SELECT,
-    }
+    },
   );
 
   return rows[0] ?? null;
 }
 
-async function getCollectionProducts(collectionId: number, sellerId?: number): Promise<CollectionProductRow[]> {
+async function getCollectionProducts(
+  collectionId: number,
+  sellerId?: number,
+): Promise<CollectionProductRow[]> {
   const rows = await sequelize.query<CollectionProductRow>(
     `
     SELECT
@@ -209,7 +222,7 @@ async function getCollectionProducts(collectionId: number, sellerId?: number): P
     {
       replacements: sellerId ? { collectionId, sellerId } : { collectionId },
       type: QueryTypes.SELECT,
-    }
+    },
   );
 
   const seen = new Set<string>();
@@ -221,7 +234,10 @@ async function getCollectionProducts(collectionId: number, sellerId?: number): P
   });
 }
 
-async function getCollectionCanvasItems(collectionId: number, sellerId: number): Promise<CollectionCanvasItemRow[]> {
+async function getCollectionCanvasItems(
+  collectionId: number,
+  sellerId: number,
+): Promise<CollectionCanvasItemRow[]> {
   return sequelize.query<CollectionCanvasItemRow>(
     `
     SELECT
@@ -247,14 +263,14 @@ async function getCollectionCanvasItems(collectionId: number, sellerId: number):
     {
       replacements: { collectionId, sellerId },
       type: QueryTypes.SELECT,
-    }
+    },
   );
 }
 
 function buildCollectionPayload(
   collection: CollectionRow,
   products: CollectionProductRow[],
-  canvasItems?: CollectionCanvasItemRow[]
+  canvasItems?: CollectionCanvasItemRow[],
 ) {
   const productItems = products.map((product, index) => ({
     id: product.item_id,
@@ -298,7 +314,10 @@ function buildCollectionPayload(
   };
 }
 
-async function validateSellerProducts(productIds: string[], sellerId: number): Promise<string[]> {
+async function validateSellerProducts(
+  productIds: string[],
+  sellerId: number,
+): Promise<string[]> {
   if (!productIds.length) return [];
 
   const rows = await sequelize.query<{ id: string }>(
@@ -312,14 +331,18 @@ async function validateSellerProducts(productIds: string[], sellerId: number): P
     {
       replacements: { sellerId, productIds },
       type: QueryTypes.SELECT,
-    }
+    },
   );
 
   const valid = new Set(rows.map((row) => String(row.id)));
   return productIds.filter((productId) => valid.has(productId));
 }
 
-async function replaceCollectionProducts(collectionId: number, sellerId: number, productIds: string[]): Promise<void> {
+async function replaceCollectionProducts(
+  collectionId: number,
+  sellerId: number,
+  productIds: string[],
+): Promise<void> {
   // Only keep products that belong to this seller and are active — skip the rest silently
   const validProductIds = await validateSellerProducts(productIds, sellerId);
 
@@ -340,7 +363,7 @@ async function replaceCollectionProducts(collectionId: number, sellerId: number,
         replacements: { collectionId },
         type: QueryTypes.DELETE,
         transaction,
-      }
+      },
     );
 
     for (const [index, productId] of validProductIds.entries()) {
@@ -360,7 +383,7 @@ async function replaceCollectionProducts(collectionId: number, sellerId: number,
           },
           type: QueryTypes.INSERT,
           transaction,
-        }
+        },
       );
     }
 
@@ -373,7 +396,7 @@ async function replaceCollectionProducts(collectionId: number, sellerId: number,
 
 async function getPublishedCollectionsByQuery(
   replacements: Record<string, unknown>,
-  whereClause: string
+  whereClause: string,
 ): Promise<Array<ReturnType<typeof buildCollectionPayload>>> {
   const collections = await sequelize.query<CollectionRow>(
     `
@@ -399,7 +422,7 @@ async function getPublishedCollectionsByQuery(
     {
       replacements,
       type: QueryTypes.SELECT,
-    }
+    },
   );
 
   const payloads = await Promise.all(
@@ -409,13 +432,16 @@ async function getPublishedCollectionsByQuery(
         getCollectionCanvasItems(collection.id, collection.seller_id),
       ]);
       return buildCollectionPayload(collection, products, canvasItems);
-    })
+    }),
   );
 
   return payloads;
 }
 
-export const getMyCollections: RequestHandler = async (req, res): Promise<void> => {
+export const getMyCollections: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const user = getUser(req);
     if (!user) {
@@ -446,7 +472,7 @@ export const getMyCollections: RequestHandler = async (req, res): Promise<void> 
       {
         replacements: { sellerId: user.id },
         type: QueryTypes.SELECT,
-      }
+      },
     );
 
     const data = await Promise.all(
@@ -456,7 +482,7 @@ export const getMyCollections: RequestHandler = async (req, res): Promise<void> 
           getCollectionCanvasItems(collection.id, user.id),
         ]);
         return buildCollectionPayload(collection, products, canvasItems);
-      })
+      }),
     );
 
     res.json({ ok: true, data });
@@ -466,7 +492,10 @@ export const getMyCollections: RequestHandler = async (req, res): Promise<void> 
   }
 };
 
-export const getCollectionById: RequestHandler = async (req, res): Promise<void> => {
+export const getCollectionById: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const user = getUser(req);
     if (!user) {
@@ -490,14 +519,20 @@ export const getCollectionById: RequestHandler = async (req, res): Promise<void>
       getCollectionProducts(collectionId, user.id),
       getCollectionCanvasItems(collectionId, user.id),
     ]);
-    res.json({ ok: true, data: buildCollectionPayload(collection, products, canvasItems) });
+    res.json({
+      ok: true,
+      data: buildCollectionPayload(collection, products, canvasItems),
+    });
   } catch (error) {
     console.error("[collections] getCollectionById:", error);
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-export const createCollection: RequestHandler = async (req, res): Promise<void> => {
+export const createCollection: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const user = getUser(req);
     if (!user) {
@@ -534,7 +569,7 @@ export const createCollection: RequestHandler = async (req, res): Promise<void> 
           publicId: generatePublicId(),
         },
         type: QueryTypes.SELECT,
-      }
+      },
     );
 
     const collectionId = rows[0]?.id;
@@ -547,14 +582,22 @@ export const createCollection: RequestHandler = async (req, res): Promise<void> 
   } catch (error) {
     console.error("[collections] createCollection:", error);
     if ((error as { statusCode?: number }).statusCode === 400) {
-      res.status(400).json({ ok: false, message: "Uno o más productos no son válidos para esta colección" });
+      res
+        .status(400)
+        .json({
+          ok: false,
+          message: "Uno o más productos no son válidos para esta colección",
+        });
       return;
     }
     res.status(500).json({ ok: false, message: "Error del servidor" });
   }
 };
 
-export const updateCollection: RequestHandler = async (req, res): Promise<void> => {
+export const updateCollection: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const user = getUser(req);
     if (!user) {
@@ -573,28 +616,54 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
     const name = Object.prototype.hasOwnProperty.call(body, "name")
       ? normalizeText(body.name, 120)
       : undefined;
-    const description = Object.prototype.hasOwnProperty.call(body, "description")
+    const description = Object.prototype.hasOwnProperty.call(
+      body,
+      "description",
+    )
       ? normalizeDescription(body.description)
       : undefined;
     const promoImageUrl = normalizePromoImageUrl(body);
 
-    const hasBgColor = Object.prototype.hasOwnProperty.call(body, "background_color");
-    const backgroundColor = hasBgColor && typeof body.background_color === "string" && body.background_color.trim()
-      ? body.background_color.trim().slice(0, 50)
-      : null;
+    const hasBgColor = Object.prototype.hasOwnProperty.call(
+      body,
+      "background_color",
+    );
+    const backgroundColor =
+      hasBgColor &&
+      typeof body.background_color === "string" &&
+      body.background_color.trim()
+        ? body.background_color.trim().slice(0, 50)
+        : null;
 
-    const hasBgStyle = Object.prototype.hasOwnProperty.call(body, "background_style");
+    const hasBgStyle = Object.prototype.hasOwnProperty.call(
+      body,
+      "background_style",
+    );
     const backgroundStyle = hasBgStyle
-      ? (body.background_style == null ? null : typeof body.background_style === "string" ? body.background_style.trim().slice(0, 500) : null)
+      ? body.background_style == null
+        ? null
+        : typeof body.background_style === "string"
+          ? body.background_style.trim().slice(0, 500)
+          : null
       : null;
 
-    const hasCanvasWidth = Object.prototype.hasOwnProperty.call(body, "canvas_width")
-      && typeof body.canvas_width === "number" && body.canvas_width >= 300 && body.canvas_width <= 3000;
-    const canvasWidth = hasCanvasWidth ? Math.round(body.canvas_width as number) : null;
+    const hasCanvasWidth =
+      Object.prototype.hasOwnProperty.call(body, "canvas_width") &&
+      typeof body.canvas_width === "number" &&
+      body.canvas_width >= 300 &&
+      body.canvas_width <= 3000;
+    const canvasWidth = hasCanvasWidth
+      ? Math.round(body.canvas_width as number)
+      : null;
 
-    const hasCanvasHeight = Object.prototype.hasOwnProperty.call(body, "canvas_height")
-      && typeof body.canvas_height === "number" && body.canvas_height >= 200 && body.canvas_height <= 3000;
-    const canvasHeight = hasCanvasHeight ? Math.round(body.canvas_height as number) : null;
+    const hasCanvasHeight =
+      Object.prototype.hasOwnProperty.call(body, "canvas_height") &&
+      typeof body.canvas_height === "number" &&
+      body.canvas_height >= 200 &&
+      body.canvas_height <= 3000;
+    const canvasHeight = hasCanvasHeight
+      ? Math.round(body.canvas_height as number)
+      : null;
 
     if (Object.prototype.hasOwnProperty.call(body, "name") && !name) {
       res.status(400).json({ ok: false, message: "El nombre es requerido" });
@@ -621,7 +690,10 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
           collectionId,
           hasName: Object.prototype.hasOwnProperty.call(body, "name"),
           name: name ?? null,
-          hasDescription: Object.prototype.hasOwnProperty.call(body, "description"),
+          hasDescription: Object.prototype.hasOwnProperty.call(
+            body,
+            "description",
+          ),
           description: description ?? null,
           hasPromoImage: promoImageUrl !== undefined,
           promoImageUrl: promoImageUrl ?? null,
@@ -635,11 +707,15 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
           canvasHeight,
         },
         type: QueryTypes.UPDATE,
-      }
+      },
     );
 
     if (Object.prototype.hasOwnProperty.call(body, "product_ids")) {
-      await replaceCollectionProducts(collectionId, user.id, normalizeProductIds(body.product_ids));
+      await replaceCollectionProducts(
+        collectionId,
+        user.id,
+        normalizeProductIds(body.product_ids),
+      );
     }
 
     res.json({ ok: true });
@@ -649,7 +725,10 @@ export const updateCollection: RequestHandler = async (req, res): Promise<void> 
   }
 };
 
-export const setCollectionProducts: RequestHandler = async (req, res): Promise<void> => {
+export const setCollectionProducts: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const user = getUser(req);
     if (!user) {
@@ -674,7 +753,10 @@ export const setCollectionProducts: RequestHandler = async (req, res): Promise<v
   }
 };
 
-export const getPublicCollectionTemplates: RequestHandler = async (_req, res): Promise<void> => {
+export const getPublicCollectionTemplates: RequestHandler = async (
+  _req,
+  res,
+): Promise<void> => {
   try {
     const templates = await sequelize.query(
       `
@@ -699,9 +781,11 @@ export const getPublicCollectionTemplates: RequestHandler = async (_req, res): P
       ORDER BY created_at DESC
       `,
       {
-        replacements: { curatedSystemTemplateNames: [...CURATED_SYSTEM_TEMPLATE_NAMES] },
+        replacements: {
+          curatedSystemTemplateNames: [...CURATED_SYSTEM_TEMPLATE_NAMES],
+        },
         type: QueryTypes.SELECT,
-      }
+      },
     );
 
     res.json({ ok: true, data: templates });
@@ -711,7 +795,10 @@ export const getPublicCollectionTemplates: RequestHandler = async (_req, res): P
   }
 };
 
-export const getMyCollectionTemplates: RequestHandler = async (req, res): Promise<void> => {
+export const getMyCollectionTemplates: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const user = getUser(req);
     if (!user) {
@@ -748,9 +835,12 @@ export const getMyCollectionTemplates: RequestHandler = async (req, res): Promis
         created_at DESC
       `,
       {
-        replacements: { sellerId: user.id, curatedSystemTemplateNames: [...CURATED_SYSTEM_TEMPLATE_NAMES] },
+        replacements: {
+          sellerId: user.id,
+          curatedSystemTemplateNames: [...CURATED_SYSTEM_TEMPLATE_NAMES],
+        },
         type: QueryTypes.SELECT,
-      }
+      },
     );
 
     res.json({ ok: true, data: templates });
@@ -760,7 +850,10 @@ export const getMyCollectionTemplates: RequestHandler = async (req, res): Promis
   }
 };
 
-export const getCollectionTemplateById: RequestHandler = async (req, res): Promise<void> => {
+export const getCollectionTemplateById: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const user = getUser(req);
     if (!user) {
@@ -805,7 +898,7 @@ export const getCollectionTemplateById: RequestHandler = async (req, res): Promi
           curatedSystemTemplateNames: [...CURATED_SYSTEM_TEMPLATE_NAMES],
         },
         type: QueryTypes.SELECT,
-      }
+      },
     );
 
     const template = rows[0];
@@ -821,7 +914,10 @@ export const getCollectionTemplateById: RequestHandler = async (req, res): Promi
   }
 };
 
-export const saveCollectionAsTemplate: RequestHandler = async (req, res): Promise<void> => {
+export const saveCollectionAsTemplate: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const user = getUser(req);
     if (!user) {
@@ -849,16 +945,24 @@ export const saveCollectionAsTemplate: RequestHandler = async (req, res): Promis
     } = req.body ?? {};
 
     if (!name || typeof name !== "string" || !name.trim()) {
-      res.status(400).json({ ok: false, message: "El nombre de la plantilla es requerido" });
+      res
+        .status(400)
+        .json({ ok: false, message: "El nombre de la plantilla es requerido" });
       return;
     }
 
     if (!Array.isArray(items_snapshot)) {
-      res.status(400).json({ ok: false, message: "items_snapshot debe ser un arreglo" });
+      res
+        .status(400)
+        .json({ ok: false, message: "items_snapshot debe ser un arreglo" });
       return;
     }
 
-    const finalThumbnail = deriveTemplateThumbnail(background_image_url, thumbnail_url, items_snapshot);
+    const finalThumbnail = deriveTemplateThumbnail(
+      background_image_url,
+      thumbnail_url,
+      items_snapshot,
+    );
 
     const rows = await sequelize.query<{ id: number }>(
       `
@@ -882,7 +986,7 @@ export const saveCollectionAsTemplate: RequestHandler = async (req, res): Promis
           isPublic: Boolean(is_public),
         },
         type: QueryTypes.SELECT,
-      }
+      },
     );
 
     res.status(201).json({ ok: true, data: { id: rows[0]?.id } });
@@ -892,7 +996,10 @@ export const saveCollectionAsTemplate: RequestHandler = async (req, res): Promis
   }
 };
 
-export const applyCollectionTemplate: RequestHandler = async (req, res): Promise<void> => {
+export const applyCollectionTemplate: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -953,7 +1060,7 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
         },
         type: QueryTypes.SELECT,
         transaction,
-      }
+      },
     );
 
     const template = templateRows[0];
@@ -963,7 +1070,9 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
       return;
     }
 
-    const itemsSnapshot = Array.isArray(template.items_snapshot) ? template.items_snapshot : [];
+    const itemsSnapshot = Array.isArray(template.items_snapshot)
+      ? template.items_snapshot
+      : [];
     const productIds = itemsSnapshot
       .filter((item) => item?.element_type === "product" && item?.product_id)
       .map((item) => String(item.product_id));
@@ -982,7 +1091,7 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
           replacements: { sellerId: user.id, productIds },
           type: QueryTypes.SELECT,
           transaction,
-        }
+        },
       );
       validProductIds = new Set(rows.map((row) => String(row.id)));
     }
@@ -1000,7 +1109,7 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
         replacements: { sellerId: user.id },
         type: QueryTypes.SELECT,
         transaction,
-      }
+      },
     );
 
     const fallbackProductIds = allSellerProducts.map((row) => String(row.id));
@@ -1028,7 +1137,7 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
         },
         type: QueryTypes.UPDATE,
         transaction,
-      }
+      },
     );
 
     await sequelize.query(
@@ -1037,7 +1146,7 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
         replacements: { collectionId },
         type: QueryTypes.DELETE,
         transaction,
-      }
+      },
     );
 
     let insertedCount = 0;
@@ -1046,12 +1155,15 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
     for (const rawItem of itemsSnapshot) {
       const elementType = rawItem?.element_type ?? "product";
       const isProduct = elementType === "product";
-      const requestedProductId = rawItem?.product_id ? String(rawItem.product_id) : null;
+      const requestedProductId = rawItem?.product_id
+        ? String(rawItem.product_id)
+        : null;
       let productId = requestedProductId;
 
       if (isProduct) {
         if (!productId || !validProductIds.has(productId)) {
-          const fallbackProductId = fallbackProductIds[fallbackProductIndex] ?? null;
+          const fallbackProductId =
+            fallbackProductIds[fallbackProductIndex] ?? null;
           if (fallbackProductId) {
             productId = fallbackProductId;
             fallbackProductIndex += 1;
@@ -1083,7 +1195,7 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
           },
           type: QueryTypes.INSERT,
           transaction,
-        }
+        },
       );
       insertedCount += 1;
     }
@@ -1108,7 +1220,10 @@ export const applyCollectionTemplate: RequestHandler = async (req, res): Promise
   }
 };
 
-export const togglePublish: RequestHandler = async (req, res): Promise<void> => {
+export const togglePublish: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const user = getUser(req);
     if (!user) {
@@ -1135,7 +1250,7 @@ export const togglePublish: RequestHandler = async (req, res): Promise<void> => 
       {
         replacements: { collectionId },
         type: QueryTypes.SELECT,
-      }
+      },
     );
 
     res.json({ ok: true, data: { status: rows[0]?.status ?? "draft" } });
@@ -1145,7 +1260,10 @@ export const togglePublish: RequestHandler = async (req, res): Promise<void> => 
   }
 };
 
-export const deleteCollection: RequestHandler = async (req, res): Promise<void> => {
+export const deleteCollection: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const user = getUser(req);
     if (!user) {
@@ -1160,13 +1278,10 @@ export const deleteCollection: RequestHandler = async (req, res): Promise<void> 
       return;
     }
 
-    await sequelize.query(
-      `DELETE FROM collections WHERE id = :collectionId`,
-      {
-        replacements: { collectionId },
-        type: QueryTypes.DELETE,
-      }
-    );
+    await sequelize.query(`DELETE FROM collections WHERE id = :collectionId`, {
+      replacements: { collectionId },
+      type: QueryTypes.DELETE,
+    });
 
     res.json({ ok: true });
   } catch (error) {
@@ -1201,14 +1316,22 @@ export const addItem: RequestHandler = async (req, res): Promise<void> => {
     let productId: string | null = null;
 
     if (elementType === "product") {
-      const rawId = typeof req.body?.product_id === "string" ? req.body.product_id.trim() : "";
+      const rawId =
+        typeof req.body?.product_id === "string"
+          ? req.body.product_id.trim()
+          : "";
       if (!rawId) {
         res.status(400).json({ ok: false, message: "product_id es requerido" });
         return;
       }
       const validProducts = await validateSellerProducts([rawId], user.id);
       if (!validProducts.length) {
-        res.status(400).json({ ok: false, message: "Producto no válido para esta colección" });
+        res
+          .status(400)
+          .json({
+            ok: false,
+            message: "Producto no válido para esta colección",
+          });
         return;
       }
       productId = rawId;
@@ -1238,7 +1361,7 @@ export const addItem: RequestHandler = async (req, res): Promise<void> => {
           zIndex,
         },
         type: QueryTypes.SELECT,
-      }
+      },
     );
 
     res.status(201).json({ ok: true, data: { id: rows[0]?.id } });
@@ -1264,18 +1387,32 @@ export const updateItem: RequestHandler = async (req, res): Promise<void> => {
       return;
     }
 
-    const productId = typeof req.body?.product_id === "string" ? req.body.product_id.trim() : undefined;
-    const content = req.body?.content !== undefined ? req.body.content : undefined;
-    const posX = req.body?.pos_x !== undefined ? Number(req.body.pos_x) : undefined;
-    const posY = req.body?.pos_y !== undefined ? Number(req.body.pos_y) : undefined;
-    const width = req.body?.width !== undefined ? Number(req.body.width) : undefined;
-    const height = req.body?.height !== undefined ? Number(req.body.height) : undefined;
-    const zIndex = req.body?.z_index !== undefined ? Number(req.body.z_index) : undefined;
+    const productId =
+      typeof req.body?.product_id === "string"
+        ? req.body.product_id.trim()
+        : undefined;
+    const content =
+      req.body?.content !== undefined ? req.body.content : undefined;
+    const posX =
+      req.body?.pos_x !== undefined ? Number(req.body.pos_x) : undefined;
+    const posY =
+      req.body?.pos_y !== undefined ? Number(req.body.pos_y) : undefined;
+    const width =
+      req.body?.width !== undefined ? Number(req.body.width) : undefined;
+    const height =
+      req.body?.height !== undefined ? Number(req.body.height) : undefined;
+    const zIndex =
+      req.body?.z_index !== undefined ? Number(req.body.z_index) : undefined;
 
     if (productId) {
       const validProducts = await validateSellerProducts([productId], user.id);
       if (!validProducts.length) {
-        res.status(400).json({ ok: false, message: "Producto no válido para esta colección" });
+        res
+          .status(400)
+          .json({
+            ok: false,
+            message: "Producto no válido para esta colección",
+          });
         return;
       }
     }
@@ -1313,7 +1450,7 @@ export const updateItem: RequestHandler = async (req, res): Promise<void> => {
           zIndex: zIndex ?? 0,
         },
         type: QueryTypes.UPDATE,
-      }
+      },
     );
 
     res.json({ ok: true });
@@ -1348,7 +1485,7 @@ export const removeItem: RequestHandler = async (req, res): Promise<void> => {
       {
         replacements: { itemId, collectionId },
         type: QueryTypes.DELETE,
-      }
+      },
     );
 
     res.json({ ok: true });
@@ -1358,7 +1495,10 @@ export const removeItem: RequestHandler = async (req, res): Promise<void> => {
   }
 };
 
-export const uploadCollectionImage: RequestHandler = async (req, res): Promise<void> => {
+export const uploadCollectionImage: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const user = getUser(req);
     if (!user) {
@@ -1375,13 +1515,26 @@ export const uploadCollectionImage: RequestHandler = async (req, res): Promise<v
 
     const file = (req as { file?: Express.Multer.File }).file;
     if (!file) {
-      res.status(400).json({ ok: false, message: "No se recibió ninguna imagen" });
+      res
+        .status(400)
+        .json({ ok: false, message: "No se recibió ninguna imagen" });
       return;
     }
 
-    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];
+    const allowed = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+    ];
     if (!allowed.includes(file.mimetype)) {
-      res.status(400).json({ ok: false, message: "Formato no permitido (jpg, png, webp, gif)" });
+      res
+        .status(400)
+        .json({
+          ok: false,
+          message: "Formato no permitido (jpg, png, webp, gif)",
+        });
       return;
     }
 
@@ -1396,7 +1549,9 @@ export const uploadCollectionImage: RequestHandler = async (req, res): Promise<v
       throw uploadError;
     }
 
-    const { data } = supabase.storage.from("colecciones_imagenes").getPublicUrl(fileName);
+    const { data } = supabase.storage
+      .from("colecciones_imagenes")
+      .getPublicUrl(fileName);
 
     await sequelize.query(
       `
@@ -1413,17 +1568,22 @@ export const uploadCollectionImage: RequestHandler = async (req, res): Promise<v
           promoImageUrl: data.publicUrl,
         },
         type: QueryTypes.UPDATE,
-      }
+      },
     );
 
-    res.status(201).json({ ok: true, url: data.publicUrl, promo_image_url: data.publicUrl });
+    res
+      .status(201)
+      .json({ ok: true, url: data.publicUrl, promo_image_url: data.publicUrl });
   } catch (error) {
     console.error("[collections] uploadCollectionImage:", error);
     res.status(500).json({ ok: false, message: "Error al subir imagen" });
   }
 };
 
-export const getPublicCollectionsBySellerId: RequestHandler = async (req, res): Promise<void> => {
+export const getPublicCollectionsBySellerId: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const sellerId = Number(req.params.sellerId);
     if (!sellerId || Number.isNaN(sellerId)) {
@@ -1433,7 +1593,7 @@ export const getPublicCollectionsBySellerId: RequestHandler = async (req, res): 
 
     const data = await getPublishedCollectionsByQuery(
       { sellerId },
-      `WHERE c.seller_id = :sellerId AND c.status = 'published'`
+      `WHERE c.seller_id = :sellerId AND c.status = 'published'`,
     );
 
     res.json({ ok: true, data });
@@ -1443,7 +1603,10 @@ export const getPublicCollectionsBySellerId: RequestHandler = async (req, res): 
   }
 };
 
-export const getPublicCollections: RequestHandler = async (req, res): Promise<void> => {
+export const getPublicCollections: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const { slug } = req.params;
 
@@ -1453,7 +1616,7 @@ export const getPublicCollections: RequestHandler = async (req, res): Promise<vo
       JOIN vendedor_perfil vp ON vp.user_id = c.seller_id
       WHERE vp.slug = :slug
         AND c.status = 'published'
-      `
+      `,
     );
 
     res.json({ ok: true, data });
@@ -1463,16 +1626,21 @@ export const getPublicCollections: RequestHandler = async (req, res): Promise<vo
   }
 };
 
-export const getPublicCollectionByPublicId: RequestHandler = async (req, res): Promise<void> => {
+export const getPublicCollectionByPublicId: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   try {
     const { publicId } = req.params;
 
-    const rows = await sequelize.query<CollectionRow & {
-      seller_nombre_comercio: string;
-      seller_logo_url: string | null;
-      seller_user_id: number;
-      seller_whatsapp: string | null;
-    }>(
+    const rows = await sequelize.query<
+      CollectionRow & {
+        seller_nombre_comercio: string;
+        seller_logo_url: string | null;
+        seller_user_id: number;
+        seller_whatsapp: string | null;
+      }
+    >(
       `
       SELECT
         c.id,
@@ -1499,7 +1667,7 @@ export const getPublicCollectionByPublicId: RequestHandler = async (req, res): P
         AND c.status = 'published'
       LIMIT 1
       `,
-      { replacements: { publicId }, type: QueryTypes.SELECT }
+      { replacements: { publicId }, type: QueryTypes.SELECT },
     );
 
     const row = rows[0];
@@ -1535,7 +1703,10 @@ export const getPublicCollectionByPublicId: RequestHandler = async (req, res): P
 
 // ─── AI canvas generation ─────────────────────────────────────────────────────
 
-export const generateCanvasWithAi: RequestHandler = async (req, res): Promise<void> => {
+export const generateCanvasWithAi: RequestHandler = async (
+  req,
+  res,
+): Promise<void> => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1554,29 +1725,55 @@ export const generateCanvasWithAi: RequestHandler = async (req, res): Promise<vo
       return;
     }
 
-    const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+    const prompt =
+      typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
     if (!prompt) {
       await transaction.rollback();
       res.status(400).json({ ok: false, message: "Prompt requerido" });
       return;
     }
 
-    const title   = typeof req.body?.title   === "string" ? req.body.title.trim()   : collection.name ?? "Mi colección";
-    const tagline = typeof req.body?.tagline  === "string" ? req.body.tagline.trim() : undefined;
-    const cta     = typeof req.body?.cta      === "string" ? req.body.cta.trim()     : undefined;
+    const title =
+      typeof req.body?.title === "string"
+        ? req.body.title.trim()
+        : (collection.name ?? "Mi colección");
+    const tagline =
+      typeof req.body?.tagline === "string"
+        ? req.body.tagline.trim()
+        : undefined;
+    const cta =
+      typeof req.body?.cta === "string" ? req.body.cta.trim() : undefined;
 
-    const VALID_STYLES   = ["minimal", "bold", "editorial", "playful", "luxury", "artisanal"];
+    const VALID_STYLES = [
+      "minimal",
+      "bold",
+      "editorial",
+      "playful",
+      "luxury",
+      "artisanal",
+    ];
     const VALID_PALETTES = ["auto", "neutral", "earth", "dark", "vibrant"];
-    const VALID_LAYOUTS  = ["hero", "grid", "asymmetric", "collage"];
+    const VALID_LAYOUTS = ["hero", "grid", "asymmetric", "collage"];
 
-    const style   = VALID_STYLES.includes(req.body?.style)     ? req.body.style     : "minimal";
-    const palette = VALID_PALETTES.includes(req.body?.palette)  ? req.body.palette   : "auto";
-    const layout  = VALID_LAYOUTS.includes(req.body?.layout)    ? req.body.layout    : "hero";
+    const style = VALID_STYLES.includes(req.body?.style)
+      ? req.body.style
+      : "minimal";
+    const palette = VALID_PALETTES.includes(req.body?.palette)
+      ? req.body.palette
+      : "auto";
+    const layout = VALID_LAYOUTS.includes(req.body?.layout)
+      ? req.body.layout
+      : "hero";
 
-    const productCount = Math.min(6, Math.max(1, Number(req.body?.product_count) || 3));
+    const productCount = Math.min(
+      6,
+      Math.max(1, Number(req.body?.product_count) || 3),
+    );
 
     // Selected product IDs from the frontend (optional filter)
-    const selectedIds: string[] | null = Array.isArray(req.body?.selected_product_ids)
+    const selectedIds: string[] | null = Array.isArray(
+      req.body?.selected_product_ids,
+    )
       ? (req.body.selected_product_ids as unknown[]).map(String)
       : null;
 
@@ -1585,32 +1782,50 @@ export const generateCanvasWithAi: RequestHandler = async (req, res): Promise<vo
     // Fetch seller name
     const sellerRows = await sequelize.query<{ nombre_comercio: string }>(
       `SELECT nombre_comercio FROM vendedor_perfil WHERE user_id = :userId LIMIT 1`,
-      { replacements: { userId: user.id }, type: QueryTypes.SELECT }
+      { replacements: { userId: user.id }, type: QueryTypes.SELECT },
     );
     const sellerName = sellerRows[0]?.nombre_comercio ?? "Mi tienda";
 
     // Fetch seller's active products — filter to selected if provided, else up to 20
     const productRows = await sequelize.query<{
-      id: string; nombre: string; precio: string | number; imagen_url: string | null;
+      id: string;
+      nombre: string;
+      precio: string | number;
+      imagen_url: string | null;
     }>(
       `SELECT id, nombre, precio, imagen_url FROM productos WHERE vendedor_id = :sellerId AND activo = true ORDER BY created_at DESC LIMIT 20`,
-      { replacements: { sellerId: user.id }, type: QueryTypes.SELECT }
+      { replacements: { sellerId: user.id }, type: QueryTypes.SELECT },
     );
 
     // Apply selection filter from frontend (if provided)
-    const filteredProducts = selectedIds && selectedIds.length > 0
-      ? productRows.filter((p) => selectedIds.includes(String(p.id)))
-      : productRows;
+    const filteredProducts =
+      selectedIds && selectedIds.length > 0
+        ? productRows.filter((p) => selectedIds.includes(String(p.id)))
+        : productRows;
 
     const aiProducts = filteredProducts.map((p) => ({
-      id: p.id, nombre: p.nombre, precio: p.precio, imagen_url: p.imagen_url,
+      id: p.id,
+      nombre: p.nombre,
+      precio: p.precio,
+      imagen_url: p.imagen_url,
     }));
 
     // Deduct AI credits before calling the AI (optimistic deduction, refund on failure)
+    const aiCreditOperation = generateBgImage
+      ? "canvas_ai_with_image"
+      : "canvas_ai";
     let creditTxId: string | null = null;
+    let creditsUsed = 0;
     try {
-      const { txId } = await deductAiCredits(user.id, "canvas_ai", "collection", String(collectionId));
+      const result = await deductAiCredits(
+        user.id,
+        aiCreditOperation,
+        "collection",
+        String(collectionId),
+      );
+      const { txId } = result;
       creditTxId = txId;
+      creditsUsed = result.creditsUsed;
     } catch (err) {
       await transaction.rollback();
       if (err instanceof InsufficientAiCreditsError) {
@@ -1648,18 +1863,35 @@ export const generateCanvasWithAi: RequestHandler = async (req, res): Promise<vo
       await transaction.rollback();
       // Refund credits — the AI never ran or returned an error
       if (creditTxId) {
-        await refundAiCredits(user.id, 8, "Reembolso por fallo en generación de canvas IA", "collection", String(collectionId)).catch(() => {});
+        await refundAiCredits(
+          user.id,
+          creditsUsed,
+          "Reembolso por fallo en generación de canvas IA",
+          "collection",
+          String(collectionId),
+        ).catch(() => {});
       }
       console.error("[collections] AI generation failed:", err);
-      res.status(502).json({ ok: false, message: "Error al generar el diseño con IA. Intenta de nuevo." });
+      res
+        .status(502)
+        .json({
+          ok: false,
+          message: "Error al generar el diseño con IA. Intenta de nuevo.",
+        });
       return;
     }
 
     // Upload background image to Supabase if generated
     let backgroundImageUrl: string | null = collection.background_image_url;
-    if (aiResult.background_image_base64 && aiResult.background_image_content_type) {
+    if (
+      aiResult.background_image_base64 &&
+      aiResult.background_image_content_type
+    ) {
       try {
-        const imageBuffer = Buffer.from(aiResult.background_image_base64, "base64");
+        const imageBuffer = Buffer.from(
+          aiResult.background_image_base64,
+          "base64",
+        );
         const fileName = `ai-bg-${collectionId}-${Date.now()}.png`;
         const { error: uploadError } = await supabase.storage
           .from("collection-images")
@@ -1668,11 +1900,16 @@ export const generateCanvasWithAi: RequestHandler = async (req, res): Promise<vo
             upsert: true,
           });
         if (!uploadError) {
-          const { data: urlData } = supabase.storage.from("collection-images").getPublicUrl(fileName);
+          const { data: urlData } = supabase.storage
+            .from("collection-images")
+            .getPublicUrl(fileName);
           backgroundImageUrl = urlData?.publicUrl ?? null;
         }
       } catch (err) {
-        console.error("[collections] background image upload failed (non-fatal):", err);
+        console.error(
+          "[collections] background image upload failed (non-fatal):",
+          err,
+        );
         // Non-fatal: continue without background image
       }
     }
@@ -1692,20 +1929,24 @@ export const generateCanvasWithAi: RequestHandler = async (req, res): Promise<vo
         },
         type: QueryTypes.UPDATE,
         transaction,
-      }
+      },
     );
 
     await sequelize.query(
       `DELETE FROM collection_items WHERE collection_id = :collectionId`,
-      { replacements: { collectionId }, type: QueryTypes.DELETE, transaction }
+      { replacements: { collectionId }, type: QueryTypes.DELETE, transaction },
     );
 
-    const insertedItems: Array<{ id: number } & typeof aiResult.items[0]> = [];
+    const insertedItems: Array<{ id: number } & (typeof aiResult.items)[0]> =
+      [];
 
     for (const item of aiResult.items) {
-      const productId = item.element_type === "product" && item.product_id && validProductIds.has(item.product_id)
-        ? item.product_id
-        : null;
+      const productId =
+        item.element_type === "product" &&
+        item.product_id &&
+        validProductIds.has(item.product_id)
+          ? item.product_id
+          : null;
 
       if (item.element_type === "product" && !productId) continue; // skip invalid product refs
 
@@ -1727,7 +1968,7 @@ export const generateCanvasWithAi: RequestHandler = async (req, res): Promise<vo
           },
           type: QueryTypes.SELECT,
           transaction,
-        }
+        },
       );
 
       if (rows[0]?.id) {
@@ -1751,7 +1992,7 @@ export const generateCanvasWithAi: RequestHandler = async (req, res): Promise<vo
         width: item.width,
         height: item.height,
         z_index: item.z_index,
-        product_name:  product?.nombre  ?? null,
+        product_name: product?.nombre ?? null,
         product_image: product?.imagen_url ?? null,
         product_price: product?.precio ?? null,
       };

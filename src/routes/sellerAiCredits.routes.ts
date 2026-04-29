@@ -11,7 +11,9 @@ import {
   getAiCreditPackages,
   getSellerAiCreditTransactions,
   createAiCreditCheckout,
+  captureAiCreditCheckout,
   aiCreditCheckoutRateLimiter,
+  getAiCreditPaymentOptions,
   requestAiCreditPurchase,
   listSellerAiCreditPurchaseRequests,
 } from "../controllers/sellerAiCredits.controller";
@@ -39,12 +41,27 @@ router.get(
   asyncHandler(getSellerAiCreditTransactions),
 );
 
+// GET  /api/seller/ai-credits/payment-options -> configured payment providers
+router.get(
+  "/payment-options",
+  verifyToken(["seller"]),
+  asyncHandler(getAiCreditPaymentOptions),
+);
+
 // POST /api/seller/ai-credits/checkout       -> hosted checkout for AI credits
 router.post(
   "/checkout",
   verifyToken(["seller"]),
   aiCreditCheckoutRateLimiter,
   asyncHandler(createAiCreditCheckout),
+);
+
+// POST /api/seller/ai-credits/capture        -> capture PayPal checkout
+router.post(
+  "/capture",
+  verifyToken(["seller"]),
+  aiCreditCheckoutRateLimiter,
+  asyncHandler(captureAiCreditCheckout),
 );
 
 // GET  /api/seller/ai-credits/purchase-requests → own request history

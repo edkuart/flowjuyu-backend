@@ -74,7 +74,7 @@ VideoCreditTransaction.init(
     provider: {
       type: DataTypes.STRING(50),
       allowNull: false,
-      defaultValue: "stripe",
+      defaultValue: "paypal",
     },
     provider_session_id: {
       type: DataTypes.STRING(255),
@@ -98,10 +98,12 @@ VideoCreditTransaction.init(
     created_at: {
       type: DataTypes.DATE,
       allowNull: false,
+      defaultValue: DataTypes.NOW,
     },
     updated_at: {
       type: DataTypes.DATE,
       allowNull: false,
+      defaultValue: DataTypes.NOW,
     },
   },
   {

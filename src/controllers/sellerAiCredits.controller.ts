@@ -19,9 +19,14 @@ import {
   AiCreditsNotFoundError,
 } from "../services/aiCredits.service";
 import {
+  captureAiCreditPaypalCheckout,
   createAiCreditCheckoutSession,
+  handleAiCreditRecurrenteWebhook,
   handleAiCreditStripeWebhook,
+  listAiCreditPaymentOptions,
 } from "../services/aiCreditCheckout.service";
+import { normalizePaymentProvider } from "../services/payments/paymentProviders.service";
+import { logAuditEventFromRequest } from "../services/audit.service";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -134,13 +139,11 @@ export async function requestAiCreditPurchase(
     };
 
     if (!packageId || typeof packageId !== "number") {
-      res
-        .status(400)
-        .json({
-          ok: false,
-          code: "INVALID_PACKAGE",
-          message: "packageId requerido y debe ser número",
-        });
+      res.status(400).json({
+        ok: false,
+        code: "INVALID_PACKAGE",
+        message: "packageId requerido y debe ser número",
+      });
       return;
     }
 
@@ -178,22 +181,47 @@ export async function createAiCreditCheckout(
     const packageId = Number(rawPackageId);
 
     if (!Number.isInteger(packageId) || packageId <= 0) {
-      res
-        .status(400)
-        .json({
-          ok: false,
-          code: "INVALID_PACKAGE",
-          message: "packageId requerido y debe ser número",
-        });
+      res.status(400).json({
+        ok: false,
+        code: "INVALID_PACKAGE",
+        message: "packageId requerido y debe ser número",
+      });
       return;
     }
 
-    const result = await createAiCreditCheckoutSession({ sellerId, packageId });
+    const body = req.body as {
+      provider?: unknown;
+      returnTo?: unknown;
+      return_to?: unknown;
+      source?: unknown;
+    };
+    const provider = normalizePaymentProvider(body.provider);
+    if ((req.body as { provider?: unknown })?.provider && !provider) {
+      res.status(400).json({
+        ok: false,
+        code: "INVALID_PROVIDER",
+        message: "Proveedor de pago no soportado",
+      });
+      return;
+    }
+
+    const result = await createAiCreditCheckoutSession({
+      sellerId,
+      packageId,
+      provider: provider ?? undefined,
+      returnTo:
+        typeof (body.returnTo ?? body.return_to) === "string"
+          ? String(body.returnTo ?? body.return_to)
+          : undefined,
+      source: typeof body.source === "string" ? body.source : undefined,
+    });
     res.status(201).json({
       ok: true,
       url: result.url,
       sessionId: result.sessionId,
       requestId: result.requestId,
+      provider: result.provider,
+      requiresCapture: result.requiresCapture,
     });
   } catch (err: any) {
     console.error("createAiCreditCheckout error:", err);
@@ -201,7 +229,70 @@ export async function createAiCreditCheckout(
       err instanceof Error && err.message.includes("Paquete")
         ? err.message
         : "Error al crear la sesión de pago. Intenta de nuevo.";
-    res.status(500).json({ ok: false, message });
+    const status =
+      err instanceof Error && err.message.includes("no configurad") ? 503 : 500;
+    res.status(status).json({ ok: false, message });
+  }
+}
+
+/**
+ * GET /api/seller/ai-credits/payment-options
+ * Lists configured hosted checkout providers.
+ */
+export async function getAiCreditPaymentOptions(
+  _req: Request,
+  res: Response,
+): Promise<void> {
+  res.json({ ok: true, providers: listAiCreditPaymentOptions() });
+}
+
+/**
+ * POST /api/seller/ai-credits/capture
+ * Captures PayPal after the hosted approval redirect.
+ * Body: { provider: "paypal", order_id: string }
+ */
+export async function captureAiCreditCheckout(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  try {
+    const sellerId = req.user!.id;
+    const provider = normalizePaymentProvider(
+      (req.body as { provider?: unknown })?.provider,
+    );
+    const orderId =
+      (req.body as { order_id?: unknown; orderId?: unknown })?.order_id ??
+      (req.body as { orderId?: unknown })?.orderId;
+
+    if (provider !== "paypal") {
+      res.status(400).json({
+        ok: false,
+        code: "INVALID_PROVIDER",
+        message: "Solo PayPal requiere captura desde el frontend",
+      });
+      return;
+    }
+    if (typeof orderId !== "string" || !orderId.trim()) {
+      res.status(400).json({
+        ok: false,
+        code: "INVALID_ORDER",
+        message: "order_id requerido",
+      });
+      return;
+    }
+
+    const result = await captureAiCreditPaypalCheckout({
+      sellerId,
+      orderId: orderId.trim(),
+    });
+
+    res.json({ ok: true, ...result });
+  } catch (err: any) {
+    console.error("captureAiCreditCheckout error:", err);
+    res.status(500).json({
+      ok: false,
+      message: "Error al confirmar el pago. Intenta de nuevo.",
+    });
   }
 }
 
@@ -238,6 +329,41 @@ export const handleAiCreditWebhook: RequestHandler = async (req, res) => {
     console.error("[stripe-ai-credits] error:", err.message);
     const isSignatureError =
       err.message?.includes("Firma") || err.message?.includes("signature");
+    res
+      .status(isSignatureError ? 400 : 500)
+      .json({ ok: false, message: err.message });
+  }
+};
+
+/**
+ * POST /api/webhooks/recurrente/ai-credits
+ * Public Recurrente webhook. Requires raw body for Svix signature verification.
+ */
+export const handleAiCreditRecurrenteWebhookRequest: RequestHandler = async (
+  req,
+  res,
+) => {
+  const rawBody = req.body as Buffer;
+  if (!Buffer.isBuffer(rawBody) || rawBody.length === 0) {
+    res.status(400).json({ ok: false, message: "Cuerpo vacío" });
+    return;
+  }
+
+  try {
+    const result = await handleAiCreditRecurrenteWebhook(rawBody, req.headers);
+    console.log(
+      "[recurrente-ai-credits] outcome:",
+      result.outcome,
+      result.detail ?? "",
+    );
+    res.status(200).json({ ok: true, outcome: result.outcome });
+  } catch (err: any) {
+    console.error("[recurrente-ai-credits] error:", err.message);
+    const isSignatureError =
+      err.message?.includes("Firma") ||
+      err.message?.includes("Svix") ||
+      err.message?.includes("expirado") ||
+      err.message?.includes("signature");
     res
       .status(isSignatureError ? 400 : 500)
       .json({ ok: false, message: err.message });
@@ -304,6 +430,22 @@ export async function adminApproveAiCreditRequest(
       requestId,
       adminId,
     );
+    await logAuditEventFromRequest(req, {
+      actor_user_id: adminId,
+      actor_role: "admin",
+      action: "admin.ai_credits.purchase_request.approve.success",
+      entity_type: "ai_credit_purchase_request",
+      entity_id: requestId,
+      target_user_id: request.seller_id,
+      status: "success",
+      severity: "medium",
+      metadata: {
+        sellerId: request.seller_id,
+        credits: request.credits,
+        priceGtq: request.price_gtq,
+        balanceAfter,
+      },
+    });
     res.json({ ok: true, request, balanceAfter });
   } catch (err) {
     if (err instanceof Error) {
@@ -342,17 +484,31 @@ export async function adminRejectAiCreditRequest(
     const { reason } = req.body as { reason: string };
 
     if (!reason?.trim()) {
-      res
-        .status(400)
-        .json({
-          ok: false,
-          code: "REASON_REQUIRED",
-          message: "Se requiere motivo de rechazo",
-        });
+      res.status(400).json({
+        ok: false,
+        code: "REASON_REQUIRED",
+        message: "Se requiere motivo de rechazo",
+      });
       return;
     }
 
     const request = await rejectPurchaseRequest(requestId, adminId, reason);
+    await logAuditEventFromRequest(req, {
+      actor_user_id: adminId,
+      actor_role: "admin",
+      action: "admin.ai_credits.purchase_request.reject.success",
+      entity_type: "ai_credit_purchase_request",
+      entity_id: requestId,
+      target_user_id: request.seller_id,
+      status: "success",
+      severity: "medium",
+      metadata: {
+        sellerId: request.seller_id,
+        credits: request.credits,
+        priceGtq: request.price_gtq,
+        reason,
+      },
+    });
     res.json({ ok: true, request });
   } catch (err) {
     if (err instanceof Error) {
@@ -391,23 +547,19 @@ export async function adminGrantAiCredits(
     const { credits, reason } = req.body as { credits: number; reason: string };
 
     if (!credits || typeof credits !== "number" || credits <= 0) {
-      res
-        .status(400)
-        .json({
-          ok: false,
-          code: "INVALID_CREDITS",
-          message: "credits debe ser un número positivo",
-        });
+      res.status(400).json({
+        ok: false,
+        code: "INVALID_CREDITS",
+        message: "credits debe ser un número positivo",
+      });
       return;
     }
     if (!reason?.trim()) {
-      res
-        .status(400)
-        .json({
-          ok: false,
-          code: "REASON_REQUIRED",
-          message: "Se requiere motivo del grant",
-        });
+      res.status(400).json({
+        ok: false,
+        code: "REASON_REQUIRED",
+        message: "Se requiere motivo del grant",
+      });
       return;
     }
 
