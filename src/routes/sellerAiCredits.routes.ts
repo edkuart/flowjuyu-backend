@@ -12,6 +12,7 @@ import {
   getSellerAiCreditTransactions,
   createAiCreditCheckout,
   captureAiCreditCheckout,
+  cancelAiCreditCheckout,
   aiCreditCheckoutRateLimiter,
   getAiCreditPaymentOptions,
   requestAiCreditPurchase,
@@ -62,6 +63,14 @@ router.post(
   verifyToken(["seller"]),
   aiCreditCheckoutRateLimiter,
   asyncHandler(captureAiCreditCheckout),
+);
+
+// POST /api/seller/ai-credits/cancel         -> mark unpaid checkout as rejected
+router.post(
+  "/cancel",
+  verifyToken(["seller"]),
+  aiCreditCheckoutRateLimiter,
+  asyncHandler(cancelAiCreditCheckout),
 );
 
 // GET  /api/seller/ai-credits/purchase-requests → own request history

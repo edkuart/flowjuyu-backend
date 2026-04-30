@@ -433,6 +433,49 @@ export async function markPurchaseRequestProviderFailed(
   return updated ?? null;
 }
 
+export async function cancelPurchaseRequestBySeller(input: {
+  requestId: string;
+  sellerId: number;
+  reason: string;
+}): Promise<AiCreditPurchaseRequest | null> {
+  const [updated] = await sequelize.query<AiCreditPurchaseRequest>(
+    `
+    UPDATE ai_credit_purchase_requests
+    SET status = 'rejected',
+        rejection_reason = :reason,
+        updated_at = NOW()
+    WHERE id = :requestId
+      AND seller_id = :sellerId
+      AND status IN ('pending', 'under_review')
+    RETURNING *
+    `,
+    {
+      replacements: {
+        requestId: input.requestId,
+        sellerId: input.sellerId,
+        reason: input.reason,
+      },
+      type: QueryTypes.SELECT,
+    },
+  );
+  return updated ?? null;
+}
+
+export async function rejectStaleUnpaidPurchaseRequests(): Promise<number> {
+  const [, affectedCount] = await sequelize.query(
+    `
+    UPDATE ai_credit_purchase_requests
+    SET status = 'rejected',
+        rejection_reason = 'Checkout expirado sin pago confirmado',
+        updated_at = NOW()
+    WHERE status IN ('pending', 'under_review')
+      AND created_at < NOW() - INTERVAL '24 hours'
+    `,
+    { type: QueryTypes.UPDATE },
+  );
+  return Number(affectedCount) || 0;
+}
+
 export async function listPurchaseRequestsBySeller(
   sellerId: number,
   limit = 20,
@@ -468,11 +511,14 @@ export async function listPendingPurchaseRequests(
     "approved",
     "rejected",
   ]);
+  const wantsAll = status === "all";
   const normalizedStatus =
     status && allowedStatuses.has(status) ? status : undefined;
-  const whereStatus = normalizedStatus
-    ? "AND r.status = :status"
-    : "AND r.status IN ('pending', 'under_review')";
+  const whereStatus = wantsAll
+    ? ""
+    : normalizedStatus
+      ? "AND r.status = :status"
+      : "AND r.status IN ('pending', 'under_review')";
   const replacements = { limit, offset, status: normalizedStatus };
 
   const [countRow] = await sequelize.query<{ total: string }>(
@@ -488,7 +534,7 @@ export async function listPendingPurchaseRequests(
     JOIN users u ON u.id = r.seller_id
     LEFT JOIN vendedor_perfil vp ON vp.user_id = r.seller_id
     WHERE 1=1 ${whereStatus}
-    ORDER BY r.created_at ASC
+    ORDER BY r.created_at DESC
     LIMIT :limit OFFSET :offset
     `,
     { replacements, type: QueryTypes.SELECT },

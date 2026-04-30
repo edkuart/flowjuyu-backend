@@ -15,6 +15,7 @@ import {
   approvePurchaseRequest,
   rejectPurchaseRequest,
   addAiCredits,
+  cancelPurchaseRequestBySeller,
   InsufficientAiCreditsError,
   AiCreditsNotFoundError,
 } from "../services/aiCredits.service";
@@ -293,6 +294,44 @@ export async function captureAiCreditCheckout(
       ok: false,
       message: "Error al confirmar el pago. Intenta de nuevo.",
     });
+  }
+}
+
+/**
+ * POST /api/seller/ai-credits/cancel
+ * Marks unpaid hosted checkouts as rejected when the seller cancels/returns.
+ * Paid sessions stay untouched because only pending/under_review rows change.
+ */
+export async function cancelAiCreditCheckout(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  try {
+    const sellerId = req.user!.id;
+    const requestId = String(
+      (req.body as { requestId?: unknown; request_id?: unknown })?.requestId ??
+        (req.body as { request_id?: unknown })?.request_id ??
+        "",
+    ).trim();
+
+    if (!requestId) {
+      res.status(400).json({
+        ok: false,
+        code: "REQUEST_ID_REQUIRED",
+        message: "requestId requerido",
+      });
+      return;
+    }
+
+    const request = await cancelPurchaseRequestBySeller({
+      requestId,
+      sellerId,
+      reason: "Checkout cancelado o abandonado por el cliente",
+    });
+
+    res.json({ ok: true, outcome: request ? "cancelled" : "ignored", request });
+  } catch (err) {
+    handleError(err, res);
   }
 }
 

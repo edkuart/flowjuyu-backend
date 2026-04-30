@@ -88,7 +88,7 @@ export async function createAiCreditCheckoutSession(
   const returnTo = safeReturnTo(input.returnTo);
   const returnParam = encodeURIComponent(returnTo);
   const source = input.source?.trim().slice(0, 40) || "ai_credits";
-  const paymentReturnUrl = `${getFrontendUrl()}/seller/payments/return?provider=${provider}&returnTo=${returnParam}`;
+  const paymentReturnUrl = `${getFrontendUrl()}/seller/payments/return?provider=${provider}&requestId=${encodeURIComponent(request.id)}&returnTo=${returnParam}`;
 
   const checkout = await createPaymentCheckout({
     provider,

@@ -2,6 +2,7 @@ import type { RequestHandler } from "express";
 import {
   addAiCredits,
   AiCreditsNotFoundError,
+  rejectStaleUnpaidPurchaseRequests,
 } from "../services/aiCredits.service";
 import {
   getAdminAiCreditSummary,
@@ -29,6 +30,7 @@ function parsePositiveInt(
 }
 
 export const getAdminAiCreditsSummary: RequestHandler = async (_req, res) => {
+  await rejectStaleUnpaidPurchaseRequests();
   const summary = await getAdminAiCreditSummary();
   res.json({ ok: true, summary });
 };
